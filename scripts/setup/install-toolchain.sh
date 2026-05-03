@@ -65,6 +65,7 @@ install_apt_packages() {
     gnupg \
     jq \
     less \
+    locales \
     openssh-client \
     pipx \
     python3 \
@@ -73,6 +74,12 @@ install_apt_packages() {
     sudo \
     tini \
     unzip
+}
+
+configure_locale() {
+  sed -i 's/^# *\(en_US.UTF-8 UTF-8\)$/\1/' /etc/locale.gen
+  locale-gen en_US.UTF-8
+  update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 }
 
 dpkg_arch() { dpkg --print-architecture; }
@@ -168,6 +175,7 @@ main() {
   require_root
   assert_debian_13
   install_apt_packages
+  configure_locale
   install_opentofu
   install_sops
   install_just

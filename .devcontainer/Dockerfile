@@ -21,6 +21,8 @@ USER ${USERNAME}
 WORKDIR /workspaces/fortress2
 SHELL ["/bin/bash", "-c"]
 ENV SHELL=/bin/bash
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["sleep", "infinity"]

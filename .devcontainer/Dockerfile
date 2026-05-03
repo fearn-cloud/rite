@@ -18,7 +18,7 @@ RUN groupadd --gid "${USER_GID}" "${USERNAME}" \
  && chmod 0440 /etc/sudoers.d/"${USERNAME}"
 
 USER ${USERNAME}
-WORKDIR /workspaces/fortress2
+WORKDIR /workspaces/fortress
 SHELL ["/bin/bash", "-c"]
 ENV SHELL=/bin/bash
 ENV LANG=en_US.UTF-8 \

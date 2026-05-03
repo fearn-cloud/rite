@@ -1,11 +1,11 @@
 {
-  "name": "fortress2",
+  "name": "fortress",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "workspaceFolder": "/workspaces/fortress2",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/fortress2,type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/fortress",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/fortress,type=bind,consistency=cached",
   "remoteUser": "vscode",
   "containerEnv": {
     "SHELL": "/bin/bash"

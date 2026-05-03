@@ -1,4 +1,4 @@
-# fortress2
+# fortress
 
 Homelab infrastructure automation for a fleet of standalone Proxmox 9 machines. The operator declares desired state in flat per-entity YAML files; tooling reconciles reality to match.
 
@@ -45,7 +45,7 @@ _Avoid_: catalog, registry.
 ### Operator and ceremony
 
 **Operator**:
-The single human running fortress2. The only intended persona; "future-self on a new workstation" is the only second viewer.
+The single human running fortress. The only intended persona; "future-self on a new workstation" is the only second viewer.
 _Avoid_: user, admin.
 
 **Bootstrap**:

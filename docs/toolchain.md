@@ -1,12 +1,12 @@
 # Toolchain
 
-How a fortress2 working environment is provisioned, and why it's structured this way.
+How a fortress working environment is provisioned, and why it's structured this way.
 
 ---
 
 ## 1. Goal
 
-One script — [`scripts/setup/install-toolchain.sh`](../scripts/setup/install-toolchain.sh) — is the single source of truth for "what does a fortress2 environment contain." Every consumer (devcontainer image, future CI runner, a fresh Debian 13 workstation) runs the same script against the same Debian 13 base, so the three environments cannot drift.
+One script — [`scripts/setup/install-toolchain.sh`](../scripts/setup/install-toolchain.sh) — is the single source of truth for "what does a fortress environment contain." Every consumer (devcontainer image, future CI runner, a fresh Debian 13 workstation) runs the same script against the same Debian 13 base, so the three environments cannot drift.
 
 The Dockerfile holds nothing platform-shared. If a tool is needed to work on the repo, it goes in the script.
 

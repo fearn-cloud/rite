@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the fortress2 toolchain on Debian 13 (Trixie).
+# Installs the fortress toolchain on Debian 13 (Trixie).
 #
 # Single source of truth for environment provisioning. The devcontainer
 # Dockerfile runs this verbatim; future CI runners should run the same script
@@ -182,7 +182,7 @@ main() {
   install_python_tools
   cleanup_apt
   echo
-  echo "fortress2 toolchain installed."
+  echo "fortress toolchain installed."
   echo "  tofu          $(tofu version | head -n1)"
   echo "  just          $(just --version)"
   echo "  ansible       $(ansible --version | head -n1)"

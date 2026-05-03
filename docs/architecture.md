@@ -1,4 +1,4 @@
-# fortress2 Architecture
+# fortress Architecture
 
 Homelab automation for a fleet of standalone Proxmox 9 hosts. This document captures the architectural decisions made during the initial design and the reasoning behind each. Implementation flows from these decisions; if you're changing something here, expect to touch multiple files downstream.
 
@@ -6,7 +6,7 @@ Homelab automation for a fleet of standalone Proxmox 9 hosts. This document capt
 
 ## 1. Overview
 
-fortress2 manages four Proxmox 9 hosts and the VMs / services that run on them. The two hard constraints that drive the design:
+fortress manages four Proxmox 9 hosts and the VMs / services that run on them. The two hard constraints that drive the design:
 
 - **Tooling split**: OpenTofu provisions VM shells (the qemu/proxmox layer); Ansible configures everything else (host-level config, in-VM config, services).
 - **Secrets stay encrypted in the repo**: SOPS + age, single age recipient (operator) plus an offline backup recipient. Only the age private keys live outside the repo.
@@ -56,7 +56,7 @@ Document any additions in `runbooks/dependencies.md`.
 ## 4. Repository Layout
 
 ```
-fortress2/
+fortress/
 ├── ansible.cfg
 ├── justfile                                 # all operator commands
 ├── .sops.yaml                               # encryption rules
@@ -203,7 +203,7 @@ Single rule covers all encrypted files via path suffix.
 
 Two decrypt patterns, both wrapped in operator-facing commands:
 
-- **For ansible (SSH keys)**: `decrypt-keys-to-tmpfs.sh` runs at the start of any `just` target that invokes ansible. It decrypts each entity's private SSH key into `/dev/shm/fortress2/<entity>.key`, sets `ANSIBLE_PRIVATE_KEY_FILE` indirection via the inventory plugin, and traps cleanup on exit. Keys never touch persistent disk.
+- **For ansible (SSH keys)**: `decrypt-keys-to-tmpfs.sh` runs at the start of any `just` target that invokes ansible. It decrypts each entity's private SSH key into `/dev/shm/fortress/<entity>.key`, sets `ANSIBLE_PRIVATE_KEY_FILE` indirection via the inventory plugin, and traps cleanup on exit. Keys never touch persistent disk.
 - **For tofu (PVE tokens)**: `tofu-wrap.sh` decrypts `pve_api_tokens.tofu.value` from each host's SOPS file and exports as `TF_VAR_pve_token_<host>` env vars. Tokens are marked `sensitive = true` in tofu variable declarations so they don't appear in plan output or state.
 
 **Tofu never reads SOPS directly**. This keeps tofu out of the secrets pipeline entirely (no `sops_file` provider, no decrypt-to-tmpfile wrappers in HCL, no risk of secrets in `terraform.tfstate`).
@@ -215,7 +215,7 @@ Two decrypt patterns, both wrapped in operator-facing commands:
 ### 7.1. Pre-state (operator, runbook)
 
 1. Install Proxmox 9 manually via ISO.
-2. Drop the shared bootstrap key into `/root/.ssh/authorized_keys`. Path on workstation: documented constant (e.g., `~/.ssh/fortress2_bootstrap`), referenced by `host-bootstrap.yml`.
+2. Drop the shared bootstrap key into `/root/.ssh/authorized_keys`. Path on workstation: documented constant (e.g., `~/.ssh/fortress_bootstrap`), referenced by `host-bootstrap.yml`.
 3. Manually create any storage pools (ZFS, LVM-thin, etc.). **Ansible only registers existing pools** in `storage.cfg`; it does not create pools (per design — storage operations are operator-controlled).
 4. Create `inventory/hosts/<host>.yaml` filling out the schema.
 
@@ -225,7 +225,7 @@ One-shot transition from shared key to per-host key:
 
 1. **Pre-flight**: refuse if `inventory/hosts/<host>.sops.yaml` already exists. Forces explicit choice between bootstrap and rotate.
 2. Connect using the shared key (path set in playbook via `ansible_ssh_private_key_file`).
-3. Generate ed25519 keypair on the controller (workstation), with comment `fortress2 host:<host> rotation:1`.
+3. Generate ed25519 keypair on the controller (workstation), with comment `fortress host:<host> rotation:1`.
 4. Push public key to `/root/.ssh/authorized_keys`.
 5. **Verify** the new key works by opening a second SSH connection. **Mandatory** — failure here aborts before removing the shared key.
 6. Remove the shared key from `authorized_keys`.
@@ -688,7 +688,7 @@ At ansible startup, the plugin:
 2. For each entity, builds an ansible host with:
    - `ansible_host` from `mgmt.ip` (host) or `network.interfaces[0].address` (vm).
    - `ansible_user` from convention (root for hosts, `vm_admin_user.name` for VMs).
-   - `ansible_ssh_private_key_file` pointing to `/dev/shm/fortress2/<entity>.key` (decrypted at the start of the wrapping `just` target by `decrypt-keys-to-tmpfs.sh`, trap-cleaned on exit).
+   - `ansible_ssh_private_key_file` pointing to `/dev/shm/fortress/<entity>.key` (decrypted at the start of the wrapping `just` target by `decrypt-keys-to-tmpfs.sh`, trap-cleaned on exit).
    - `host_data` / `vm_data` namespaced hostvars containing the full yaml content (so plays can reference `host.network.bridges` etc. without re-loading).
    - `host_secrets` / `vm_secrets` from the SOPS file, decrypted at inventory load.
 3. Builds groups automatically:

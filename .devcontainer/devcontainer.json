@@ -16,7 +16,7 @@
   ],
   "containerEnv": {
     "SOPS_AGE_KEY_FILE": "/home/vscode/.config/sops/age/keys.txt",
-    "FORTRESS_BOOTSTRAP_SSH_KEY": "/home/vscode/.ssh/fortress_bootstrap/ed25519,",
+    "FORTRESS_BOOTSTRAP_SSH_KEY": "/home/vscode/.ssh/fortress_bootstrap/ed25519",
     "SHELL": "/bin/bash"
   },
   "customizations": {

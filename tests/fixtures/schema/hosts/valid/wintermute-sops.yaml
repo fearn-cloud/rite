@@ -1,0 +1,17 @@
+ssh_keys:
+  bootstrap:
+    type: ENC[AES256_GCM,data:type,iv:iv,tag:tag,type:str]
+    created: ENC[AES256_GCM,data:created,iv:iv,tag:tag,type:time]
+    public_key: ENC[AES256_GCM,data:public,iv:iv,tag:tag,type:str]
+    private_key: ENC[AES256_GCM,data:private,iv:iv,tag:tag,type:str]
+sops:
+  age:
+    - recipient: age1example
+      enc: |
+        -----BEGIN AGE ENCRYPTED FILE-----
+        example
+        -----END AGE ENCRYPTED FILE-----
+  lastmodified: "2026-05-03T22:19:34Z"
+  mac: ENC[AES256_GCM,data:mac,iv:iv,tag:tag,type:str]
+  unencrypted_suffix: _unencrypted
+  version: 3.12.2

@@ -1,19 +1,27 @@
 proxmox:
   pve_node_name: wintermute
-  endpoint: https://wintermute.fearn.cloud:8006
-  templates:
-    - debian-12-base
+  endpoint: http://10.10.0.11:8006
+  # endpoint: https://wintermute.fearn.cloud:8006
+  templates: []
+    # - debian-12-base
 hardware:
   cpu: i7-12700T
+  cores: 20
   memory_gb: 64
   storage:
     - name: local-lvm
       kind: lvmthin
+    - name: local
+      kind: directory
+    - name: fast
+      kind: zfs
 network:
-  management_address: 10.0.0.10
+  management_address: 10.10.0.11
   bridges:
     - name: vmbr0
-      cidr: 10.0.0.10/24
+      vlan: 10
+      cidr: 10.10.0.11/24
+      gateway: 10.10.0.1
 gpu_passthrough:
   enabled: true
   vendor: intel

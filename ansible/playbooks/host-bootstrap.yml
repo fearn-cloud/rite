@@ -1,0 +1,31 @@
+---
+- name: Bootstrap Host SSH key
+  hosts: "{{ bootstrap_host }}"
+  gather_facts: false
+  tasks:
+    - name: Install per-host public key for root
+      ansible.posix.authorized_key:
+        user: root
+        key: "{{ lookup('file', bootstrap_public_key_file) }}"
+        state: present
+
+    - name: Verify per-host private key authenticates before removing shared key
+      ansible.builtin.command:
+        argv:
+          - ssh
+          - -o
+          - BatchMode=yes
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - -i
+          - "{{ bootstrap_private_key_file }}"
+          - "root@{{ ansible_host | default(inventory_hostname) }}"
+          - "true"
+      delegate_to: localhost
+      changed_when: false
+
+    - name: Remove shared bootstrap public key from root authorized_keys
+      ansible.posix.authorized_key:
+        user: root
+        key: "{{ shared_bootstrap_public_key }}"
+        state: absent

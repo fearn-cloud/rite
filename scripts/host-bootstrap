@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/host-bootstrap <host>", file=sys.stderr)
+        return 2
+
+    host = sys.argv[1]
+    if host.startswith("host="):
+        print(
+            f"host-bootstrap takes the host name as a positional argument; run `just host-bootstrap {host.removeprefix('host=')}`.",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    host_yaml = repo_root / "inventory" / "hosts" / f"{host}.yaml"
+    host_sops = repo_root / "inventory" / "hosts" / f"{host}.sops.yaml"
+
+    if not host_yaml.is_file():
+        print(f"Host {host!r} is not declared at {host_yaml}", file=sys.stderr)
+        return 1
+
+    if _has_bootstrap_key_entry(host_sops):
+        print(
+            f"{host_sops} already contains a bootstrap key entry; use the Host SSH rotation workflow instead.",
+            file=sys.stderr,
+        )
+        return 1
+    if host_sops.exists():
+        print(
+            f"{host_sops} already exists; refusing to overwrite an existing Host Sibling SOPS File.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return run_bootstrap(repo_root, host, host_yaml, host_sops)
+
+
+def run_bootstrap(repo_root, host, host_yaml, host_sops):
+    bootstrap_key = Path(
+        os.environ.get("FORTRESS_BOOTSTRAP_SSH_KEY", Path.home() / ".ssh" / "fortress-bootstrap")
+    )
+    if not bootstrap_key.is_file():
+        print(
+            f"shared bootstrap SSH key not found at {bootstrap_key}; set FORTRESS_BOOTSTRAP_SSH_KEY",
+            file=sys.stderr,
+        )
+        return 1
+
+    management_address = _management_address(host_yaml)
+    created = _utc_timestamp()
+
+    tmp_root = _tmpfs_root()
+    with tempfile.TemporaryDirectory(prefix=f"host-bootstrap-{host}-", dir=tmp_root) as tmp:
+        tmpdir = Path(tmp)
+        key_path = tmpdir / f"{host}"
+        public_key_path = Path(f"{key_path}.pub")
+        plaintext_sops = tmpdir / f"{host}.sops.yaml"
+        encrypted_sops = host_sops.with_name(f".{host}.sops.yaml.tmp")
+        inventory_file = tmpdir / "inventory.ini"
+
+        _run(
+            [
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-C",
+                f"fortress-host-bootstrap:{host}:{created}",
+                "-f",
+                str(key_path),
+            ]
+        )
+
+        bootstrap_public_key = _output(["ssh-keygen", "-y", "-f", str(bootstrap_key)])
+        inventory_file.write_text(
+            f"{host} ansible_host={management_address} "
+            "ansible_ssh_common_args='-o StrictHostKeyChecking=accept-new'\n"
+        )
+
+        _run(
+            [
+                "ansible-playbook",
+                str(repo_root / "ansible" / "playbooks" / "host-bootstrap.yml"),
+                "-i",
+                str(inventory_file),
+                "-u",
+                "root",
+                "--private-key",
+                str(bootstrap_key),
+                "--extra-vars",
+                json.dumps(
+                    {
+                        "bootstrap_host": host,
+                        "bootstrap_public_key_file": str(public_key_path),
+                        "bootstrap_private_key_file": str(key_path),
+                        "shared_bootstrap_public_key": bootstrap_public_key,
+                    }
+                ),
+            ]
+        )
+
+        _write_sops_plaintext(plaintext_sops, public_key_path, key_path, created)
+        _run(
+            [
+                "sops",
+                "--encrypt",
+                "--config",
+                str(repo_root / ".sops.yaml"),
+                "--filename-override",
+                str(host_sops),
+                "--output",
+                str(encrypted_sops),
+                str(plaintext_sops),
+            ]
+        )
+        shutil.move(str(encrypted_sops), host_sops)
+
+    print(f"Bootstrapped Host {host}; wrote {host_sops}")
+    return 0
+
+
+def _has_bootstrap_key_entry(path):
+    if not path.is_file():
+        return False
+    return "bootstrap:" in path.read_text()
+
+
+def _tmpfs_root():
+    root = Path("/dev/shm/fortress")
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return root
+    except OSError:
+        return None
+
+
+def _management_address(host_yaml):
+    repo_root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(repo_root))
+    from fortress_inventory.simple_yaml import load_yaml
+
+    data = load_yaml(host_yaml)
+    try:
+        return data["network"]["management_address"]
+    except KeyError:
+        print(f"{host_yaml} must declare network.management_address", file=sys.stderr)
+        sys.exit(1)
+
+
+def _write_sops_plaintext(path, public_key_path, private_key_path, created):
+    public_key = public_key_path.read_text().strip()
+    private_key = _indent_block(private_key_path.read_text().rstrip(), 6)
+    path.write_text(
+        "ssh_keys:\n"
+        "  bootstrap:\n"
+        "    type: host_ssh\n"
+        f"    created: {created}\n"
+        f"    public_key: {public_key}\n"
+        "    private_key: |\n"
+        f"{private_key}\n"
+    )
+
+
+def _indent_block(value, spaces):
+    prefix = " " * spaces
+    return "\n".join(f"{prefix}{line}" for line in value.splitlines())
+
+
+def _utc_timestamp():
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _run(args):
+    subprocess.run(args, check=True)
+
+
+def _output(args):
+    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

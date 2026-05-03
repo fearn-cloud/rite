@@ -15,7 +15,12 @@ RUN groupadd --gid "${USER_GID}" "${USERNAME}" \
  && useradd --uid "${USER_UID}" --gid "${USER_GID}" \
       --create-home --shell /bin/bash "${USERNAME}" \
  && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/"${USERNAME}" \
- && chmod 0440 /etc/sudoers.d/"${USERNAME}"
+ && chmod 0440 /etc/sudoers.d/"${USERNAME}" \
+ && mkdir -p /home/"${USERNAME}"/.codex \
+      /home/"${USERNAME}"/.vscode-server/extensions \
+      /home/"${USERNAME}"/.vscode-server/extensionsCache \
+ && chown -R "${USERNAME}:${USERNAME}" /home/"${USERNAME}"/.codex \
+      /home/"${USERNAME}"/.vscode-server
 
 USER ${USERNAME}
 WORKDIR /workspaces/fortress

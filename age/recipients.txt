@@ -1,0 +1,5 @@
+# Populated during the age key ceremony.
+# Expected recipients:
+# - operator workstation age public recipient
+# - offline backup age public recipient
+age1uy27rg7l9ql0z5uze4m969sarzl3dhjlzsty9g6xsl4542kh9yzqsleu5l

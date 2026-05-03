@@ -1,0 +1,5 @@
+# Keep this recipient list in sync with age/recipients.txt after the key
+# ceremony in runbooks/initial-setup.md.
+creation_rules:
+  - path_regex: '\.sops\.yaml$'
+    age: 'age1uy27rg7l9ql0z5uze4m969sarzl3dhjlzsty9g6xsl4542kh9yzqsleu5l'

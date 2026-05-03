@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fortress-foundation-tests
+        name: fortress foundation tests
+        entry: python3 -m unittest tests.test_foundation
+        language: system
+        pass_filenames: false

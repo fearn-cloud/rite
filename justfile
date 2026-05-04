@@ -7,7 +7,7 @@ host-bootstrap host:
     @./scripts/host-bootstrap {{host}}
 
 host-configure host tags="":
-    @echo "TODO: configure Host {{host}} tags={{tags}}"
+    @./scripts/host-configure {{host}} "{{tags}}"
 
 vm-up vm:
     @echo "TODO: prepare, apply, and configure VM {{vm}}"

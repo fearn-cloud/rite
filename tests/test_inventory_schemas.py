@@ -1,4 +1,5 @@
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -49,3 +50,59 @@ class InventorySchemaTests(unittest.TestCase):
                     output = result.stdout + result.stderr
                     self.assertNotEqual(result.returncode, 0, output)
                     self.assertIn(expected_paths[fixture_kind], output)
+
+    def test_host_schema_accepts_configurator_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            host_yaml = Path(tmp) / "wintermute.yaml"
+            host_yaml.write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "  users:\n"
+                "    - name: tofu@pve\n"
+                "      roles: [PVEVMAdmin, PVEDatastoreUser]\n"
+                "      tokens:\n"
+                "        - id: tofu\n"
+                "          roles: [PVEVMAdmin, PVEDatastoreUser]\n"
+                "hardware:\n"
+                "  storage:\n"
+                "    - name: local-lvm\n"
+                "      kind: lvmthin\n"
+                "network:\n"
+                "  management_address: 10.10.0.11\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: true\n"
+                "      vlan: 10\n"
+                "      cidr: 10.10.0.11/24\n"
+                "      gateway: 10.10.0.1\n"
+                "gpu_passthrough:\n"
+                "  enabled: true\n"
+                "  vendor: intel\n"
+                "  mode: sriov\n"
+                "  iommu: intel\n"
+                "  sriov_vfs: 7\n"
+                "  blacklist_host_driver: false\n"
+            )
+
+            result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_host_schema_rejects_contradictory_gpu_passthrough(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            host_yaml = Path(tmp) / "wintermute.yaml"
+            host_yaml.write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "gpu_passthrough:\n"
+                "  enabled: false\n"
+                "  vendor: intel\n"
+                "  mode: sriov\n"
+                "  iommu: intel\n"
+                "  sriov_vfs: 7\n"
+            )
+
+            result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("gpu_passthrough", result.stdout + result.stderr)

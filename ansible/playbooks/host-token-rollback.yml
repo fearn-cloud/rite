@@ -1,0 +1,11 @@
+---
+- name: Roll back tofu PVE API token
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Remove tofu PVE API token after local write failure
+      ansible.builtin.command:
+        cmd: "pveum user token remove {{ token_user }} {{ token_id }}"
+      changed_when: false
+      failed_when: false

@@ -4,6 +4,12 @@ proxmox:
   # endpoint: https://straylight.fearn.cloud:8006
   templates: []
     # - debian-12-base
+  users:
+    - name: tofu@pve
+      roles: [PVEVMAdmin, PVEDatastoreUser]
+      tokens:
+        - id: tofu
+          roles: [PVEVMAdmin, PVEDatastoreUser]
 hardware:
   cpu: i5-6500T
   cores: 4
@@ -17,6 +23,7 @@ network:
   management_address: 10.10.0.12
   bridges:
     - name: vmbr0
+      managed: false
       vlan: 10
       cidr: 10.10.0.12/24
       gateway: 10.10.0.1

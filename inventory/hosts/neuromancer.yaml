@@ -4,6 +4,12 @@ proxmox:
   # endpoint: https://neuromancer.fearn.cloud:8006
   templates: []
     # - debian-13-base
+  users:
+    - name: tofu@pve
+      roles: [PVEVMAdmin, PVEDatastoreUser]
+      tokens:
+        - id: tofu
+          roles: [PVEVMAdmin, PVEDatastoreUser]
 hardware:
   cpu: i7-8700T
   cores: 12
@@ -17,6 +23,7 @@ network:
   management_address: 10.10.0.13
   bridges:
     - name: vmbr0
+      managed: false
       vlan: 10
       cidr: 10.10.0.13/24
       gateway: 10.10.0.1

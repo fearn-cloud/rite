@@ -59,6 +59,15 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.add_host(host_name, "proxmox_hosts")
             self.inventory.set_variable(host_name, "fortress_entity_kind", "Host")
             self.inventory.set_variable(host_name, "fortress_host", host)
+            management_address = host.get("network", {}).get("management_address")
+            if management_address:
+                self.inventory.set_variable(host_name, "ansible_host", management_address)
+            self.inventory.set_variable(host_name, "ansible_user", "root")
+            self.inventory.set_variable(
+                host_name,
+                "ansible_ssh_common_args",
+                "-o StrictHostKeyChecking=accept-new",
+            )
             self._set_sibling_ssh_key_var(host_name, root / "inventory" / "hosts" / f"{host_name}.sops.yaml")
 
         for vm_name, vm in model.vms.items():
@@ -83,7 +92,7 @@ class InventoryModule(BaseInventoryPlugin):
         key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         key_path = key_dir / f"{entity_name}.key"
         result = subprocess.run(
-            ["sops", "--decrypt", "--extract", '["ssh_root_key"]["private_key"]', str(sops_path)],
+            ["sops", "--decrypt", "--extract", '["ssh_keys"]["bootstrap"]["private_key"]', str(sops_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

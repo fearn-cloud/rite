@@ -25,11 +25,41 @@
       "properties": {
         "cores": { "type": "integer", "minimum": 1 },
         "memory": { "type": "integer", "minimum": 256 },
-        "disks": { "type": "array", "items": { "type": "object" } },
+        "disks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["storage", "size"],
+            "properties": {
+              "storage": { "type": "string", "minLength": 1 },
+              "size": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
         "pci_devices": { "type": "array", "items": { "type": "object" } }
       }
     },
-    "network": { "type": "object" },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interfaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["bridge"],
+            "properties": {
+              "bridge": { "type": "string", "minLength": 1 },
+              "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
+              "address": { "type": "string", "minLength": 1 },
+              "gateway": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
     "cloud_init": {
       "type": "object",
       "additionalProperties": false,

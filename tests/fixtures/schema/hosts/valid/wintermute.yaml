@@ -3,6 +3,12 @@ proxmox:
   endpoint: https://wintermute.fearn.cloud:8006
   templates:
     - debian-12-base
+  users:
+    - name: tofu@pve
+      roles: [PVEVMAdmin, PVEDatastoreUser]
+      tokens:
+        - id: tofu
+          roles: [PVEVMAdmin, PVEDatastoreUser]
 hardware:
   cpu: i7-12700T
   memory_gb: 64
@@ -13,6 +19,7 @@ network:
   management_address: 10.0.0.10
   bridges:
     - name: vmbr0
+      managed: true
       cidr: 10.0.0.10/24
 gpu_passthrough:
   enabled: true

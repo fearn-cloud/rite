@@ -4,6 +4,12 @@ proxmox:
   # endpoint: https://molly.fearn.cloud:8006
   templates: []
     # - debian-12-base
+  users:
+    - name: tofu@pve
+      roles: [PVEVMAdmin, PVEDatastoreUser]
+      tokens:
+        - id: tofu
+          roles: [PVEVMAdmin, PVEDatastoreUser]
 hardware:
   cpu: AMD A9-9400
   cores: 2
@@ -17,6 +23,7 @@ network:
   management_address: 10.10.0.14
   bridges:
     - name: vmbr0
+      managed: false
       vlan: 10
       cidr: 10.10.0.14/24
       gateway: 10.10.0.1

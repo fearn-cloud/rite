@@ -1,3 +1,5 @@
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -33,3 +35,47 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
     def test_vm_nfs_exports_must_exist_in_global_vars(self):
         self.assertIn("missing_nfs_export", self.codes_for("inventory_invalid/missing-nfs-export"))
+
+    def test_vm_disks_must_use_storage_declared_by_placement_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "  disks:\n"
+                "    - storage: missing-store\n"
+                "      size: 32G\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+            )
+
+            self.assertIn("missing_host_storage", {error.code for error in validate_inventory_tree(root)})
+
+    def test_vm_interfaces_must_use_bridges_declared_by_placement_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: missing-bridge\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+            )
+
+            self.assertIn("missing_host_bridge", {error.code for error in validate_inventory_tree(root)})

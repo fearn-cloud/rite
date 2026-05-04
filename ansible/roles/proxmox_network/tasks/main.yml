@@ -1,0 +1,18 @@
+---
+- name: Select managed network bridges from Host declaration
+  ansible.builtin.set_fact:
+    proxmox_network_managed_bridges: "{{ (fortress_host.network.bridges | default([])) | selectattr('managed', 'equalto', true) | list }}"
+  changed_when: false
+
+- name: Report managed network bridges
+  ansible.builtin.debug:
+    var: proxmox_network_managed_bridges
+  changed_when: false
+
+- name: Render managed network bridge declarations only
+  ansible.builtin.template:
+    src: fortress-bridges.j2
+    dest: /etc/network/interfaces.d/fortress-bridges
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,0 +1,24 @@
+---
+- name: Configure Host to declared state
+  hosts: all
+  gather_facts: true
+  become: true
+  vars:
+    host_configure_reboot_required: []
+  roles:
+    - role: proxmox_repos
+      tags: [proxmox_repos]
+    - role: system_hygiene
+      tags: [system_hygiene]
+    - role: proxmox_network
+      tags: [proxmox_network]
+    - role: proxmox_users
+      tags: [proxmox_users]
+    - role: gpu_passthrough
+      tags: [gpu_passthrough]
+  tasks:
+    - name: Print reboot-required summary for operator action
+      ansible.builtin.debug:
+        var: host_configure_reboot_required
+      changed_when: false
+      tags: always

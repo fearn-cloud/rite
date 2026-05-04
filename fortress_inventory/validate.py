@@ -20,6 +20,7 @@ def validate_inventory_model(model):
     errors.extend(_validate_service_hostnames(model))
     errors.extend(_validate_vm_refs(model))
     errors.extend(_validate_nfs_exports(model))
+    errors.extend(_validate_vm_host_resources(model))
     return errors
 
 
@@ -112,4 +113,47 @@ def _validate_nfs_exports(model):
                         f"VM {vm_name} mounts missing Export {export_name}",
                     )
                 )
+    return errors
+
+
+def _validate_vm_host_resources(model):
+    errors = []
+    for vm_name, vm in model.vms.items():
+        host_name = vm.get("placement", {}).get("host")
+        host = model.hosts.get(host_name)
+        if not host:
+            continue
+
+        host_storage = {
+            storage.get("name")
+            for storage in host.get("hardware", {}).get("storage", []) or []
+            if storage.get("name")
+        }
+        for index, disk in enumerate(vm.get("hardware", {}).get("disks", []) or []):
+            storage_name = disk.get("storage")
+            if storage_name and storage_name not in host_storage:
+                errors.append(
+                    ValidationError(
+                        "missing_host_storage",
+                        f"inventory/vms/{vm_name}.yaml.hardware.disks[{index}].storage",
+                        f"VM {vm_name} uses storage {storage_name} not declared by Host {host_name}",
+                    )
+                )
+
+        host_bridges = {
+            bridge.get("name")
+            for bridge in host.get("network", {}).get("bridges", []) or []
+            if bridge.get("name")
+        }
+        for index, interface in enumerate(vm.get("network", {}).get("interfaces", []) or []):
+            bridge_name = interface.get("bridge")
+            if bridge_name and bridge_name not in host_bridges:
+                errors.append(
+                    ValidationError(
+                        "missing_host_bridge",
+                        f"inventory/vms/{vm_name}.yaml.network.interfaces[{index}].bridge",
+                        f"VM {vm_name} uses bridge {bridge_name} not declared by Host {host_name}",
+                    )
+                )
+
     return errors

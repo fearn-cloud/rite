@@ -1,0 +1,16 @@
+---
+- name: Disable Proxmox enterprise repository on standalone Hosts
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-enterprise.list
+    content: "# Managed by fortress. Enterprise repository disabled for this Host.\n"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable Proxmox no-subscription repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/pve-no-subscription.list
+    content: "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription\n"
+    owner: root
+    group: root
+    mode: "0644"

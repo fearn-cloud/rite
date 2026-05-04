@@ -1,0 +1,19 @@
+---
+- name: Install baseline packages without hypervisor upgrades
+  ansible.builtin.apt:
+    name:
+      - curl
+      - git
+      - htop
+      - vim
+    state: present
+    update_cache: true
+
+- name: Manage Host hostname
+  ansible.builtin.hostname:
+    name: "{{ fortress_host.proxmox.pve_node_name }}"
+
+- name: Manage Host timezone
+  ansible.builtin.command:
+    cmd: "timedatectl set-timezone {{ host_timezone | default('Etc/UTC') }}"
+  changed_when: false

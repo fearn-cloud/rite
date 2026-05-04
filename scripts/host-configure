@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+ALL_TAGS = [
+    "proxmox_repos",
+    "system_hygiene",
+    "proxmox_network",
+    "proxmox_users",
+    "gpu_passthrough",
+]
+TOKEN_USER = "tofu@pve"
+TOKEN_ID = "tofu"
+
+
+def main():
+    if len(sys.argv) not in (2, 3):
+        print("usage: scripts/host-configure <host> <tags>", file=sys.stderr)
+        return 2
+
+    host = sys.argv[1].removeprefix("host=")
+    tags = sys.argv[2].removeprefix("tags=") if len(sys.argv) == 3 else ""
+    if not tags:
+        print("Host Configure tags are required.", file=sys.stderr)
+        print(f"Run all scopes with: just host-configure host={host} tags={','.join(ALL_TAGS)}", file=sys.stderr)
+        return 2
+
+    requested_tags = [tag.strip() for tag in tags.split(",") if tag.strip()]
+    unknown_tags = [tag for tag in requested_tags if tag not in ALL_TAGS]
+    if unknown_tags:
+        print(f"unknown Host Configure tag: {unknown_tags[0]}", file=sys.stderr)
+        print(f"Known tags: {','.join(ALL_TAGS)}", file=sys.stderr)
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    host_yaml = repo_root / "inventory" / "hosts" / f"{host}.yaml"
+    host_sops = repo_root / "inventory" / "hosts" / f"{host}.sops.yaml"
+    if not host_yaml.is_file():
+        print(f"Host {host!r} is not declared at {host_yaml}", file=sys.stderr)
+        return 1
+
+    if "proxmox_users" in requested_tags:
+        token_result = ensure_tofu_token(repo_root, host, host_sops)
+        if token_result != 0:
+            return token_result
+
+    _run(
+        [
+            "ansible-playbook",
+            str(repo_root / "ansible" / "playbooks" / "host-configure.yml"),
+            "-i",
+            str(repo_root / "inventory" / "fortress.yaml"),
+            "--limit",
+            host,
+            "--tags",
+            ",".join(requested_tags),
+            "--extra-vars",
+            json.dumps({"configure_host": host}),
+        ]
+    )
+
+    return 0
+
+
+def ensure_tofu_token(repo_root, host, host_sops):
+    existing_plaintext = _read_sops_plaintext(host_sops)
+    if _has_tofu_token(existing_plaintext):
+        return 0
+
+    created = False
+    try:
+        token_value = _create_tofu_token(repo_root, host)
+        created = True
+        _write_encrypted_token(repo_root, host_sops, existing_plaintext, token_value)
+    except subprocess.CalledProcessError as error:
+        if created:
+            _rollback_tofu_token(repo_root, host)
+        print(f"failed to write tofu PVE API token to {host_sops}", file=sys.stderr)
+        return error.returncode or 1
+    return 0
+
+
+def _read_sops_plaintext(path):
+    if not path.is_file():
+        return ""
+    return _output(["sops", "--decrypt", str(path)])
+
+
+def _has_tofu_token(plaintext):
+    return "pve_tokens:" in plaintext and "  tofu:" in plaintext
+
+
+def _create_tofu_token(repo_root, host):
+    with tempfile.TemporaryDirectory(prefix="host-configure-token-output-") as tmp:
+        token_output = Path(tmp) / "tofu-token"
+        _run_token_playbook(repo_root, host, "host-token-create.yml", {"token_output_file": str(token_output)})
+        if not token_output.is_file():
+            raise subprocess.CalledProcessError(
+                1,
+                ["ansible-playbook", "host-token-create.yml"],
+                stderr=f"Host token create playbook did not return a token for {host}",
+            )
+        return token_output.read_text().strip()
+
+
+def _rollback_tofu_token(repo_root, host):
+    subprocess.run(
+        _token_playbook_args(repo_root, host, "host-token-rollback.yml", {}),
+        check=False,
+    )
+
+
+def _run_token_playbook(repo_root, host, playbook, extra_vars):
+    _run(_token_playbook_args(repo_root, host, playbook, extra_vars))
+
+
+def _token_playbook_args(repo_root, host, playbook, extra_vars):
+    return [
+        "ansible-playbook",
+        str(repo_root / "ansible" / "playbooks" / playbook),
+        "-i",
+        str(repo_root / "inventory" / "fortress.yaml"),
+        "--limit",
+        host,
+        "--extra-vars",
+        json.dumps({"token_user": TOKEN_USER, "token_id": TOKEN_ID, **extra_vars}),
+    ]
+
+
+def _write_encrypted_token(repo_root, host_sops, existing_plaintext, token_value):
+    host_sops.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix="host-configure-token-") as tmp:
+        tmpdir = Path(tmp)
+        plaintext = tmpdir / host_sops.name
+        encrypted = host_sops.with_name(f".{host_sops.name}.tmp")
+        plaintext.write_text(_merge_tofu_token(existing_plaintext, token_value))
+        try:
+            _run(
+                [
+                    "sops",
+                    "--encrypt",
+                    "--config",
+                    str(repo_root / ".sops.yaml"),
+                    "--filename-override",
+                    str(host_sops),
+                    "--output",
+                    str(encrypted),
+                    str(plaintext),
+                ]
+            )
+            shutil.move(str(encrypted), host_sops)
+        finally:
+            encrypted.unlink(missing_ok=True)
+
+
+def _merge_tofu_token(existing, token_value):
+    body = existing.rstrip()
+    if body:
+        body += "\n"
+    return (
+        body
+        + "pve_tokens:\n"
+        + "  tofu:\n"
+        + f"    user: {TOKEN_USER}\n"
+        + f"    token_id: {TOKEN_ID}\n"
+        + f"    value: {token_value}\n"
+    )
+
+
+def _run(args):
+    subprocess.run(args, check=True)
+
+
+def _output(args):
+    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE).stdout.strip()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -17,11 +17,37 @@
           "properties": {
             "pve_node_name": { "type": "string", "minLength": 1 },
             "endpoint": { "type": "string", "minLength": 1 },
-            "templates": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+            "templates": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "users": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/pve_user" },
+              "uniqueItems": true
+            }
           }
         },
-        "hardware": { "type": "object" },
-        "network": { "type": "object" },
+        "hardware": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "storage": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/documented_storage" },
+              "uniqueItems": true
+            }
+          }
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "management_address": { "type": "string", "minLength": 1 },
+            "bridges": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/network_bridge" },
+              "uniqueItems": true
+            }
+          }
+        },
         "gpu_passthrough": {
           "type": "object",
           "additionalProperties": false,
@@ -32,17 +58,103 @@
             "mode": { "enum": ["sriov", "full", "none"] },
             "iommu": { "enum": ["intel", "amd", "none"] },
             "sriov_vfs": { "type": "integer", "minimum": 0 },
-            "blacklist_host_driver": { "type": "boolean" }
-          }
+            "blacklist_host_driver": { "type": "boolean" },
+            "pci_ids": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$" },
+              "uniqueItems": true
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "vendor": { "const": "none" },
+                  "mode": { "const": "none" },
+                  "iommu": { "const": "none" },
+                  "sriov_vfs": { "const": 0 },
+                  "blacklist_host_driver": { "const": false }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "mode": { "const": "sriov" } }, "required": ["mode"] },
+              "then": { "required": ["sriov_vfs"] },
+              "else": { "not": { "required": ["sriov_vfs"] } }
+            }
+          ]
         }
+      }
+    },
+    "pve_user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "roles"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[^@]+@pve$" },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "tokens": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pve_token" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "pve_token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "roles"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "roles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "documented_storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["directory", "lvmthin", "zfs", "nfs", "ceph", "pbs"] },
+        "content": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "network_bridge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "managed"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "managed": { "type": "boolean" },
+        "vlan": { "type": "integer", "minimum": 1, "maximum": 4094 },
+        "cidr": { "type": "string", "minLength": 1 },
+        "gateway": { "type": "string", "minLength": 1 },
+        "comments": { "type": "string" }
       }
     },
     "sibling_sops": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ssh_keys", "sops"],
+      "required": ["sops"],
       "properties": {
         "ssh_keys": { "type": "object", "minProperties": 1 },
+        "pve_tokens": { "type": "object", "minProperties": 1 },
         "sops": { "$ref": "#/$defs/sops_metadata" }
       }
     },

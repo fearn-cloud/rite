@@ -49,3 +49,15 @@ By default the shared bootstrap private key is read from `~/.ssh/fortress-bootst
 ## Continue
 
 After Bootstrap succeeds, commit the new Host Sibling SOPS File and run the Host configure workflow when the Host is ready for convergence.
+
+## Configure
+
+Review `inventory/hosts/<name>.yaml` before running Configure. Document storage that already exists on the Host under `hardware.storage`; Host Configure does not create or register storage. Mark only bridges that automation should manage with `managed: true`; manual bridges may still be referenced by VMs for validation.
+
+Run one or more tagged scopes explicitly:
+
+```sh
+just host-configure host=<name> tags=proxmox_repos,system_hygiene,proxmox_network,proxmox_users,gpu_passthrough
+```
+
+Omitting `tags` fails and prints the all-tags command. Configure creates the `tofu@pve!tofu` API token when needed and writes it into `inventory/hosts/<name>.sops.yaml` under `pve_tokens.tofu`. Roles may append reasons to a reboot-required summary, but Configure never reboots the Host automatically.

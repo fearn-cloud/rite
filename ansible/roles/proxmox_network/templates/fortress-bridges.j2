@@ -1,0 +1,16 @@
+# Managed by fortress. Only Host bridges with managed: true are rendered here.
+{% for bridge in proxmox_network_managed_bridges %}
+auto {{ bridge.name }}
+iface {{ bridge.name }} inet static
+    address {{ bridge.cidr }}
+{% if bridge.gateway is defined %}
+    gateway {{ bridge.gateway }}
+{% endif %}
+{% if bridge.vlan is defined %}
+    bridge-vids {{ bridge.vlan }}
+{% endif %}
+    bridge-ports none
+    bridge-stp off
+    bridge-fd 0
+
+{% endfor %}

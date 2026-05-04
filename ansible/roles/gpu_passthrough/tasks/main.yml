@@ -1,0 +1,29 @@
+---
+- name: Render GPU passthrough module configuration
+  ansible.builtin.template:
+    src: fortress-gpu-passthrough.conf.j2
+    dest: /etc/modprobe.d/fortress-gpu-passthrough.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: gpu_passthrough_modprobe
+  when: fortress_host.gpu_passthrough.enabled | default(false) | bool
+
+- name: Render Intel SR-IOV module options
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/fortress-i915-sriov.conf
+    content: "options i915 enable_guc=3 max_vfs={{ fortress_host.gpu_passthrough.sriov_vfs }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  register: gpu_passthrough_sriov
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - fortress_host.gpu_passthrough.mode == "sriov"
+
+- name: Flag GPU passthrough changes as requiring operator reboot # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    host_configure_reboot_required: "{{ host_configure_reboot_required + ['GPU passthrough configuration may require a Host reboot'] }}"
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - (gpu_passthrough_modprobe.changed | default(false)) or (gpu_passthrough_sriov.changed | default(false))

@@ -1,0 +1,12 @@
+# Managed by fortress for Host GPU passthrough.
+{% if fortress_host.gpu_passthrough.blacklist_host_driver | default(false) %}
+{% if fortress_host.gpu_passthrough.vendor == "intel" %}
+blacklist i915
+{% elif fortress_host.gpu_passthrough.vendor == "amd" %}
+blacklist amdgpu
+blacklist radeon
+{% endif %}
+{% endif %}
+{% if fortress_host.gpu_passthrough.pci_ids | default([]) | length > 0 %}
+options vfio-pci ids={{ fortress_host.gpu_passthrough.pci_ids | join(',') }}
+{% endif %}

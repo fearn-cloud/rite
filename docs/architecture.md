@@ -435,7 +435,7 @@ Three steps, one logical operation. Wrapped by `just vm-up <vm>`.
 
 ### 9.3. Destruction (`vm-destroy.yml`)
 
-`just vm-destroy <vm>` → confirmation prompt → pre-flight checks (refuses if any `inventory/services/*.yaml` references the VM as `backend.vm`) → `tofu destroy -target=...` → removes both `<vm>.yaml` and `<vm>.sops.yaml`. Operator commits the deletions.
+`just vm-destroy <vm>` → confirmation prompt → pre-flight checks (refuses if any `inventory/services/*.yaml` references the VM as `backend.vm`) → `tofu destroy -target=...`. The VM yaml and Sibling SOPS File remain in the repo so the declared VM can be recreated or intentionally removed in a separate reviewable edit.
 
 ### 9.4. Connection model
 

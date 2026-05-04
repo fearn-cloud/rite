@@ -64,7 +64,7 @@ def render_provider_hcl(hosts):
 
 def render_vm_partitions_hcl(hosts):
     blocks = [HEADER]
-    for host_name in sorted(hosts):
+    for host_name, host in sorted(hosts.items()):
         alias = hcl_identifier(host_name)
         blocks.append(
             "\n".join(
@@ -76,9 +76,11 @@ def render_vm_partitions_hcl(hosts):
                     f"    proxmox = proxmox.{alias}",
                     "  }",
                     "",
-                    f'  host_name = "{host_name}"',
+                    f'  host_name     = "{host_name}"',
+                    f'  pve_node_name = "{host.get("proxmox", {}).get("pve_node_name", host_name)}"',
+                    "  templates     = local.templates",
                     "  vms = {",
-                    f'    for vm_name, vm in local.vms : vm_name => vm if vm.placement.host == "{host_name}"',
+                    f'    for vm_name, vm in local.selected_vms : vm_name => vm if vm.placement.host == "{host_name}"',
                     "  }",
                     "}",
                     "",

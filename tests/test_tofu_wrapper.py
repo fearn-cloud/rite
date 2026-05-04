@@ -87,6 +87,8 @@ class TofuWrapperTests(unittest.TestCase):
         docs = (REPO_ROOT / "docs" / "opentofu.md").read_text()
 
         self.assertIn("scripts/tofu-wrap", docs)
+        self.assertIn("just vm-up", docs)
+        self.assertIn("operator surface", docs)
         self.assertIn("Direct `tofu` invocation is unsupported", docs)
         self.assertIn("Tofu must never read SOPS", docs)
 

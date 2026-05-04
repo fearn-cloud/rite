@@ -86,6 +86,28 @@ class TofuGenerationTests(unittest.TestCase):
         self.assertIn("yamldecode(", root_module)
         self.assertIn("vms = {", root_module)
 
+    def test_root_tofu_module_filters_to_selected_vm_before_host_partitioning(self):
+        root_module = (REPO_ROOT / "tofu" / "main.tf").read_text()
+        partitions = (REPO_ROOT / "fortress_tofu" / "generate.py").read_text()
+
+        self.assertIn('variable "selected_vm"', root_module)
+        self.assertIn("selected_vms", root_module)
+        self.assertIn("local.vms[var.selected_vm]", root_module)
+        self.assertIn("local.selected_vms", partitions)
+
+    def test_vm_partition_declares_proxmox_vm_resources_from_vm_yaml(self):
+        module = (REPO_ROOT / "tofu" / "modules" / "vm-partition" / "main.tf").read_text()
+
+        self.assertIn('resource "proxmox_virtual_environment_vm" "vm"', module)
+        self.assertIn("for_each = var.vms", module)
+        self.assertIn("vm_id     = each.value.vmid", module)
+        self.assertIn("node_name = var.pve_node_name", module)
+        self.assertIn("vm_id = var.templates[each.value.source.template].vmid", module)
+        self.assertIn("cores = each.value.hardware.cores", module)
+        self.assertIn("dedicated = each.value.hardware.memory", module)
+        self.assertIn("each.value.ssh_public_key", module)
+        self.assertIn("run Prepare first", module)
+
     def test_generated_tofu_outputs_and_local_state_are_ignored(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text()
 

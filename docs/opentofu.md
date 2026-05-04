@@ -2,6 +2,8 @@
 
 Fortress keeps one root OpenTofu module under `tofu/`. That root module is the future fleet state boundary for VM provisioning. Inventory YAML remains the source of truth: `tofu/main.tf` decodes `inventory/vms/*.yaml`, while `inventory/hosts/*.yaml` drives generated Host provider coverage.
 
+Run OpenTofu through `scripts/tofu-wrap <args...>`. The wrapper decrypts each Host's current `pve_tokens.tofu.value` from its Host Sibling SOPS File into an ephemeral `TF_VAR_pve_token_<host>` environment variable, regenerates the ignored HCL, and invokes `tofu` from the `tofu/` working directory. Direct `tofu` invocation is unsupported because Tofu must never read SOPS.
+
 Run `scripts/tofu-generate` after changing Host inventory. The command writes ignored build output:
 
 - `tofu/generated-providers.tf` contains one literal `provider "proxmox"` alias per Host and one sensitive `pve_token_<host>` variable per Host.

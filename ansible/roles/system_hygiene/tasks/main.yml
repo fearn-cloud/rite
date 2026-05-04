@@ -5,6 +5,7 @@
       - curl
       - git
       - htop
+      - libguestfs-tools
       - vim
     state: present
     update_cache: true

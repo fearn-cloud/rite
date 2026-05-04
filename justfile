@@ -19,7 +19,7 @@ service-deploy service:
     @echo "TODO: deploy Service {{service}}"
 
 templates-build host:
-    @echo "TODO: build Templates for Host {{host}}"
+    @./scripts/templates-build {{host}}
 
 ingress-regenerate:
     @echo "TODO: regenerate Ingress configuration"

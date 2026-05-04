@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+import hashlib
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+import stat
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/templates-build <host>", file=sys.stderr)
+        return 2
+
+    host_name = sys.argv[1].removeprefix("host=")
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
+    inventory = load_inventory_tree(repo_root)
+    if host_name not in inventory.hosts:
+        host_path = repo_root / "inventory" / "hosts" / f"{host_name}.yaml"
+        print(f"Host {host_name!r} is not declared at {host_path}", file=sys.stderr)
+        return 1
+
+    host = inventory.hosts[host_name]
+    templates = []
+    for template_name in host.get("proxmox", {}).get("templates", []) or []:
+        template = inventory.templates.get(template_name)
+        if not template:
+            print(f"Host {host_name} references missing Template {template_name}", file=sys.stderr)
+            return 1
+        templates.append(template)
+
+    if not shutil.which("qm"):
+        return build_templates_on_host(repo_root, host_name, host, templates)
+
+    for template in templates:
+        result = build_template(template)
+        if result != 0:
+            return result
+
+    return 0
+
+
+def build_templates_on_host(repo_root, host_name, host, templates):
+    management_address = host.get("network", {}).get("management_address")
+    if not management_address:
+        print(f"Host {host_name} has no network.management_address for remote Template build", file=sys.stderr)
+        return 1
+
+    host_sops = repo_root / "inventory" / "hosts" / f"{host_name}.sops.yaml"
+    if not host_sops.is_file():
+        print(f"Host {host_name} has no sibling SOPS file at {host_sops}", file=sys.stderr)
+        return 1
+
+    with tempfile.TemporaryDirectory(
+        prefix="fortress-template-ssh-",
+        dir="/dev/shm" if Path("/dev/shm").is_dir() else None,
+    ) as tmp:
+        key_path = Path(tmp) / f"{host_name}.key"
+        decrypted = subprocess.run(
+            ["sops", "--decrypt", "--extract", '["ssh_keys"]["bootstrap"]["private_key"]', str(host_sops)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if decrypted.returncode != 0:
+            print(f"failed to decrypt {host_sops}: {decrypted.stderr.strip()}", file=sys.stderr)
+            return 1
+        key_path.write_text(decrypted.stdout)
+        key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+        payload = {"templates": templates}
+        if "FORTRESS_TEMPLATE_CACHE" in os.environ:
+            payload["template_cache"] = os.environ["FORTRESS_TEMPLATE_CACHE"]
+
+        remote_command = f"python3 -c {shlex.quote(REMOTE_WORKER)}"
+        remote = subprocess.run(
+            [
+                "ssh",
+                "-i",
+                str(key_path),
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "StrictHostKeyChecking=accept-new",
+                f"root@{management_address}",
+                remote_command,
+            ],
+            input=json.dumps(payload),
+            text=True,
+        )
+        return remote.returncode
+
+
+def build_template(template):
+    vmid = str(template["vmid"])
+    if not require_tool("qm"):
+        return 1
+    existing = subprocess.run(
+        ["qm", "config", vmid],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if existing.returncode == 0:
+        if is_template_config(existing.stdout):
+            print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
+            return 0
+        print(
+            f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
+            file=sys.stderr,
+        )
+        return 1
+
+    for tool in ("curl", "virt-customize"):
+        if not require_tool(tool):
+            return 1
+
+    checksum = template["source"]["checksum"]["value"].lower()
+    cache_path = cache_root() / "sha512" / f"{checksum}.qcow2"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not cache_path.is_file():
+        with tempfile.NamedTemporaryFile(prefix="fortress-template-download-", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            subprocess.run(
+                ["curl", "--fail", "--location", "--output", str(tmp_path), template["source"]["url"]],
+                check=True,
+            )
+            if sha512(tmp_path) != checksum:
+                print(
+                    f"Template {template['name']} checksum mismatch for downloaded Cloud Image",
+                    file=sys.stderr,
+                )
+                return 1
+            shutil.move(str(tmp_path), cache_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    if sha512(cache_path) != checksum:
+        print(f"Template {template['name']} checksum mismatch for cached Cloud Image", file=sys.stderr)
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="fortress-template-build-") as tmp:
+        working_copy = Path(tmp) / f"{template['name']}.qcow2"
+        shutil.copy2(cache_path, working_copy)
+        run_virt_customize(template, working_copy)
+        run_qm_create(template, working_copy)
+
+    return 0
+
+
+def is_template_config(output):
+    return any(line.strip() == "template: 1" for line in output.splitlines())
+
+
+def require_tool(tool):
+    if shutil.which(tool):
+        return True
+    print(f"Required Template build tool {tool!r} is not available", file=sys.stderr)
+    return False
+
+
+def run_virt_customize(template, working_copy):
+    customize = template.get("customize", {}) or {}
+    args = ["virt-customize", "--add", str(working_copy)]
+    packages = customize.get("packages", []) or []
+    if packages:
+        args.extend(["--install", ",".join(packages)])
+    for command in customize.get("run_commands", []) or []:
+        args.extend(["--run-command", command])
+    subprocess.run(args, check=True)
+
+
+def run_qm_create(template, working_copy):
+    vmid = str(template["vmid"])
+    hardware = template.get("hardware", {}) or {}
+    disk_storage = hardware.get("disk_storage", "fast")
+    cloud_init_storage = hardware.get("cloud_init_storage", "local-lvm")
+    bridge = hardware.get("bridge", "vmbr0")
+    network_model = hardware.get("network_model", "virtio")
+    scsi_controller = hardware.get("scsi_controller", "virtio-scsi-pci")
+
+    subprocess.run(
+        [
+            "qm",
+            "create",
+            vmid,
+            "--name",
+            template["name"],
+            "--memory",
+            str(hardware["memory"]),
+            "--cores",
+            str(hardware["cores"]),
+            "--net0",
+            f"{network_model},bridge={bridge}",
+        ],
+        check=True,
+    )
+    subprocess.run(["qm", "importdisk", vmid, str(working_copy), disk_storage], check=True)
+    subprocess.run(
+        ["qm", "set", vmid, "--scsihw", scsi_controller, "--scsi0", f"{disk_storage}:vm-{vmid}-disk-0"],
+        check=True,
+    )
+    subprocess.run(["qm", "set", vmid, "--ide2", f"{cloud_init_storage}:cloudinit"], check=True)
+    subprocess.run(["qm", "set", vmid, "--boot", "order=scsi0"], check=True)
+
+    optional_sets = []
+    if hardware.get("bios"):
+        optional_sets.extend(["--bios", hardware["bios"]])
+    if hardware.get("machine"):
+        optional_sets.extend(["--machine", hardware["machine"]])
+    if hardware.get("agent_enabled"):
+        optional_sets.extend(["--agent", "enabled=1"])
+    if hardware.get("serial_console"):
+        optional_sets.extend(["--serial0", "socket", "--vga", "serial0"])
+    if optional_sets:
+        subprocess.run(["qm", "set", vmid, *optional_sets], check=True)
+
+    subprocess.run(["qm", "template", vmid], check=True)
+
+
+def cache_root():
+    return Path(
+        os.environ.get(
+            "FORTRESS_TEMPLATE_CACHE",
+            Path.home() / ".cache" / "fortress" / "templates",
+        )
+    )
+
+
+def sha512(path):
+    digest = hashlib.sha512()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+REMOTE_WORKER = r'''
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def main():
+    payload = json.load(sys.stdin)
+    if payload.get("template_cache"):
+        os.environ["FORTRESS_TEMPLATE_CACHE"] = payload["template_cache"]
+    for template in payload["templates"]:
+        result = build_template(template)
+        if result != 0:
+            return result
+    return 0
+
+
+def build_template(template):
+    vmid = str(template["vmid"])
+    if not require_tool("qm"):
+        return 1
+    existing = subprocess.run(
+        ["qm", "config", vmid],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if existing.returncode == 0:
+        if is_template_config(existing.stdout):
+            print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
+            return 0
+        print(
+            f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
+            file=sys.stderr,
+        )
+        return 1
+
+    for tool in ("curl", "virt-customize"):
+        if not require_tool(tool):
+            return 1
+
+    checksum = template["source"]["checksum"]["value"].lower()
+    cache_path = cache_root() / "sha512" / f"{checksum}.qcow2"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not cache_path.is_file():
+        with tempfile.NamedTemporaryFile(prefix="fortress-template-download-", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            subprocess.run(
+                ["curl", "--fail", "--location", "--output", str(tmp_path), template["source"]["url"]],
+                check=True,
+            )
+            if sha512(tmp_path) != checksum:
+                print(
+                    f"Template {template['name']} checksum mismatch for downloaded Cloud Image",
+                    file=sys.stderr,
+                )
+                return 1
+            shutil.move(str(tmp_path), cache_path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    if sha512(cache_path) != checksum:
+        print(f"Template {template['name']} checksum mismatch for cached Cloud Image", file=sys.stderr)
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="fortress-template-build-") as tmp:
+        working_copy = Path(tmp) / f"{template['name']}.qcow2"
+        shutil.copy2(cache_path, working_copy)
+        run_virt_customize(template, working_copy)
+        run_qm_create(template, working_copy)
+
+    return 0
+
+
+def is_template_config(output):
+    return any(line.strip() == "template: 1" for line in output.splitlines())
+
+
+def require_tool(tool):
+    if shutil.which(tool):
+        return True
+    print(f"Required Template build tool {tool!r} is not available", file=sys.stderr)
+    return False
+
+
+def run_virt_customize(template, working_copy):
+    customize = template.get("customize", {}) or {}
+    args = ["virt-customize", "--add", str(working_copy)]
+    packages = customize.get("packages", []) or []
+    if packages:
+        args.extend(["--install", ",".join(packages)])
+    for command in customize.get("run_commands", []) or []:
+        args.extend(["--run-command", command])
+    subprocess.run(args, check=True)
+
+
+def run_qm_create(template, working_copy):
+    vmid = str(template["vmid"])
+    hardware = template.get("hardware", {}) or {}
+    disk_storage = hardware.get("disk_storage", "fast")
+    cloud_init_storage = hardware.get("cloud_init_storage", "local-lvm")
+    bridge = hardware.get("bridge", "vmbr0")
+    network_model = hardware.get("network_model", "virtio")
+    scsi_controller = hardware.get("scsi_controller", "virtio-scsi-pci")
+
+    subprocess.run(
+        [
+            "qm",
+            "create",
+            vmid,
+            "--name",
+            template["name"],
+            "--memory",
+            str(hardware["memory"]),
+            "--cores",
+            str(hardware["cores"]),
+            "--net0",
+            f"{network_model},bridge={bridge}",
+        ],
+        check=True,
+    )
+    subprocess.run(["qm", "importdisk", vmid, str(working_copy), disk_storage], check=True)
+    subprocess.run(
+        ["qm", "set", vmid, "--scsihw", scsi_controller, "--scsi0", f"{disk_storage}:vm-{vmid}-disk-0"],
+        check=True,
+    )
+    subprocess.run(["qm", "set", vmid, "--ide2", f"{cloud_init_storage}:cloudinit"], check=True)
+    subprocess.run(["qm", "set", vmid, "--boot", "order=scsi0"], check=True)
+
+    optional_sets = []
+    if hardware.get("bios"):
+        optional_sets.extend(["--bios", hardware["bios"]])
+    if hardware.get("machine"):
+        optional_sets.extend(["--machine", hardware["machine"]])
+    if hardware.get("agent_enabled"):
+        optional_sets.extend(["--agent", "enabled=1"])
+    if hardware.get("serial_console"):
+        optional_sets.extend(["--serial0", "socket", "--vga", "serial0"])
+    if optional_sets:
+        subprocess.run(["qm", "set", vmid, *optional_sets], check=True)
+
+    subprocess.run(["qm", "template", vmid], check=True)
+
+
+def cache_root():
+    return Path(
+        os.environ.get(
+            "FORTRESS_TEMPLATE_CACHE",
+            Path.home() / ".cache" / "fortress" / "templates",
+        )
+    )
+
+
+def sha512(path):
+    digest = hashlib.sha512()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+raise SystemExit(main())
+'''
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

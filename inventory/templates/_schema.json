@@ -23,14 +23,37 @@
         }
       }
     },
-    "customize": { "type": "object" },
+    "customize": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "run_commands": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "hardware": {
       "type": "object",
       "required": ["cores", "memory"],
       "additionalProperties": true,
       "properties": {
         "cores": { "type": "integer", "minimum": 1 },
-        "memory": { "type": "integer", "minimum": 256 }
+        "memory": { "type": "integer", "minimum": 256 },
+        "disk_storage": { "type": "string", "minLength": 1, "default": "fast" },
+        "cloud_init_storage": { "type": "string", "minLength": 1, "default": "local-lvm" },
+        "bridge": { "type": "string", "minLength": 1, "default": "vmbr0" },
+        "network_model": { "type": "string", "minLength": 1, "default": "virtio" },
+        "scsi_controller": { "type": "string", "minLength": 1, "default": "virtio-scsi-pci" },
+        "bios": { "type": "string", "minLength": 1 },
+        "machine": { "type": "string", "minLength": 1 },
+        "agent_enabled": { "type": "boolean" },
+        "serial_console": { "type": "boolean" }
       }
     }
   }

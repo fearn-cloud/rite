@@ -106,3 +106,55 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("gpu_passthrough", result.stdout + result.stderr)
+
+    def test_template_schema_accepts_builder_defaults_and_supported_customize_ops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template_yaml = Path(tmp) / "debian-12-base.yaml"
+            template_yaml.write_text(
+                "name: debian-12-base\n"
+                "vmid: 9001\n"
+                "source:\n"
+                "  url: https://example.invalid/debian.qcow2\n"
+                "  checksum:\n"
+                "    algorithm: sha512\n"
+                f"    value: {'a' * 128}\n"
+                "customize:\n"
+                "  packages: [qemu-guest-agent]\n"
+                "  run_commands:\n"
+                "    - systemctl enable qemu-guest-agent\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 2048\n"
+                "  disk_storage: fast\n"
+                "  cloud_init_storage: local-lvm\n"
+                "  bridge: vmbr0\n"
+                "  network_model: virtio\n"
+            )
+
+            result = self.run_schema("inventory/templates/_schema.json", str(template_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_template_schema_rejects_unsupported_customize_ops(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template_yaml = Path(tmp) / "debian-12-base.yaml"
+            template_yaml.write_text(
+                "name: debian-12-base\n"
+                "vmid: 9001\n"
+                "source:\n"
+                "  url: https://example.invalid/debian.qcow2\n"
+                "  checksum:\n"
+                "    algorithm: sha512\n"
+                f"    value: {'a' * 128}\n"
+                "customize:\n"
+                "  write_files:\n"
+                "    - path: /etc/example\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 2048\n"
+            )
+
+            result = self.run_schema("inventory/templates/_schema.json", str(template_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("customize", result.stdout + result.stderr)

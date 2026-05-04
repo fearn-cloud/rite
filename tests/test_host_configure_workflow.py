@@ -145,6 +145,11 @@ class HostConfigureWorkflowTests(unittest.TestCase):
         self.assertIn("host_configure_reboot_required", playbook)
         self.assertNotIn("ansible.builtin.reboot", playbook)
 
+    def test_system_hygiene_installs_template_builder_host_tools(self):
+        tasks = (REPO_ROOT / "ansible" / "roles" / "system_hygiene" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("libguestfs-tools", tasks)
+
     def test_proxmox_users_applies_acl_roles_to_token_principals(self):
         tasks = (REPO_ROOT / "ansible" / "roles" / "proxmox_users" / "tasks" / "main.yml").read_text()
 

@@ -1,10 +1,10 @@
 name: debian-12-base
 vmid: 9001
 source:
-  url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+  url: https://cloud.debian.org/images/cloud/bookworm/20260502-2466/debian-12-genericcloud-amd64-20260502-2466.qcow2
   checksum:
     algorithm: sha512
-    value: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    value: 70ca7caa3711e7ad373a3e936149655901cbeefc56cb8ff5afb1c29d06a9d072dfc37afc842fd3249342b84e2a413993130cc22f800dedcf600218f4c7687c61
 customize:
   packages:
     - qemu-guest-agent

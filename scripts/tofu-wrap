@@ -10,7 +10,10 @@ from fortress_inventory.model import load_inventory_tree
 from fortress_tofu.generate import hcl_identifier
 
 
-SOPS_EXTRACT = '["pve_tokens"]["tofu"]["value"]'
+SOPS_EXTRACT_USER = '["pve_tokens"]["tofu"]["user"]'
+SOPS_EXTRACT_TOKEN_ID = '["pve_tokens"]["tofu"]["token_id"]'
+SOPS_EXTRACT_VALUE = '["pve_tokens"]["tofu"]["value"]'
+SOPS_EXTRACT_SSH_PRIVATE_KEY = '["ssh_keys"]["bootstrap"]["private_key"]'
 
 
 def main(argv=None):
@@ -22,10 +25,15 @@ def main(argv=None):
     repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
     tofu_root = repo_root / "tofu"
     try:
-        token_env = _host_token_env(repo_root)
-        subprocess.run([str(_script_root() / "tofu-generate"), str(repo_root)], check=True)
+        selected_vm = _selected_vm_arg(argv)
+        token_env = _host_secret_env(repo_root, selected_vm)
+        generate_command = [str(_script_root() / "tofu-generate"), str(repo_root)]
+        if selected_vm:
+            generate_command.extend(["--selected-vm", selected_vm])
+        subprocess.run(generate_command, check=True)
         env = os.environ.copy()
         env.update(token_env)
+        env["HOME"] = str(_tofu_home())
         return subprocess.run(["tofu", *argv], cwd=tofu_root, env=env).returncode
     except WrapperError as error:
         print(error, file=sys.stderr)
@@ -38,10 +46,16 @@ class WrapperError(Exception):
     pass
 
 
-def _host_token_env(repo_root):
+def _host_secret_env(repo_root, selected_vm=None):
     model = load_inventory_tree(repo_root)
+    hosts = model.hosts
+    if selected_vm:
+        if selected_vm not in model.vms:
+            raise WrapperError(f"selected VM {selected_vm!r} is not declared in Inventory")
+        host = model.vms[selected_vm].get("placement", {}).get("host")
+        hosts = {host: model.hosts[host]} if host in model.hosts else {}
     env = {}
-    for host in sorted(model.hosts):
+    for host in sorted(hosts):
         host_sops = repo_root / "inventory" / "hosts" / f"{host}.sops.yaml"
         if not host_sops.is_file():
             raise WrapperError(f"missing Host Sibling SOPS File for Host {host}: {host_sops}")
@@ -49,26 +63,72 @@ def _host_token_env(repo_root):
         if not token:
             raise WrapperError(f"missing pve_tokens.tofu.value in Host Sibling SOPS File for Host {host}: {host_sops}")
         env[f"TF_VAR_pve_token_{hcl_identifier(host)}"] = token
+        ssh_private_key = _decrypt_host_ssh_private_key(host, host_sops)
+        env[f"TF_VAR_pve_ssh_private_key_{hcl_identifier(host)}"] = ssh_private_key
     return env
+
+
+def _selected_vm_arg(argv):
+    for index, arg in enumerate(argv):
+        if arg == "-var" and index + 1 < len(argv):
+            name, _, value = argv[index + 1].partition("=")
+            if name == "selected_vm":
+                return value
+        if arg.startswith("-var="):
+            name, _, value = arg.removeprefix("-var=").partition("=")
+            if name == "selected_vm":
+                return value
+    return None
 
 
 def _script_root():
     return Path(__file__).resolve().parent
 
 
+def _tofu_home():
+    home = Path("/dev/shm/fortress/tofu-home")
+    try:
+        (home / ".ssh").mkdir(mode=0o700, parents=True, exist_ok=True)
+        (home / ".ssh" / "known_hosts").touch(mode=0o600, exist_ok=True)
+        return home
+    except OSError:
+        home = Path(os.environ.get("TMPDIR", "/tmp")) / "fortress-tofu-home"
+        (home / ".ssh").mkdir(mode=0o700, parents=True, exist_ok=True)
+        (home / ".ssh" / "known_hosts").touch(mode=0o600, exist_ok=True)
+        return home
+
+
 def _decrypt_tofu_token(host, host_sops):
     try:
-        return subprocess.run(
-            ["sops", "--decrypt", "--extract", SOPS_EXTRACT, str(host_sops)],
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        ).stdout.strip()
+        user = _sops_extract(host_sops, SOPS_EXTRACT_USER)
+        token_id = _sops_extract(host_sops, SOPS_EXTRACT_TOKEN_ID)
+        value = _sops_extract(host_sops, SOPS_EXTRACT_VALUE)
+        if not value:
+            return ""
+        if "!" in value and "=" in value:
+            return value
+        return f"{user}!{token_id}={value}"
     except subprocess.CalledProcessError as error:
         raise WrapperError(
             f"failed to decrypt pve_tokens.tofu.value for Host {host} from {host_sops}"
         ) from error
+
+
+def _decrypt_host_ssh_private_key(host, host_sops):
+    try:
+        return _sops_extract(host_sops, SOPS_EXTRACT_SSH_PRIVATE_KEY)
+    except subprocess.CalledProcessError as error:
+        raise WrapperError(f"failed to decrypt Host SSH private key for Host {host} from {host_sops}") from error
+
+
+def _sops_extract(host_sops, extract):
+    return subprocess.run(
+        ["sops", "--decrypt", "--extract", extract, str(host_sops)],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.strip()
 
 
 if __name__ == "__main__":

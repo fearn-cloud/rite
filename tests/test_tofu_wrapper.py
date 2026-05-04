@@ -31,13 +31,17 @@ class TofuWrapperTests(unittest.TestCase):
             self.assertEqual("", result.stderr)
             calls = calls_log.read_text()
             self.assertIn("sops --decrypt --extract [\"pve_tokens\"][\"tofu\"][\"value\"]", calls)
+            self.assertIn("sops --decrypt --extract [\"pve_tokens\"][\"tofu\"][\"user\"]", calls)
+            self.assertIn("sops --decrypt --extract [\"pve_tokens\"][\"tofu\"][\"token_id\"]", calls)
+            self.assertIn("sops --decrypt --extract [\"ssh_keys\"][\"bootstrap\"][\"private_key\"]", calls)
             self.assertNotIn("sops --decrypt /", calls)
             self.assertIn("inventory/hosts/wintermute.sops.yaml", calls)
             self.assertIn("inventory/hosts/neuromancer.sops.yaml", calls)
             self.assertIn("tofu-generated present", calls)
             self.assertIn(f"tofu-cwd {root / 'tofu'}", calls)
-            self.assertIn("tofu-env TF_VAR_pve_token_neuromancer=neuromancer-secret", calls)
-            self.assertIn("tofu-env TF_VAR_pve_token_wintermute=wintermute-secret", calls)
+            self.assertIn("tofu-env TF_VAR_pve_token_neuromancer=tofu@pve!tofu=neuromancer-secret", calls)
+            self.assertIn("tofu-env TF_VAR_pve_token_wintermute=tofu@pve!tofu=wintermute-secret", calls)
+            self.assertIn("tofu-env TF_VAR_pve_ssh_private_key_wintermute=PRIVATE KEY", calls)
             self.assertNotIn("TF_VAR_pve_token_molly", calls)
 
     def test_wrap_fails_before_tofu_when_host_sibling_sops_file_is_missing(self):
@@ -60,6 +64,29 @@ class TofuWrapperTests(unittest.TestCase):
             self.assertIn("missing Host Sibling SOPS File", result.stderr)
             self.assertIn("neuromancer", result.stderr)
             self.assertNotIn("tofu plan", calls_log.read_text() if calls_log.exists() else "")
+
+    def test_selected_vm_wrap_decrypts_only_that_vms_host_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._wrapper_fixture(tmp)
+            (root / "inventory" / "hosts" / "neuromancer.sops.yaml").unlink()
+            env = self._fake_tools(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "tofu-wrap"), "plan", "-var", "selected_vm=media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = calls_log.read_text()
+            self.assertIn("inventory/hosts/wintermute.sops.yaml", calls)
+            self.assertNotIn("inventory/hosts/neuromancer.sops.yaml", calls)
+            self.assertIn("tofu-env TF_VAR_pve_token_wintermute=tofu@pve!tofu=wintermute-secret", calls)
+            self.assertIn("tofu-env TF_VAR_pve_ssh_private_key_wintermute=PRIVATE KEY", calls)
+            self.assertNotIn("TF_VAR_pve_token_neuromancer", calls)
 
     def test_wrap_fails_before_tofu_when_tofu_token_value_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -116,10 +143,19 @@ class TofuWrapperTests(unittest.TestCase):
                 "#!/usr/bin/env bash\n"
                 "printf 'sops %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
                 "if [ \"$2\" != \"--extract\" ]; then exit 2; fi\n"
-                "if [ -n \"$FORTRESS_FAKE_EMPTY_TOKEN_FOR\" ] && [[ \"$*\" == *\"$FORTRESS_FAKE_EMPTY_TOKEN_FOR.sops.yaml\"* ]]; then exit 0; fi\n"
-                "case \"$*\" in\n"
-                "  *wintermute.sops.yaml*) printf 'wintermute-secret\\n' ;;\n"
-                "  *neuromancer.sops.yaml*) printf 'neuromancer-secret\\n' ;;\n"
+                "extract=\"$3\"\n"
+                "if [ -n \"$FORTRESS_FAKE_EMPTY_TOKEN_FOR\" ] && [[ \"$extract\" == *value* ]] && [[ \"$*\" == *\"$FORTRESS_FAKE_EMPTY_TOKEN_FOR.sops.yaml\"* ]]; then exit 0; fi\n"
+                "case \"$extract\" in\n"
+                "  *user*) printf 'tofu@pve\\n' ;;\n"
+                "  *token_id*) printf 'tofu\\n' ;;\n"
+                "  *private_key*) printf 'PRIVATE KEY\\n' ;;\n"
+                "  *value*)\n"
+                "    case \"$*\" in\n"
+                "      *wintermute.sops.yaml*) printf 'wintermute-secret\\n' ;;\n"
+                "      *neuromancer.sops.yaml*) printf 'neuromancer-secret\\n' ;;\n"
+                "      *) exit 1 ;;\n"
+                "    esac\n"
+                "    ;;\n"
                 "  *) exit 1 ;;\n"
                 "esac\n"
             ),
@@ -128,7 +164,7 @@ class TofuWrapperTests(unittest.TestCase):
                 "printf 'tofu %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
                 "printf 'tofu-cwd %s\\n' \"$PWD\" >> \"$CALLS_LOG\"\n"
                 "[ -f generated-providers.tf ] && printf 'tofu-generated present\\n' >> \"$CALLS_LOG\"\n"
-                "env | sort | grep '^TF_VAR_pve_token_' | sed 's/^/tofu-env /' >> \"$CALLS_LOG\"\n"
+                "env | sort | grep '^TF_VAR_pve_' | sed 's/^/tofu-env /' >> \"$CALLS_LOG\"\n"
             ),
         }.items():
             tool = bin_dir / name

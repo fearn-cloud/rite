@@ -16,18 +16,19 @@ variable "selected_vm" {
 }
 
 locals {
+  globals = yamldecode(file("../inventory/group_vars/all.yaml"))
   vm_files = fileset("../inventory/vms", "*.yaml")
-  vms = {
+  vms = tomap({
     for path in local.vm_files :
     trimsuffix(basename(path), ".yaml") => yamldecode(file("../inventory/vms/${path}"))
-    if !startswith(basename(path), "_")
-  }
+    if !startswith(basename(path), "_") && !endswith(basename(path), ".sops.yaml")
+  })
   template_files = fileset("../inventory/templates", "*.yaml")
-  templates = {
+  templates = tomap({
     for path in local.template_files :
     trimsuffix(basename(path), ".yaml") => yamldecode(file("../inventory/templates/${path}"))
     if !startswith(basename(path), "_")
-  }
+  })
   selected_vms = var.selected_vm == null ? local.vms : {
     (var.selected_vm) = local.vms[var.selected_vm]
   }

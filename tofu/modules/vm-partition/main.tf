@@ -14,6 +14,10 @@ variable "pve_node_name" {
   type = string
 }
 
+variable "admin_user" {
+  type = string
+}
+
 variable "templates" {
   type = map(any)
 }
@@ -61,7 +65,7 @@ resource "proxmox_virtual_environment_file" "cloud_init_user_data" {
       hostname: ${each.value.cloud_init.hostname}
       manage_etc_hosts: true
       users:
-        - name: fortress
+        - name: ${var.admin_user}
           groups: sudo
           shell: /bin/bash
           sudo: ALL=(ALL) NOPASSWD:ALL

@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+import datetime
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/vm-prepare <vm>", file=sys.stderr)
+        return 2
+
+    vm = sys.argv[1].removeprefix("vm=")
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
+    vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
+
+    if not vm_yaml.is_file():
+        print(f"VM {vm!r} is not declared at {vm_yaml}", file=sys.stderr)
+        return 1
+    if vm_sops.exists():
+        print(
+            f"{vm_sops} already exists; refusing to overwrite an existing VM Sibling SOPS File.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return run_prepare(repo_root, vm, vm_yaml, vm_sops)
+
+
+def run_prepare(repo_root, vm, vm_yaml, vm_sops):
+    created = _utc_timestamp()
+    tmp_root = _tmpfs_root()
+    with tempfile.TemporaryDirectory(prefix=f"vm-prepare-{vm}-", dir=tmp_root) as tmp:
+        tmpdir = Path(tmp)
+        key_path = tmpdir / vm
+        public_key_path = Path(f"{key_path}.pub")
+        plaintext_sops = tmpdir / f"{vm}.sops.yaml"
+        encrypted_sops = vm_sops.with_name(f".{vm}.sops.yaml.tmp")
+
+        _run(
+            [
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-N",
+                "",
+                "-C",
+                f"fortress-vm-prepare:{vm}:{created}",
+                "-f",
+                str(key_path),
+            ]
+        )
+        public_key = public_key_path.read_text().strip()
+        _write_vm_public_key(vm_yaml, public_key)
+        _write_sops_plaintext(plaintext_sops, public_key, key_path, created)
+        _run(
+            [
+                "sops",
+                "--encrypt",
+                "--config",
+                str(repo_root / ".sops.yaml"),
+                "--filename-override",
+                str(vm_sops),
+                "--output",
+                str(encrypted_sops),
+                str(plaintext_sops),
+            ]
+        )
+        shutil.move(str(encrypted_sops), vm_sops)
+
+    print(f"Prepared VM {vm}; wrote {vm_sops} and updated {vm_yaml}")
+    return 0
+
+
+def _write_vm_public_key(vm_yaml, public_key):
+    lines = vm_yaml.read_text().splitlines()
+    rendered = f"ssh_public_key: {public_key}"
+    for index, line in enumerate(lines):
+        if line.startswith("ssh_public_key:"):
+            lines[index] = rendered
+            break
+    else:
+        lines.append(rendered)
+    vm_yaml.write_text("\n".join(lines) + "\n")
+
+
+def _write_sops_plaintext(path, public_key, private_key_path, created):
+    private_key = _indent_block(private_key_path.read_text().rstrip(), 6)
+    path.write_text(
+        "ssh_keys:\n"
+        "  bootstrap:\n"
+        "    type: vm_ssh\n"
+        f"    created: {created}\n"
+        f"    public_key: {public_key}\n"
+        "    private_key: |\n"
+        f"{private_key}\n"
+    )
+
+
+def _indent_block(value, spaces):
+    prefix = " " * spaces
+    return "\n".join(f"{prefix}{line}" for line in value.splitlines())
+
+
+def _tmpfs_root():
+    root = Path("/dev/shm/fortress")
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        return root
+    except OSError:
+        return None
+
+
+def _utc_timestamp():
+    return datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _run(args):
+    subprocess.run(args, check=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

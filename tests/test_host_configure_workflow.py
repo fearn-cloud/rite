@@ -145,6 +145,13 @@ class HostConfigureWorkflowTests(unittest.TestCase):
         self.assertIn("host_configure_reboot_required", playbook)
         self.assertNotIn("ansible.builtin.reboot", playbook)
 
+    def test_proxmox_users_applies_acl_roles_to_token_principals(self):
+        tasks = (REPO_ROOT / "ansible" / "roles" / "proxmox_users" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("subelements('tokens', skip_missing=True)", tasks)
+        self.assertIn("pveum acl modify / --tokens {{ item.0.name }}!{{ item.1.id }} --roles {{ item.1.roles | join(',') }}", tasks)
+        self.assertIn("changed_when: false", tasks)
+
     def test_new_host_runbook_documents_configure_step(self):
         content = (REPO_ROOT / "runbooks" / "new-host.md").read_text()
 

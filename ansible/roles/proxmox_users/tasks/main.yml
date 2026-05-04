@@ -19,3 +19,9 @@
     cmd: "pveum aclmod / -user {{ item.0.name }} -role {{ item.1 }}"
   changed_when: false
   loop: "{{ proxmox_users_declared | subelements('roles', skip_missing=True) }}"
+
+- name: Ensure declared PVE token roles exist on root ACL
+  ansible.builtin.command:
+    cmd: "pveum acl modify / --tokens {{ item.0.name }}!{{ item.1.id }} --roles {{ item.1.roles | join(',') }}"
+  changed_when: false
+  loop: "{{ proxmox_users_declared | subelements('tokens', skip_missing=True) }}"

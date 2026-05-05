@@ -18,6 +18,18 @@ _Avoid_: substituting "node" for "host"; reserve "node" for the PVE-internal ide
 A guest declared in `inventory/vms/<vm>.yaml`, provisioned by OpenTofu, configured by Ansible. Pinned to exactly one Host via `placement.host`.
 _Avoid_: guest, instance.
 
+**Template Verification VM**:
+A deliberately disposable VM provisioned from a Template on a specific Host to prove the Template satisfies the fortress VM lifecycle contract before ordinary VMs depend on it there.
+_Avoid_: test guest, smoke instance.
+
+**Operational VM**:
+A VM reserved for fortress workflows rather than long-lived Service-bearing use.
+_Avoid_: utility instance, temp VM.
+
+**Template Verification Policy**:
+The fleet-level declaration of the reusable VMID, hardware, storage, and IP allocation used when creating Template Verification VMs across Hosts.
+_Avoid_: per-host test file, fixture inventory.
+
 **Template**:
 A stopped Proxmox VM marked `template: 1` with a cloud-init drive, declared in `vm-templates/<name>.yaml`. Used as the clone source for new VMs. Lives on a specific Host.
 _Avoid_: image (reserve for the upstream Cloud Image).
@@ -59,6 +71,14 @@ _Avoid_: setup.
 **Configure**:
 An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
 _Avoid_: provision (reserve for tofu).
+
+**VM Lifecycle Contract**:
+The minimum first-boot guarantees a Template-backed VM must satisfy before Configure can own it: cloud-init completes, the configured VM admin user exists, the VM admin SSH public key is authorized, passwordless sudo works, and hostname is applied.
+_Avoid_: smoke test contract, guest readiness.
+
+**Destroy**:
+The VM lifecycle workflow that removes a provisioned Proxmox VM and, after successful removal, deletes the VM's Sibling SOPS File; deleting the VM yaml is an explicit opt-in choice.
+_Avoid_: cleanup (too broad).
 
 **Rotation**:
 Replacement of a credential (Host SSH key, VM admin SSH key, PVE API token, age key, Service secret) with a fresh one of the same kind.
@@ -116,6 +136,11 @@ A systemd `.mount` unit on a VM that mounts an Export at a declared path. Orderi
 
 - A **Host** runs zero or more **VMs** and holds zero or more **Templates**.
 - A **VM** is provisioned from one **Template** and runs zero or more **Services**.
+- VMIDs `100`-`8899` are for ordinary **VMs**, `8900`-`8999` are for **Operational VMs**, and `9000`-`9999` are for **Templates**.
+- VM names beginning with `tmp-` are reserved for generated temporary **VMs** and must not be checked in as ordinary Inventory.
+- A **Template Verification VM** is provisioned from exactly one **Template** on exactly one **Host** and destroyed after verification.
+- A **Template Verification VM** is an **Operational VM**.
+- A **Template Verification Policy** defines the reusable slot from which each **Template Verification VM** is generated.
 - A **Service** has one **Backend** **VM** (a list when HA is needed).
 - The **Ingress** **VM** routes traffic to **Services** by hostname.
 - Every **Entity** may have a **Sibling SOPS File**.

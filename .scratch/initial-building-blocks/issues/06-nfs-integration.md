@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: ready-for-human
 
 ## Parent
 
@@ -10,13 +10,13 @@ NAS topology declared once globally; per-VM NFS mount declarations reference exp
 
 ## Acceptance criteria
 
-- [ ] Global NAS topology in `group_vars/all/nas.yaml`: server, named exports, default mount options, UID/GID convention
-- [ ] VM yaml schema supports a `nfs_mounts:` block referencing exports by name
-- [ ] Per-VM mounts rendered as systemd `.mount` units on the VM
-- [ ] UID/GID convention documented in `runbooks/nas-truenas.md` alongside required TrueNAS-side dataset ownership steps
-- [ ] Cross-file validator checks NFS export name references resolve against global exports
-- [ ] `vm-up` workflow extended to write mount units when present
-- [ ] Demo: a test VM with declared mount has a functional, systemd-managed NFS mount
+- [x] Global NAS topology in `inventory/group_vars/all.yaml`: server, named exports, default mount options, UID/GID convention
+- [x] VM yaml schema supports a `nfs_mounts:` block referencing exports by name
+- [x] Per-VM mounts rendered as systemd `.mount` units on the VM
+- [x] UID/GID convention documented in `runbooks/nas-truenas.md` alongside required TrueNAS-side dataset ownership steps
+- [x] Cross-file validator checks NFS export name references resolve against global exports
+- [x] `vm-up` workflow extended to write mount units when present
+- [x] Demo: a test VM with declared mount has a functional, systemd-managed NFS mount
 
 ## Blocked by
 

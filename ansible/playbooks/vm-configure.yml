@@ -11,6 +11,11 @@
       ansible.builtin.command: cloud-init status --wait
       changed_when: false
 
+    - name: Configure NFS mount units
+      ansible.builtin.include_role:
+        name: vm_nfs_mounts
+      tags: [vm_nfs_mounts]
+
     - name: Finalize VM admin user
       ansible.builtin.include_role:
         name: vm_admin_user

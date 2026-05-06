@@ -1,0 +1,36 @@
+- name: Ensure systemd unit directory exists
+  ansible.builtin.file:
+    path: "{{ fortress_systemd_unit_dir | default('/etc/systemd/system') }}"
+    state: directory
+    mode: "0755"
+  when: (fortress_vm.nfs_mounts | default([])) | length > 0
+
+- name: Ensure NFS mount points exist
+  ansible.builtin.file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ fortress_vm.nfs_mounts | default([]) }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
+
+- name: Render NFS systemd mount units
+  ansible.builtin.template:
+    src: nfs.mount.j2
+    dest: "{{ fortress_systemd_unit_dir | default('/etc/systemd/system') }}/{{ item.mount_point | regex_replace('^/+', '') | replace('/', '-') }}.mount"
+    mode: "0644"
+  loop: "{{ fortress_vm.nfs_mounts | default([]) }}"
+  loop_control:
+    label: "{{ item.mount_point }}"
+  register: fortress_nfs_unit_templates
+
+- name: Enable and start NFS mount units
+  ansible.builtin.systemd:
+    name: "{{ item.item.mount_point | regex_replace('^/+', '') | replace('/', '-') }}.mount"
+    daemon_reload: true
+    enabled: true
+    state: started
+  loop: "{{ fortress_nfs_unit_templates.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.mount_point }}"
+  when: (fortress_systemd_unit_dir | default('/etc/systemd/system')) == '/etc/systemd/system'

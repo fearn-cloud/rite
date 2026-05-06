@@ -1,0 +1,13 @@
+[Unit]
+Description=Fortress NFS mount for {{ item.export }} at {{ item.mount_point }}
+After=network-online.target
+Wants=network-online.target
+
+[Mount]
+What={{ fortress_globals.nas.server }}:{{ fortress_globals.nas.exports[item.export] }}
+Where={{ item.mount_point }}
+Type=nfs
+Options={{ (fortress_globals.nas.default_options | default([]) + item.options_extra | default([])) | join(',') }}
+
+[Install]
+WantedBy=multi-user.target

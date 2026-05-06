@@ -108,6 +108,15 @@ class VMConfigureWorkflowTests(unittest.TestCase):
         )
         self.assertTrue((REPO_ROOT / "ansible" / "roles" / "vm_admin_user" / "tasks" / "main.yml").is_file())
 
+    def test_vm_configure_playbook_writes_nfs_mount_units_before_admin_finalization(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
+
+        self.assertIn("name: vm_nfs_mounts", playbook)
+        self.assertLess(
+            playbook.index("name: vm_nfs_mounts"),
+            playbook.index("name: vm_admin_user"),
+        )
+
     def test_vm_admin_user_role_uses_only_builtin_modules_for_configure(self):
         role = (REPO_ROOT / "ansible" / "roles" / "vm_admin_user" / "tasks" / "main.yml").read_text()
 

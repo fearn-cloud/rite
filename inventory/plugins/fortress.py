@@ -97,23 +97,31 @@ class InventoryModule(BaseInventoryPlugin):
     def _set_sibling_ssh_key_var(self, entity_name, sops_path):
         if not sops_path.is_file():
             return
+        self.inventory.set_variable(
+            entity_name,
+            "fortress_sibling_ssh_keys",
+            {"bootstrap": {"public_key": self._decrypt_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["public_key"]')}},
+        )
         key_dir = Path(os.environ.get("FORTRESS_KEY_DIR", "/dev/shm/fortress"))
         key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         key_path = key_dir / f"{entity_name}.key"
         if key_path.is_file():
             self.inventory.set_variable(entity_name, "ansible_ssh_private_key_file", str(key_path))
             return
+        key_path.write_text(self._decrypt_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["private_key"]'))
+        key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        self.inventory.set_variable(entity_name, "ansible_ssh_private_key_file", str(key_path))
+
+    def _decrypt_sops_value(self, sops_path, extract):
         result = subprocess.run(
-            ["sops", "--decrypt", "--extract", '["ssh_keys"]["bootstrap"]["private_key"]', str(sops_path)],
+            ["sops", "--decrypt", "--extract", extract, str(sops_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         if result.returncode != 0:
             raise AnsibleParserError(f"failed to decrypt {sops_path}: {result.stderr.strip()}")
-        key_path.write_text(result.stdout)
-        key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        self.inventory.set_variable(entity_name, "ansible_ssh_private_key_file", str(key_path))
+        return result.stdout.strip()
 
 
 def _first_vm_address(vm):

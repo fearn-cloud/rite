@@ -1,0 +1,62 @@
+- name: Verify Template-backed VM lifecycle contract
+  hosts: vms
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH readiness
+      ansible.builtin.wait_for_connection:
+        timeout: 600
+
+    - name: "Verify VM Lifecycle Contract: cloud-init completed"
+      ansible.builtin.command:
+        argv:
+          - "{{ template_verify_cloud_init_command | default('cloud-init') }}"
+          - status
+          - --wait
+      changed_when: false
+
+    - name: "Verify VM Lifecycle Contract: configured VM admin user exists"
+      ansible.builtin.command:
+        argv:
+          - "{{ template_verify_getent_command | default('getent') }}"
+          - passwd
+          - "{{ ansible_user }}"
+      changed_when: false
+
+    - name: "Verify VM Lifecycle Contract: VM admin user has passwordless sudo"
+      ansible.builtin.command:
+        argv:
+          - "{{ template_verify_sudo_command | default('sudo') }}"
+          - -n
+          - "true"
+      changed_when: false
+
+    - name: Read running VM hostname
+      ansible.builtin.command:
+        argv:
+          - "{{ template_verify_hostname_command | default('hostname') }}"
+      changed_when: false
+      register: template_verify_hostname
+
+    - name: "Verify VM Lifecycle Contract: hostname matches VM declaration"
+      ansible.builtin.assert:
+        that:
+          - template_verify_hostname.stdout == fortress_vm.cloud_init.hostname
+        fail_msg: "VM Lifecycle Contract failed: hostname does not match VM declaration"
+        success_msg: "VM Lifecycle Contract passed: hostname matches VM declaration"
+
+    - name: "Verify VM Lifecycle Contract: VM yaml public key matches Sibling SOPS File"
+      ansible.builtin.assert:
+        that:
+          - fortress_vm.ssh_public_key == fortress_sibling_ssh_keys.bootstrap.public_key
+        fail_msg: "VM Lifecycle Contract failed: VM yaml ssh_public_key must match Sibling SOPS File"
+        success_msg: "VM Lifecycle Contract passed: VM yaml ssh_public_key matches Sibling SOPS File"
+
+    - name: "Verify VM Lifecycle Contract: authorized key contains VM admin public key"
+      ansible.builtin.command:
+        argv:
+          - "{{ template_verify_grep_command | default('grep') }}"
+          - -Fx
+          - --
+          - "{{ fortress_vm.ssh_public_key }}"
+          - "{{ template_verify_authorized_keys_path | default('/home/' ~ ansible_user ~ '/.ssh/authorized_keys') }}"
+      changed_when: false

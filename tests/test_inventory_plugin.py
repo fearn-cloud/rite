@@ -99,6 +99,66 @@ class FortressInventoryPluginTests(unittest.TestCase):
             self.assertEqual((key_dir / "wintermute.key").read_text(), "OPENSSH PRIVATE KEY")
             self.assertIn('["ssh_keys"]["bootstrap"]["private_key"]', (root / "sops.log").read_text())
 
+    def test_inventory_plugin_exposes_sibling_sops_bootstrap_public_key_as_hostvar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vm_dir = root / "inventory" / "vms"
+            vm_dir.mkdir(parents=True)
+            (root / "inventory" / "hosts").mkdir()
+            (root / "inventory" / "services").mkdir()
+            (root / "inventory" / "templates").mkdir()
+            (root / "inventory" / "group_vars").mkdir()
+            (root / "fortress.yaml").write_text("plugin: fortress\nroot: .\n")
+            (vm_dir / "tmp-template-verify.yaml").write_text(
+                "vmid: 8901\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 1\n"
+                "  memory: 1024\n"
+                "cloud_init:\n"
+                "  hostname: tmp-template-verify\n"
+                "ssh_public_key: ssh-ed25519 vm-yaml-key\n"
+            )
+            (vm_dir / "tmp-template-verify.sops.yaml").write_text("encrypted: value\n")
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$SOPS_LOG\"\n"
+                "case \"$*\" in\n"
+                "  *'public_key'* ) printf '%s' 'ssh-ed25519 sops-public-key' ;;\n"
+                "  *'private_key'* ) printf '%s' 'OPENSSH PRIVATE KEY' ;;\n"
+                "esac\n"
+            )
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["FORTRESS_KEY_DIR"] = str(root / "tmpfs")
+            env["SOPS_LOG"] = str(root / "sops.log")
+
+            result = subprocess.run(
+                ["ansible-inventory", "-i", str(root / "fortress.yaml"), "--list"],
+                cwd=REPO_ROOT,
+                env=env,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            hostvars = ansible_value(json.loads(result.stdout)["_meta"]["hostvars"])
+
+            self.assertEqual(
+                hostvars["tmp-template-verify"]["fortress_sibling_ssh_keys"]["bootstrap"]["public_key"],
+                "ssh-ed25519 sops-public-key",
+            )
+            self.assertIn('["ssh_keys"]["bootstrap"]["public_key"]', (root / "sops.log").read_text())
+
     def test_inventory_plugin_uses_existing_tmpfs_key_without_decrypting_again(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -118,12 +178,21 @@ class FortressInventoryPluginTests(unittest.TestCase):
             bin_dir = root / "bin"
             bin_dir.mkdir()
             fake_sops = bin_dir / "sops"
-            fake_sops.write_text("#!/usr/bin/env bash\nexit 9\n")
+            sops_log = root / "sops.log"
+            fake_sops.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$SOPS_LOG\"\n"
+                "case \"$*\" in\n"
+                "  *'public_key'* ) printf '%s' 'ssh-ed25519 existing-public-key' ;;\n"
+                "  *'private_key'* ) exit 9 ;;\n"
+                "esac\n"
+            )
             fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
 
             env = os.environ.copy()
             env["PATH"] = f"{bin_dir}:{env['PATH']}"
             env["FORTRESS_KEY_DIR"] = str(key_dir)
+            env["SOPS_LOG"] = str(sops_log)
 
             result = subprocess.run(
                 ["ansible-inventory", "-i", str(root / "fortress.yaml"), "--list"],
@@ -137,6 +206,8 @@ class FortressInventoryPluginTests(unittest.TestCase):
             hostvars = ansible_value(json.loads(result.stdout)["_meta"]["hostvars"])
 
             self.assertEqual(hostvars["wintermute"]["ansible_ssh_private_key_file"], str(key_dir / "wintermute.key"))
+            self.assertIn('["ssh_keys"]["bootstrap"]["public_key"]', sops_log.read_text())
+            self.assertNotIn('["ssh_keys"]["bootstrap"]["private_key"]', sops_log.read_text())
 
     def test_inventory_plugin_sets_host_connection_from_management_address(self):
         inventory = self.load_inventory()

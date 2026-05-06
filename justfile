@@ -28,5 +28,8 @@ service-deploy service:
 templates-build host:
     @./scripts/templates-build {{host}}
 
+template-verify host template keep_on_fail="false":
+    @./scripts/template-verify host={{host}} template={{template}} keep_on_fail={{keep_on_fail}}
+
 ingress-regenerate:
     @echo "TODO: regenerate Ingress configuration"

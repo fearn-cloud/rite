@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+VM_NAME = "tmp-template-verify"
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    if args is None:
+        print('usage: scripts/template-verify host=<host|all> template=<template> [keep_on_fail=<true|false>]', file=sys.stderr)
+        return 2
+
+    host_name, template_name, keep_on_fail = args
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+
+    if host_name == "all":
+        results = verify_all_hosts(repo_root, template_name, keep_on_fail)
+        for selected_host, result in results:
+            print(f"{selected_host}: {result.status}")
+            if result.message:
+                stream = sys.stderr if result.status == "failed" else sys.stdout
+                print(f"{selected_host}: {result.message}", file=stream)
+        return 1 if any(result.status == "failed" for _host, result in results) else 0
+
+    result = verify_host(repo_root, host_name, template_name, keep_on_fail)
+    print(f"{host_name}: {result.status}")
+    if result.message:
+        stream = sys.stderr if result.status == "failed" else sys.stdout
+        print(f"{host_name}: {result.message}", file=stream)
+    return 0 if result.status == "passed" else 1
+
+
+def parse_args(argv):
+    if len(argv) not in (2, 3):
+        return None
+
+    values = {}
+    for arg in argv:
+        if "=" not in arg:
+            return None
+        key, value = arg.split("=", 1)
+        values[key] = value.strip('"')
+    if set(values) - {"host", "template", "keep_on_fail"}:
+        return None
+    if "host" not in values or "template" not in values:
+        return None
+    keep_on_fail = values.get("keep_on_fail", "false").lower()
+    if keep_on_fail not in ("true", "false"):
+        return None
+    return values["host"], values["template"], keep_on_fail == "true"
+
+
+class HostResult:
+    def __init__(self, status, message=""):
+        self.status = status
+        self.message = message
+
+
+def verify_host(repo_root, host_name, template_name, keep_on_fail):
+    generate = run_phase(
+        "generation/preflight",
+        [str(repo_root / "scripts" / "template-verify-generate"), host_name, template_name],
+    )
+    if generate.returncode != 0:
+        return HostResult("failed", phase_message("generation/preflight", generate))
+
+    up = run_phase(
+        "provision",
+        [str(repo_root / "scripts" / "vm-up"), VM_NAME],
+        input_text=f"apply {VM_NAME}\n",
+    )
+    if up.returncode != 0:
+        return failed_after_generation(repo_root, "provision", up, keep_on_fail)
+
+    verify = run_phase(
+        "verification",
+        [
+            str(repo_root / "scripts" / "decrypt-keys"),
+            f"inventory/vms/{VM_NAME}.sops.yaml",
+            "--",
+            "ansible-playbook",
+            "ansible/playbooks/template-verify.yml",
+            "-i",
+            "inventory/fortress.yaml",
+            "--limit",
+            VM_NAME,
+        ],
+        cwd=repo_root,
+    )
+    if verify.returncode != 0:
+        return failed_after_generation(repo_root, "verification", verify, keep_on_fail)
+
+    cleanup = cleanup_generated_vm(repo_root)
+    if cleanup.returncode != 0:
+        return HostResult("failed", phase_message("cleanup", cleanup))
+    return HostResult("passed")
+
+
+def verify_all_hosts(repo_root, template_name, keep_on_fail):
+    inventory = load_inventory_tree(repo_root)
+    results = []
+    for host_name, host in sorted(inventory.hosts.items()):
+        declared_templates = host.get("proxmox", {}).get("templates", []) or []
+        if template_name not in declared_templates:
+            results.append((host_name, HostResult("skipped", f"Host does not declare Template {template_name}")))
+            continue
+        results.append((host_name, verify_host(repo_root, host_name, template_name, keep_on_fail)))
+    return results
+
+
+def failed_after_generation(repo_root, phase, result, keep_on_fail):
+    message = phase_message(phase, result)
+    if keep_on_fail:
+        return HostResult("failed", f"{message}; preserved Template Verification VM for inspection")
+
+    cleanup = cleanup_generated_vm(repo_root)
+    if cleanup.returncode != 0:
+        return HostResult("failed", f"{message}; cleanup also failed: {phase_message('cleanup', cleanup)}")
+    return HostResult("failed", message)
+
+
+def cleanup_generated_vm(repo_root):
+    return run_phase("cleanup", [str(repo_root / "scripts" / "vm-destroy"), VM_NAME, "--delete-vm-yaml"])
+
+
+def run_phase(_phase, command, cwd=None, input_text=None):
+    try:
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        completed = subprocess.CompletedProcess(command, 1, "", str(error))
+        return completed
+
+
+def phase_message(phase, result):
+    detail = (result.stderr or result.stdout or "").strip()
+    if detail:
+        return f"{phase} failed: {detail}"
+    return f"{phase} failed"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

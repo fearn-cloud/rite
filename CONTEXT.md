@@ -76,6 +76,10 @@ _Avoid_: provision (reserve for tofu).
 The minimum first-boot guarantees a Template-backed VM must satisfy before Configure can own it: cloud-init completes, the configured VM admin user exists, the VM admin SSH public key is authorized, passwordless sudo works, and hostname is applied.
 _Avoid_: smoke test contract, guest readiness.
 
+**Acceptance Test**:
+A non-precommit test that proves an operator-facing resource contract by interacting with a live Host, VM, or disposable Operational VM.
+_Avoid_: smoke test, integration test (when live infrastructure is required).
+
 **Destroy**:
 The VM lifecycle workflow that removes a provisioned Proxmox VM and, after successful removal, deletes the VM's Sibling SOPS File; deleting the VM yaml is an explicit opt-in choice.
 _Avoid_: cleanup (too broad).
@@ -141,11 +145,14 @@ A systemd `.mount` unit on a VM that mounts an Export at a declared path. Orderi
 - A **Template Verification VM** is provisioned from exactly one **Template** on exactly one **Host** and destroyed after verification.
 - A **Template Verification VM** is an **Operational VM**.
 - A **Template Verification Policy** defines the reusable slot from which each **Template Verification VM** is generated.
+- An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
 - A **Service** has one **Backend** **VM** (a list when HA is needed).
 - The **Ingress** **VM** routes traffic to **Services** by hostname.
 - Every **Entity** may have a **Sibling SOPS File**.
 - **PBS** backs up every **VM** with `backup.enabled: true`; **PBS** itself is a **VM**.
 - An **Export** is the NAS-side declaration; a **Mount** is the VM-side systemd unit that consumes one.
+- A declared **Mount** must be active and accessible during **Configure** before later VM configuration or Service deployment may rely on it.
+- A **Mount** with a declared ownership mapping must prove read/write/delete access as the mapped UID/GID during **Configure**.
 
 ## Example dialogue
 

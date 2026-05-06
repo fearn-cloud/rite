@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree
+
+
+def main():
+    if len(sys.argv) not in (3, 4):
+        print("usage: scripts/template-destroy <host> <template> [--delete-template-yaml]", file=sys.stderr)
+        return 2
+
+    host_name = sys.argv[1].removeprefix("host=")
+    template_name = sys.argv[2].removeprefix("template=")
+    delete_template_yaml = False
+    if len(sys.argv) == 4:
+        if sys.argv[3] != "--delete-template-yaml":
+            print("usage: scripts/template-destroy <host> <template> [--delete-template-yaml]", file=sys.stderr)
+            return 2
+        delete_template_yaml = True
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+
+    if template_name not in model.templates:
+        print(
+            f"Template {template_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'templates' / f'{template_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    if host_name not in model.hosts:
+        print(
+            f"Host {host_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    template = model.templates[template_name]
+    vmid = str(template["vmid"])
+
+    if shutil.which("qm"):
+        result = subprocess.run(["qm", "destroy", vmid])
+        if result.returncode != 0:
+            print(f"qm destroy failed for Template {template_name}", file=sys.stderr)
+            return result.returncode or 1
+    else:
+        result = destroy_template_on_host(repo_root, host_name, model.hosts[host_name], template_name, vmid)
+        if result != 0:
+            return result
+
+    if delete_template_yaml:
+        template_yaml = repo_root / "inventory" / "templates" / f"{template_name}.yaml"
+        try:
+            template_yaml.unlink()
+        except OSError as error:
+            print(f"failed to delete Template YAML at {template_yaml}: {error}", file=sys.stderr)
+            return 1
+        print(f"Deleted Template YAML: {template_yaml}")
+
+    return 0
+
+
+def destroy_template_on_host(repo_root, host_name, host, template_name, vmid):
+    management_address = host.get("network", {}).get("management_address")
+    if not management_address:
+        print(
+            f"Host {host_name} has no network.management_address for remote Template destroy",
+            file=sys.stderr,
+        )
+        return 1
+
+    host_sops = repo_root / "inventory" / "hosts" / f"{host_name}.sops.yaml"
+    if not host_sops.is_file():
+        print(f"Host {host_name} has no sibling SOPS file at {host_sops}", file=sys.stderr)
+        return 1
+
+    with tempfile.TemporaryDirectory(
+        prefix="fortress-template-destroy-ssh-",
+        dir="/dev/shm" if Path("/dev/shm").is_dir() else None,
+    ) as tmp:
+        key_path = Path(tmp) / f"{host_name}.key"
+        decrypted = subprocess.run(
+            ["sops", "--decrypt", "--extract", '["ssh_keys"]["bootstrap"]["private_key"]', str(host_sops)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if decrypted.returncode != 0:
+            print(f"failed to decrypt {host_sops}: {decrypted.stderr.strip()}", file=sys.stderr)
+            return 1
+        key_path.write_text(decrypted.stdout)
+        key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+        result = subprocess.run(
+            [
+                "ssh",
+                "-i", str(key_path),
+                "-o", "BatchMode=yes",
+                "-o", "StrictHostKeyChecking=accept-new",
+                f"root@{management_address}",
+                f"qm destroy {vmid}",
+            ]
+        )
+        if result.returncode != 0:
+            print(f"qm destroy failed for Template {template_name}", file=sys.stderr)
+            return result.returncode or 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

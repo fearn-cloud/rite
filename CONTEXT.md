@@ -66,16 +66,16 @@ _Avoid_: app user (image-specific), container user.
 A path declared by a Service relative to its Service Data Directory.
 _Avoid_: host path (too broad), local volume path.
 
-**Export-backed Volume**:
-A Service container bind mount whose source references a VM Mount's Export and whose target is a container path.
+**Share-backed Volume**:
+A Service container bind mount whose source references a VM Mount's Share and whose target is a container path.
 _Avoid_: NFS volume (the Service references the VM-side Mount, not NFS topology directly).
 
 **Entity**:
-A Host, VM, or Service. The thing each `<entity>.yaml` (and optional `<entity>.sops.yaml`) describes.
+A Host, VM, Service, or Dataset. The thing each `<entity>.yaml` (and optional `<entity>.sops.yaml`) describes.
 _Avoid_: object, record.
 
 **Inventory**:
-The set of per-entity YAML files at `inventory/{hosts,vms,services}/`. Source of truth for all declared state.
+The set of per-entity YAML files at `inventory/{hosts,vms,services,datasets}/`. Source of truth for all declared state.
 _Avoid_: catalog, registry.
 
 ### Operator and ceremony
@@ -95,6 +95,14 @@ _Avoid_: setup.
 **Configure**:
 An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
 _Avoid_: provision (reserve for tofu).
+
+**NAS Reconcile**:
+An operator workflow that validates declared Datasets and converges derived Shares without deleting ordinary Dataset contents.
+_Avoid_: configure NAS, sync shares.
+
+**NAS Reconcile Plan**:
+The read-only first phase of NAS Reconcile that compares declared Dataset and derived Share intent with NAS reality without mutating TrueNAS.
+_Avoid_: dry run (too generic), manual checklist.
 
 **VM Lifecycle Contract**:
 The minimum first-boot guarantees a Template-backed VM must satisfy before Configure can own it: cloud-init completes, the configured VM admin user exists, the VM admin SSH public key is authorized, passwordless sudo works, and hostname is applied.
@@ -166,20 +174,53 @@ Proxmox Backup Server, deployed in this project as a VM on `neuromancer`.
 _Avoid_: PVE backup (a separate Proxmox feature).
 
 **Datastore**:
-PBS's storage location; an NFS Export from TrueNAS, mounted into the PBS VM.
+PBS's storage location; an NFS Share from TrueNAS, mounted into the PBS VM.
 _Avoid_: backup pool.
 
-**Export**:
-A named NFS share from TrueNAS (e.g. `media`, `documents`, `pbs`), declared once in the global NAS topology. VMs reference exports by name.
-_Avoid_: share; mount (the VM-side artefact, not the NAS-side declaration).
+**Dataset**:
+A durable TrueNAS Dataset whose contents are protected independently from any access surface.
+_Avoid_: share, export, mount.
+
+**Adopted Dataset**:
+An ordinary Dataset declared in Inventory so fortress can validate its expected state without owning its creation or deletion lifecycle.
+_Avoid_: managed dataset, imported share.
+
+**Ephemeral Dataset**:
+A deliberately disposable Dataset created for an Acceptance Test and destroyed when that test is complete.
+_Avoid_: temp share, test export.
+
+**Share**:
+A named NAS-side access declaration for data exposed to VMs or Services.
+_Avoid_: export; mount (the VM-side artefact, not the NAS-side declaration).
+
+**Derived Share**:
+A Share constructed from VM or Service access expectations rather than declared directly on a Dataset.
+_Avoid_: embedded share, dataset share.
+
+**Fortress-owned Share**:
+A Derived Share marked as managed by fortress so NAS Reconcile may update or destroy it.
+_Avoid_: manual share, unmanaged share.
+
+**NFS Share**:
+A Share exposed over NFS from TrueNAS.
+_Avoid_: NFS export.
 
 **Mount**:
-A systemd `.mount` unit on a VM that mounts an Export at a declared path. Ordering anchor for Quadlet containers via Export-backed Volumes.
+A systemd `.mount` unit on a VM that mounts a Share at a declared path. Ordering anchor for Service consumption via Share-backed Volumes.
+
+**Mount Name**:
+The stable name a Service uses to reference a VM Mount.
+_Avoid_: mount path, share name.
+
+**Access Policy**:
+The requested read/write and client-access rules for a VM's Dataset access.
+_Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 
 ## Relationships
 
 - A **Host** runs zero or more **VMs** and holds zero or more **Templates**.
 - A **VM** is provisioned from one **Template** and runs zero or more **Services**.
+- A **Dataset** is declared in `inventory/datasets/<dataset>.yaml`.
 - A **Service Group** contains one or more **Services** on the same **VM**.
 - A **Service Group** name is globally unique within the **Inventory**.
 - VMIDs `100`-`8899` are for ordinary **VMs**, `8900`-`8999` are for **Operational VMs**, and `9000`-`9999` are for **Templates**.
@@ -195,11 +236,11 @@ A systemd `.mount` unit on a VM that mounts an Export at a declared path. Orderi
 - **Ingress** is HTTP-family routing only; non-HTTP Published Ports are exposed directly on the **Backend** VM rather than through Caddy.
 - A **Published Port** must opt into **Ingress** routing explicitly; direct VM exposure is deliberate through its bind address.
 - A **Service Data Directory** belongs to exactly one **Service** and is the default root for Service-owned bind mounts.
-- A **Service Data Owner** applies only to Service-owned data; Export-backed Volume ownership follows the VM Mount and NAS ownership convention.
+- A **Service Data Owner** applies only to Service-owned data; Share-backed Volume ownership follows the VM Mount and NAS ownership convention.
 - A **Service Path** is always explicit in Service yaml when a container uses Service-owned bind-mounted data.
 - **Service Data Directory** contents are never pruned by Service deployment; Service renames and Service Path changes require explicit data migration.
-- An **Export-backed Volume** automatically depends on the corresponding **Mount** before the container starts.
-- An **Export-backed Volume** may bind the root of a **Mount** by omitting its source subpath.
+- A **Share-backed Volume** automatically depends on the corresponding **Mount** before the container starts.
+- A **Share-backed Volume** binds the root of a **Mount** with `source: /`.
 - Fortress models Quadlet fields only when they enforce fortress invariants; other native Quadlet options belong in **Quadlet Fragments**.
 - A **Container Dependency** does not prove application readiness; readiness remains the Service application's responsibility unless modeled separately later.
 - A **Container Alias** must be unique within its Podman network; rendered container identity remains service-scoped as `<service>-<container>`.
@@ -209,8 +250,59 @@ A systemd `.mount` unit on a VM that mounts an Export at a declared path. Orderi
 - Every **Entity** may have a **Sibling SOPS File**.
 - A **Service Secret** belongs to exactly one **Service** and is installed under a service-scoped Podman secret name.
 - **PBS** backs up every **VM** with `backup.enabled: true`; **PBS** itself is a **VM**.
-- An **Export** is the NAS-side declaration; a **Mount** is the VM-side systemd unit that consumes one.
+- NAS server and protocol defaults are global topology; **Datasets** are per-entity Inventory.
+- **NAS Reconcile** validates **Datasets** and converges **Shares**.
+- **NAS Reconcile** is conceptually API-backed; its first implementation may be a read-only **NAS Reconcile Plan**.
+- **NAS Reconcile** runs before **Configure** for VMs that declare **Mounts**.
+- **NAS Reconcile** does not roll back **Shares** after downstream **Configure** or Service deployment failures.
+- Service deployment validates Share-backed consumption but does not run **NAS Reconcile** implicitly.
+- A **Datastore** uses the same **Dataset**, **Share**, and **Mount** model as other NAS-backed storage.
+- A **Dataset** declaration includes the NAS endpoint it belongs to.
+- A **Dataset** declaration includes an explicit `lifecycle`.
+- **Dataset** `lifecycle` is `adopted` or `ephemeral`.
+- A **Dataset** declaration represents a TrueNAS Dataset, not an arbitrary directory beneath one.
+- A **Dataset** declaration uses its TrueNAS mount path as the canonical locator.
+- **Ephemeral Datasets** are forbidden in ordinary fleet Inventory and appear only in Acceptance Test inventory.
+- **Dataset** names are globally unique within **Inventory**.
+- **Adopted Dataset** declarations require `owner.uid` and `owner.gid`.
+- A **Dataset** may have zero or more **Shares**.
+- An ordinary **Dataset** is an **Adopted Dataset** unless explicitly modeled otherwise.
+- Dataset file ownership belongs to the **Dataset**, while protocol-specific access rules belong to the **Share** or **Mount**.
+- Fortress validates that an **Adopted Dataset** exists at its declared NAS path with its expected root owner UID/GID.
+- Fortress reports **Adopted Dataset** ownership drift by default rather than repairing it.
+- An ordinary **Dataset** is never deleted by fortress, even if its declaration is removed from Inventory.
+- An **Ephemeral Dataset** may be created and destroyed only for an **Acceptance Test**.
+- A **Share** exposes exactly one **Dataset**.
+- A **Share** with no remaining VM or Service declaration requiring it may be destroyed during NAS reconciliation.
+- A **Share** is derived from VM or Service declarations, not embedded in a **Dataset** declaration.
+- **NAS Reconcile** may mutate only **Fortress-owned Shares**.
+- Every **Fortress-owned Share** carries a durable ownership marker.
+- An unmanaged Share that could expose the same **Dataset** as desired fortress-owned Share intent blocks **NAS Reconcile** until the Operator resolves it.
+- NFS Share client access is derived from VM static IP addresses.
+- Derived NFS Shares allow explicit VM IP clients rather than broad networks by default.
+- A **VM** that declares a **Mount** must have a static IP address in Inventory.
+- **Share** identity is derived deterministically from Dataset, protocol, and compatible **Access Policies**.
+- **Share** identity does not depend on **Mount Name**.
+- A **Share** may serve multiple **VMs** when their access policies are compatible.
+- **Access Policy** is declared as `access: read_only | read_write`.
+- Protocol-specific Mount options may extend global defaults, but must not contradict **Access Policy**.
+- Fortress must not merge **Access Policies** when doing so would widen any **VM** beyond its requested access.
+- A **Share** is the NAS-side declaration; a **Mount** is the VM-side systemd unit that consumes one.
+- A **VM** declares Dataset access by declaring a **Mount** with a required Share protocol.
+- A **Mount** declaration uses flat fields: `name`, `dataset`, `protocol`, `mount_point`, and `access`.
+- A **Mount** declaration always includes an explicit `mount_point`.
+- Changing a declared **Mount**'s `mount_point` requires operator confirmation before **Configure** continues.
+- Changing a declared **Mount**'s `access` requires operator confirmation before reconciliation continues.
+- Removing a declared **Mount** requires operator confirmation before reconciliation continues.
+- A **Mount** declares its Share protocol explicitly; **Datasets** are not protocol-specific.
+- A **Service** consumes Dataset access through a **Share-backed Volume** that references a **Mount Name** on its **Backend** **VM**.
+- **Mount Names** are unique within a **VM** and resolved relative to a Service's **Backend** **VM**.
+- A **Service** must not create Dataset access without a matching **Mount** declaration on its **Backend** **VM**.
+- A **Share-backed Volume** may narrow its **Mount**'s access mode, but must not widen it.
+- A **Share-backed Volume** binds the root of a **Mount** only when `source: /` is explicit; otherwise its source is a safe relative subpath.
+- A **Share-backed Volume** subpath under an **Adopted Dataset** must already exist unless an explicit creation workflow is modeled later.
 - A declared **Mount** must be active and accessible during **Configure** before later VM configuration or Service deployment may rely on it.
+- Service deployment validates the **Share-backed Volume** subpaths used by that **Service** before starting containers.
 - A **Mount** with a declared ownership mapping must prove read/write/delete access as the mapped UID/GID during **Configure**.
 
 ## Example dialogue
@@ -227,3 +319,7 @@ A systemd `.mount` unit on a VM that mounts an Export at a declared path. Orderi
 - **Hostname conventions**: A **Service**'s `hostname` is the end-user FQDN (`photos.fearn.cloud`); a **VM**'s `cloud_init.hostname` is the short form (`web01`), with FQDN derived as `<short>.fearn.cloud`; a **Container Alias** is private Podman network DNS. The split is intentional, but easy to reverse by accident.
 - **`ingress.exposure` enum**: Only `lan_only` appears in [docs/architecture.md](docs/architecture.md). Whether `internet_exposed` (or similar) is a planned value, and what it would imply for the Caddy/Cloudflare wiring, is unresolved.
 - **Multi-VM Backend**: Deferred. A **Service** has exactly one **Backend** for the initial Quadlet and Ingress implementation; HA Backend semantics will be designed when the Ingress supports multiple Backends.
+- **Adopted Share**: Deferred. Existing manual Shares are not adopted by fortress; overlapping unmanaged Shares block **NAS Reconcile** until the Operator removes or otherwise resolves them.
+- **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require an unambiguous static IP address for NFS Share client access.
+- **Dataset ACLs and modes**: Deferred. Dataset declarations model root owner UID/GID only until real acceptance cases justify ACL or mode expectations.
+- **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require a static IP address; selecting among multiple VM client addresses will be modeled when multi-interface VMs need NAS access.

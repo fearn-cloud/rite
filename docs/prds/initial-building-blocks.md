@@ -152,15 +152,15 @@ The deliverable of this PRD is the set of building blocks needed to make all of 
 
 52. As the operator, I want service data backed up implicitly via the VM-level snapshot, so that I do not have to maintain a parallel file-level backup tool for service volumes.
 
-### NFS integration
+### NAS integration
 
-53. As the operator, I want to declare the NAS topology (server, exports, default mount options, UID/GID conventions) once globally, so that VMs do not duplicate it.
+53. As the operator, I want to declare NAS endpoints and protocol defaults globally while declaring durable Datasets as per-entity inventory, so that topology and data ownership do not blur together.
 
-54. As the operator, I want to declare per-VM NFS mounts referencing exports by name, so that the VM yaml stays focused on intent rather than mechanism.
+54. As the operator, I want to declare per-VM Mounts referencing Datasets by name with explicit protocol and access policy, so that VM yaml describes required Dataset access.
 
-55. As the operator, I want NFS mounts implemented as systemd `.mount` units, so that quadlet containers can declare `Requires=` dependencies on them and start in the correct order.
+55. As the operator, I want NFS-backed Mounts implemented as systemd `.mount` units, so that quadlet containers can declare ordering dependencies on them and start in the correct order.
 
-56. As the operator, I want a documented UID/GID convention coordinated with TrueNAS dataset ownership, so that file ownership behaves predictably across hosts and containers.
+56. As the operator, I want Dataset root owner UID/GID declared and validated against TrueNAS, so that file ownership behaves predictably across hosts and containers.
 
 ### Connection model
 
@@ -176,7 +176,7 @@ The deliverable of this PRD is the set of building blocks needed to make all of 
 
 61. As the operator, I want JSON Schema validation per inventory file, so that shape errors are caught at edit time.
 
-62. As the operator, I want cross-file validation (referenced VM exists, no port collisions, no duplicate hostnames, NFS export references resolve, VM disk storage exists on the placed host, VM bridge exists on the placed host), so that errors that span files are caught before deploy.
+62. As the operator, I want cross-file validation (referenced VM exists, no port collisions, no duplicate hostnames, Dataset and Mount references resolve, VM disk storage exists on the placed host, VM bridge exists on the placed host), so that errors that span files are caught before deploy.
 
 63. As the operator, I want a decryption health check that verifies every encrypted file in the repo can be decrypted with the current age recipients, so that a misconfigured `.sops.yaml` rule cannot silently produce undecryptable files.
 
@@ -202,7 +202,7 @@ The deliverable of this PRD is the set of building blocks needed to make all of 
 
 71. As the operator, I want runbooks for every operator-facing flow (new host, new VM, new service, each rotation type) co-located with the code in the repository, so that documentation cannot drift from code without showing up in PR review.
 
-72. As the operator, I want external-dependency documentation (TrueNAS exports, Cloudflare scope, Proxmox-side prerequisites) maintained in the same repository, so that a future operator can understand what the system depends on.
+72. As the operator, I want external-dependency documentation (TrueNAS Datasets and Shares, Cloudflare scope, Proxmox-side prerequisites) maintained in the same repository, so that a future operator can understand what the system depends on.
 
 ## Implementation Decisions
 
@@ -212,7 +212,7 @@ Six **deep modules** with narrow interfaces and significant internal complexity,
 
 1. **Inventory plugin** (Python). Implements ansible's inventory plugin protocol. Encapsulates yaml loading from per-entity files, SOPS decryption to tmpfs, group construction (`proxmox_hosts`, `vms`, `vms_on_<host>`), and namespaced hostvar shaping. Bridges the per-entity yaml model to ansible's flat host concept.
 
-2. **Cross-file validator** (Python). Pure-function validator over the inventory tree. Checks service-to-VM references, port collisions on a single VM, hostname uniqueness across services, VM-to-host references, VM-to-template references, and NFS export name references.
+2. **Cross-file validator** (Python). Pure-function validator over the inventory tree. Checks service-to-VM references, port collisions on a single VM, hostname uniqueness across services, VM-to-host references, VM-to-template references, Dataset references from Mounts, and Service Share-backed Volume references to Backend VM Mount Names.
 
 3. **Quadlet renderer** (ansible role). Takes a service yaml with `deploy.type: quadlet` and produces systemd quadlet unit files (`.container`, `.network`, dependency-aware unit options). Encapsulates multi-container layout, podman-secrets injection via `_FILE` convention, per-service network isolation, NFS-mount dependency wiring, and image pinning.
 
@@ -276,13 +276,13 @@ One **orchestration module** (declarative + bash):
 
 The host yaml schema includes connection metadata, network bridges with explicit `managed` ownership, documented storage IDs used for VM validation, PVE users with multi-role token declarations, GPU passthrough mode (sriov/full/none with vendor and IOMMU type), and an explicit list of templates the host should hold. Storage registration and datacenter configuration are not Host Configure automation contracts in this slice.
 
-The VM yaml schema includes vmid, placement (target host), source template, hardware overrides, network interfaces (static IP), cloud-init essentials (hostname), optional GPU PCI device assignment, optional NFS mounts referencing global exports, optional backup schedule with retention, and a populated-by-prepare plaintext public-key field.
+The VM yaml schema includes vmid, placement (target host), source template, hardware overrides, network interfaces (static IP), cloud-init essentials (hostname), optional GPU PCI device assignment, optional Mounts referencing Datasets with explicit protocol and access policy, optional backup schedule with retention, and a populated-by-prepare plaintext public-key field.
 
 The service yaml schema includes hostname, backend (VM and port — list for HA cases), ingress config (enabled, exposure, TLS strategy), auth, and a deploy block branching on `type: quadlet | native`. Quadlet deploys carry a network name and a list of containers (image, ports, volumes, env, env-from-secrets, depends_on, requires_mounts). Native deploys carry package name, optional apt-repo reference, service name, and config-file templates with reload-vs-restart flags.
 
 The template yaml schema includes name, vmid (in 9000-9999 range), source URL with required checksum, virt-customize ops, and hardware defaults.
 
-Global vars hold domain, NTP, DNS, timezone, default proxmox config, default vm admin user spec, NAS topology with named exports and UID/GID convention, named apt repos, and global backup defaults.
+Global vars hold domain, NTP, DNS, timezone, default proxmox config, default vm admin user spec, NAS endpoint and protocol defaults, named apt repos, and global backup defaults.
 
 ## Testing Decisions
 
@@ -323,7 +323,7 @@ None. Greenfield project; no existing test patterns to mirror. Test scaffolding 
 - **HA / multi-host service redundancy.** No active-active or hot-standby; loss of a host means downtime for VMs on that host until manual intervention.
 - **Proxmox host installation, BMC/IPMI configuration, boot disk partitioning.** These are runbook steps, not automation targets.
 - **Storage pool creation and registration.** Storage stays operator-controlled. Host yaml documents storage IDs for VM validation, but Ansible does not create pools or register `storage.cfg` entries in this slice.
-- **TrueNAS-side configuration.** TrueNAS is an external dependency; dataset creation, NFS export config, and allowed-host ACL updates are manual TrueNAS-side steps, documented but not automated.
+- **TrueNAS write reconciliation.** TrueNAS is an external dependency. Ordinary Dataset creation/deletion/repair is out of scope; initial NAS Reconcile may be a read-only plan before fortress-owned Share writes are automated.
 
 ## Further Notes
 

@@ -40,10 +40,10 @@ All hosts are standalone — there is no Proxmox cluster, no shared storage, no 
 
 These are not managed by this repo but are required for it to function:
 
-- **TrueNAS** — exports NFS datasets used by:
+- **TrueNAS** — serves NAS Datasets through derived NFS Shares used by:
   - PBS VM as its datastore (`/mnt/pool/pbs`).
   - VMs that need shared storage (media, documents, etc.).
-  - Allowed-host ACLs (`sec=sys`, IP-based) maintained on TrueNAS side. Adding a new NFS-mounting VM requires a manual TrueNAS-side ACL update.
+  - NFS Share client access is derived from Mount-bearing VM static IP addresses by NAS Reconcile.
   - Loss of TrueNAS → vzdump fails, media services fail.
 - **Cloudflare** — DNS for `fearn.cloud`. Used by Caddy for Let's Encrypt DNS-01 challenges. A scoped API token (DNS edit on `fearn.cloud` only) is required, stored in `inventory/services/caddy.sops.yaml`.
 - **Proxmox no-subscription repo** — hosts pull updates from here (subscription repo removed by ansible).
@@ -106,7 +106,7 @@ fortress/
 │   ├── proxmox_network/
 │   ├── proxmox_users/
 │   ├── proxmox_gpu/
-│   ├── nfs_mounts/
+│   ├── vm_nfs_mounts/
 │   ├── vm_admin_user/
 │   ├── service_quadlet/
 │   └── service_native/
@@ -412,9 +412,12 @@ network:
 cloud_init:
   hostname: web01                            # FQDN = web01.fearn.cloud
 
-nfs_mounts:                                  # see §13
-  - export: media
+mounts:                                      # see §13
+  - name: media
+    dataset: media
+    protocol: nfs
     mount_point: /mnt/nas/media
+    access: read_only
     options_extra: [ro]
 
 # populated by vm-prepare playbook (plaintext; public keys aren't secret):
@@ -622,50 +625,76 @@ Not routine. PBS chunks can't be re-encrypted in place — rotation = create new
 
 ---
 
-## 13. NFS Integration
+## 13. NAS Integration
 
-VMs can mount NFS shares from TrueNAS. Available to both native and quadlet services.
+VMs can mount NAS Datasets from TrueNAS through derived Shares. Ordinary Datasets are adopted and protected; Shares are disposable access surfaces derived from VM Mount and Service consumption declarations.
 
 ### 13.1. Global NAS topology (`group_vars/all.yaml`)
 
 ```yaml
 nas:
-  server: 10.0.x.x
-  default_options: [nfsvers=4.2, soft, _netdev]
-  exports:
-    media:     /mnt/pool/media
-    documents: /mnt/pool/documents
-    pbs:       /mnt/pool/pbs
-    backups:   /mnt/pool/backups
-  uid_gid_map:
-    media:     { uid: 1000, gid: 1000 }
-    documents: { uid: 1001, gid: 1001 }
+  servers:
+    truenas:
+      address: 10.40.0.15
+      protocols:
+        nfs:
+          default_options: [nfsvers=4.2, soft, _netdev]
 ```
 
-Single source of truth for NAS topology. VMs reference exports by name.
+Global NAS topology names NAS endpoints and protocol defaults. Dataset declarations hold durable data paths and ownership.
 
-### 13.2. Per-VM mount declarations
+### 13.2. Dataset declarations
+
+```yaml
+# inventory/datasets/media.yaml
+name: media
+nas: truenas
+path: /mnt/pool/media
+lifecycle: adopted
+owner:
+  uid: 1000
+  gid: 1000
+```
+
+Adopted Datasets must already exist. NAS Reconcile validates the declared path and owner UID/GID, but does not create, delete, or repair ordinary Datasets by default.
+
+### 13.3. Per-VM Mount declarations
 
 ```yaml
 # inventory/vms/media01.yaml
-nfs_mounts:
-  - export: media
+mounts:
+  - name: media
+    dataset: media
+    protocol: nfs
     mount_point: /mnt/nas/media
-    options_extra: [ro]
-  - export: documents
+    access: read_write
+  - name: documents
+    dataset: documents
+    protocol: nfs
     mount_point: /mnt/nas/documents
+    access: read_only
 ```
 
-Ansible role `nfs_mounts` renders systemd `.mount` units into `/etc/systemd/system/`. NFSv4 with `sec=sys`; TrueNAS uses host-based ACLs (allowed-host IP list maintained on TrueNAS side — adding a new mounting VM is a manual TrueNAS-side step, documented in `runbooks/dependencies.md`).
+Each Mount declares a Dataset, required Share protocol, mount point, and access policy. NAS Reconcile derives NFS Shares from compatible Mount and Service expectations, then VM Configure renders systemd `.mount` units into `/etc/systemd/system/`.
 
-### 13.3. Service consumption
+### 13.4. Service consumption
 
-- **Native services**: just reference the host path in their config templates. No new schema needed.
-- **Quadlet containers**: existing `containers[].volumes[]` schema already handles host paths. Containers that need NFS-backed volumes declare `requires_mounts:` so the quadlet renderer adds `Requires=mnt-nas-media.mount` and `After=mnt-nas-media.mount` for proper startup ordering.
+- **Native services**: may consume the mounted path from their VM config templates, but NAS Reconcile still happens outside Service deployment.
+- **Quadlet containers**: declare Share-backed Volumes by VM-local Mount Name. The quadlet renderer adds ordering on the corresponding systemd `.mount` unit.
 
-### 13.4. UID/GID coordination
+```yaml
+volumes:
+  - mount: media
+    source: /
+    container: /photos
+    access: read_only
+```
 
-Numeric UID/GID convention defined in `group_vars/all.yaml/nas.uid_gid_map`. TrueNAS datasets owned by these UIDs/GIDs. VMs create matching users/groups during configure. Containers run as the right UID via quadlet `User=`. Avoids the `PUID/PGID` ad-hoc pattern (which doesn't compose with TrueNAS-side dataset ownership).
+`source: /` binds the root of the Mount. Any other `source` is a safe relative subpath under the Mount and must already exist for Adopted Datasets. A Service may narrow a Mount's access but may not widen it.
+
+### 13.5. UID/GID coordination
+
+Numeric UID/GID ownership is declared on each Dataset. TrueNAS datasets are expected to be owned by those UIDs/GIDs, and NAS Reconcile fails on drift by default rather than repairing existing data. VMs create matching users/groups during configure. Containers run as the right UID via quadlet `User=`. Avoids the `PUID/PGID` ad-hoc pattern.
 
 ---
 
@@ -737,7 +766,8 @@ JSON Schema is per-file; some constraints span files. `scripts/validate.sh` invo
 - No two services declare the same `hostname`.
 - VM `placement.host` references an existing `inventory/hosts/<host>.yaml`.
 - VM `source.template` exists in `vm-templates/`.
-- VM `nfs_mounts[].export` exists in `group_vars/all.yaml/nas.exports`.
+- VM `mounts[].dataset` exists in `inventory/datasets/`.
+- Service Share-backed Volumes reference a Mount Name declared on the Service's Backend VM.
 
 ### 15.3. Decryption check
 

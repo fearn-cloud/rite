@@ -1,6 +1,6 @@
 # NAS Reconcile Plan
 
-Status: ready-for-agent
+Status: done
 Category: enhancement
 
 ## What to build
@@ -9,13 +9,13 @@ Introduce a read-only NAS Reconcile Plan that compares declared Dataset and deri
 
 ## Acceptance criteria
 
-- [ ] A `nas-reconcile` or `nas-reconcile-plan` operator command loads inventory and produces a read-only plan.
-- [ ] TrueNAS connection settings and credentials are represented without exposing secrets in logs or plans.
-- [ ] The plan validates each adopted Dataset exists at its declared TrueNAS path.
-- [ ] The plan validates each adopted Dataset root owner UID/GID and reports drift without repairing it.
-- [ ] Desired NFS Shares are derived deterministically from Dataset, protocol, compatible Access Policies, and Mount-bearing VM static IP addresses.
-- [ ] Unmanaged Shares that could expose the same Dataset as desired fortress-owned Share intent block the plan.
-- [ ] Unit tests cover plan output with missing Dataset, owner drift, missing Share, stale fortress-owned Share, and unmanaged overlap.
+- [x] A `nas-reconcile` or `nas-reconcile-plan` operator command loads inventory and produces a read-only plan.
+- [x] TrueNAS connection settings and credentials are represented without exposing secrets in logs or plans.
+- [x] The plan validates each adopted Dataset exists at its declared TrueNAS path.
+- [x] The plan validates each adopted Dataset root owner UID/GID and reports drift without repairing it.
+- [x] Desired NFS Shares are derived deterministically from Dataset, protocol, compatible Access Policies, and Mount-bearing VM static IP addresses.
+- [x] Unmanaged Shares that could expose the same Dataset as desired fortress-owned Share intent block the plan.
+- [x] Unit tests cover plan output with missing Dataset, owner drift, missing Share, stale fortress-owned Share, and unmanaged overlap.
 
 ## Blocked by
 
@@ -55,17 +55,17 @@ TrueNAS connection settings and credentials must be represented without exposing
 - Desired Share derivation logic — groups compatible VM Mount access policies by Dataset/protocol and derives explicit NFS clients from VM static IP addresses.
 
 **Acceptance criteria:**
-- [ ] A `nas-reconcile` or `nas-reconcile-plan` operator command loads Inventory and produces a read-only plan.
-- [ ] Running the plan does not create, update, delete, or repair anything in TrueNAS.
-- [ ] TrueNAS connection settings and credentials are represented without exposing secrets in logs, errors, or plan output.
-- [ ] The plan validates each adopted Dataset exists at its declared TrueNAS path.
-- [ ] The plan validates each adopted Dataset root owner UID/GID and reports drift without repairing it.
-- [ ] Desired NFS Shares are derived deterministically from Dataset, protocol, compatible Access Policies, and Mount-bearing VM static IP addresses.
-- [ ] Desired Share identity does not depend on VM-local Mount Name.
-- [ ] Missing desired Shares are reported in the plan.
-- [ ] Stale fortress-owned Shares are reported in the plan without being deleted.
-- [ ] Unmanaged Shares that could expose the same Dataset as desired fortress-owned Share intent block the plan.
-- [ ] Unit tests cover plan output with missing Dataset, owner drift, missing Share, stale fortress-owned Share, and unmanaged overlap.
+- [x] A `nas-reconcile` or `nas-reconcile-plan` operator command loads Inventory and produces a read-only plan.
+- [x] Running the plan does not create, update, delete, or repair anything in TrueNAS.
+- [x] TrueNAS connection settings and credentials are represented without exposing secrets in logs, errors, or plan output.
+- [x] The plan validates each adopted Dataset exists at its declared TrueNAS path.
+- [x] The plan validates each adopted Dataset root owner UID/GID and reports drift without repairing it.
+- [x] Desired NFS Shares are derived deterministically from Dataset, protocol, compatible Access Policies, and Mount-bearing VM static IP addresses.
+- [x] Desired Share identity does not depend on VM-local Mount Name.
+- [x] Missing desired Shares are reported in the plan.
+- [x] Stale fortress-owned Shares are reported in the plan without being deleted.
+- [x] Unmanaged Shares that could expose the same Dataset as desired fortress-owned Share intent block the plan.
+- [x] Unit tests cover plan output with missing Dataset, owner drift, missing Share, stale fortress-owned Share, and unmanaged overlap.
 
 **Out of scope:**
 - Creating, updating, or deleting TrueNAS Shares.

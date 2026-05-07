@@ -27,6 +27,9 @@ vm-destroy vm delete_vm_yaml="false":
 service-deploy service:
     @./scripts/service-deploy {{service}}
 
+nas-reconcile-plan reality_json:
+    @./scripts/nas-reconcile-plan --reality-json {{reality_json}}
+
 templates-build host:
     @./scripts/templates-build {{host}}
 

@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from fortress_inventory.model import load_inventory_tree
+from fortress_nas.reconcile import build_nas_reconcile_plan, load_reality
+
+
+def main():
+    parser = argparse.ArgumentParser(prog="scripts/nas-reconcile-plan")
+    parser.add_argument("--reality-json", required=True, help="read-only TrueNAS reality fixture")
+    args = parser.parse_args()
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
+    inventory = load_inventory_tree(repo_root)
+    with Path(args.reality_json).open() as handle:
+        reality = load_reality(json.load(handle))
+
+    plan = build_nas_reconcile_plan(inventory, reality)
+    json.dump(plan, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write("\n")
+    return 1 if plan["blocked"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

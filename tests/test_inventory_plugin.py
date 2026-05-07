@@ -55,6 +55,12 @@ class FortressInventoryPluginTests(unittest.TestCase):
         self.assertEqual(media01["fortress_entity_kind"], "VM")
         self.assertEqual(media01["fortress_vm"]["placement"]["host"], "wintermute")
 
+    def test_inventory_plugin_exposes_datasets_to_ansible(self):
+        inventory = self.load_inventory()
+        media01 = ansible_value(inventory["_meta"]["hostvars"]["media01"])
+
+        self.assertEqual(media01["fortress_datasets"]["media"]["name"], "media")
+
     def test_inventory_plugin_materializes_sibling_sops_ssh_key_to_tmpfs_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

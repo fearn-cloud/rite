@@ -12,6 +12,9 @@ network:
   interfaces:
     - bridge: vmbr0
       address: 10.0.10.101/24
-nfs_mounts:
-  - export: media
+mounts:
+  - name: media
+    dataset: media
+    protocol: nfs
     mount_point: /mnt/nas/media
+    access: read_write

@@ -76,15 +76,18 @@
       "required": ["hostname"],
       "properties": { "hostname": { "type": "string", "minLength": 1 } }
     },
-    "nfs_mounts": {
+    "mounts": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["export", "mount_point"],
+        "required": ["name", "dataset", "protocol", "mount_point", "access"],
         "properties": {
-          "export": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "dataset": { "type": "string", "minLength": 1 },
+          "protocol": { "type": "string", "minLength": 1 },
           "mount_point": { "type": "string", "pattern": "^/" },
+          "access": { "enum": ["read_only", "read_write"] },
           "options_extra": { "type": "array", "items": { "type": "string" } }
         }
       }

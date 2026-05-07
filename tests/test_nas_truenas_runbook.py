@@ -18,6 +18,7 @@ class NASTrueNASRunbookTests(unittest.TestCase):
     def test_demo_vm_declares_systemd_managed_nfs_mount(self):
         demo = (REPO_ROOT / "inventory" / "vms" / "wintermute-demo.yaml").read_text()
 
-        self.assertIn("nfs_mounts:", demo)
-        self.assertIn("export: test", demo)
+        self.assertIn("mounts:", demo)
+        self.assertIn("dataset: test", demo)
+        self.assertIn("protocol: nfs", demo)
         self.assertIn("mount_point: /mnt/test", demo)

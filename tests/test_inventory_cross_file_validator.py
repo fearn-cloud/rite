@@ -103,8 +103,175 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_vm_template_must_exist(self):
         self.assertIn("missing_vm_template", self.codes_for("inventory_invalid/missing-vm-template"))
 
-    def test_vm_nfs_exports_must_exist_in_global_vars(self):
-        self.assertIn("missing_nfs_export", self.codes_for("inventory_invalid/missing-nfs-export"))
+    def test_vm_mount_datasets_must_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.101/24\n"
+                "mounts:\n"
+                "  - name: media\n"
+                "    dataset: missing-media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media\n"
+                "    access: read_only\n"
+            )
+
+            self.assertIn("missing_vm_mount_dataset", {error.code for error in validate_inventory_tree(root)})
+
+    def test_vm_mount_names_must_be_unique_within_a_vm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_body = (
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.101/24\n"
+                "mounts:\n"
+                "  - name: media\n"
+                "    dataset: media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media\n"
+                "    access: read_only\n"
+                "  - name: media\n"
+                "    dataset: media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media-copy\n"
+                "    access: read_only\n"
+            )
+            (root / "inventory" / "vms" / "media01.yaml").write_text(vm_body)
+
+            self.assertIn("duplicate_vm_mount_name", {error.code for error in validate_inventory_tree(root)})
+
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                vm_body.replace(
+                    "  - name: media\n"
+                    "    dataset: media\n"
+                    "    protocol: nfs\n"
+                    "    mount_point: /mnt/nas/media-copy\n"
+                    "    access: read_only\n",
+                    "",
+                )
+            )
+            (root / "inventory" / "vms" / "media02.yaml").write_text(
+                vm_body.replace("vmid: 101", "vmid: 102")
+                .replace("hostname: media01", "hostname: media02")
+                .replace("address: 10.0.10.101/24", "address: 10.0.10.102/24")
+                .replace(
+                    "  - name: media\n"
+                    "    dataset: media\n"
+                    "    protocol: nfs\n"
+                    "    mount_point: /mnt/nas/media-copy\n"
+                    "    access: read_only\n",
+                    "",
+                )
+            )
+
+            errors = validate_inventory_tree(root)
+            self.assertNotIn("duplicate_vm_mount_name", {error.code for error in errors})
+
+    def test_vm_mounts_require_one_unambiguous_static_ip_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.101/24\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.20.101/24\n"
+                "mounts:\n"
+                "  - name: media\n"
+                "    dataset: media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media\n"
+                "    access: read_only\n"
+            )
+
+            self.assertIn("ambiguous_vm_mount_client_address", {error.code for error in validate_inventory_tree(root)})
+
+    def test_vm_mount_options_must_not_contradict_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.101/24\n"
+                "mounts:\n"
+                "  - name: media\n"
+                "    dataset: media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media\n"
+                "    access: read_only\n"
+                "    options_extra: [rw]\n"
+            )
+
+            self.assertIn("vm_mount_access_option_conflict", {error.code for error in validate_inventory_tree(root)})
+
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                (root / "inventory" / "vms" / "media01.yaml")
+                .read_text()
+                .replace("    access: read_only\n", "    access: read_write\n")
+                .replace("    options_extra: [rw]\n", "    options_extra: [ro]\n")
+            )
+
+            self.assertIn("vm_mount_access_option_conflict", {error.code for error in validate_inventory_tree(root)})
+
+            (root / "inventory" / "vms" / "media01.yaml").write_text(
+                (root / "inventory" / "vms" / "media01.yaml")
+                .read_text()
+                .replace("      address: 10.0.10.101/24\n", "")
+                .replace("      address: 10.0.20.101/24\n", "")
+            )
+
+            self.assertIn("ambiguous_vm_mount_client_address", {error.code for error in validate_inventory_tree(root)})
 
     def test_vm_disks_must_use_storage_declared_by_placement_host(self):
         with tempfile.TemporaryDirectory() as tmp:

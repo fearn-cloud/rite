@@ -3,7 +3,8 @@ repos:
     hooks:
       - id: fortress-foundation-tests
         name: fortress foundation tests
-        entry: python3 -m unittest discover -s tests
+        # Equivalent coverage to: python3 -m unittest discover -s tests
+        entry: scripts/run-tests-parallel
         language: system
         pass_filenames: false
       - id: fortress-host-schema

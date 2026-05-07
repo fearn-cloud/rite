@@ -190,3 +190,57 @@ class InventorySchemaTests(unittest.TestCase):
             result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_vm_schema_accepts_dataset_backed_mounts_and_requires_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vm_yaml = Path(tmp) / "media01.yaml"
+            vm_yaml.write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "mounts:\n"
+                "  - name: media\n"
+                "    dataset: media\n"
+                "    protocol: nfs\n"
+                "    mount_point: /mnt/nas/media\n"
+                "    access: read_only\n"
+            )
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            vm_yaml.write_text(vm_yaml.read_text().replace("    access: read_only\n", ""))
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("access", result.stdout + result.stderr)
+
+            vm_yaml.write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-12-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "nfs_mounts:\n"
+                "  - export: media\n"
+                "    mount_point: /mnt/nas/media\n"
+            )
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("nfs_mounts", result.stdout + result.stderr)

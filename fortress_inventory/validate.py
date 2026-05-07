@@ -26,7 +26,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(_validate_dataset_names(model))
     errors.extend(_validate_dataset_nas_refs(model))
     errors.extend(_validate_dataset_lifecycle_policy(model, allow_ephemeral_datasets=allow_ephemeral_datasets))
-    errors.extend(_validate_nfs_exports(model))
+    errors.extend(_validate_vm_mounts(model))
     errors.extend(_validate_vm_host_resources(model))
     return errors
 
@@ -205,21 +205,75 @@ def _validate_dataset_lifecycle_policy(model, allow_ephemeral_datasets=False):
     return errors
 
 
-def _validate_nfs_exports(model):
+def _validate_vm_mounts(model):
     errors = []
-    exports = set(model.globals.get("nas", {}).get("exports", {}).keys())
+    dataset_names = {dataset.get("name") for dataset in model.datasets.values() if dataset.get("name")}
     for vm_name, vm in model.vms.items():
-        for index, mount in enumerate(vm.get("nfs_mounts", []) or []):
-            export_name = mount.get("export")
-            if export_name and export_name not in exports:
+        mounts = vm.get("mounts", []) or []
+        if mounts and len(_vm_static_addresses(vm)) != 1:
+            errors.append(
+                ValidationError(
+                    "ambiguous_vm_mount_client_address",
+                    f"inventory/vms/{vm_name}.yaml.network.interfaces",
+                    f"VM {vm_name} declares Mounts but does not have exactly one static IP address",
+                )
+            )
+
+        seen_mount_names = {}
+        for index, mount in enumerate(mounts):
+            mount_name = mount.get("name")
+            if mount_name:
+                if mount_name in seen_mount_names:
+                    errors.append(
+                        ValidationError(
+                            "duplicate_vm_mount_name",
+                            f"inventory/vms/{vm_name}.yaml.mounts[{index}].name",
+                            f"VM {vm_name} declares duplicate Mount Name {mount_name}",
+                        )
+                    )
+                else:
+                    seen_mount_names[mount_name] = index
+
+            dataset_name = mount.get("dataset")
+            if dataset_name and dataset_name not in dataset_names:
                 errors.append(
                     ValidationError(
-                        "missing_nfs_export",
-                        f"inventory/vms/{vm_name}.yaml.nfs_mounts[{index}].export",
-                        f"VM {vm_name} mounts missing Export {export_name}",
+                        "missing_vm_mount_dataset",
+                        f"inventory/vms/{vm_name}.yaml.mounts[{index}].dataset",
+                        f"VM {vm_name} Mount {mount.get('name', index)} references missing Dataset {dataset_name}",
+                    )
+                )
+
+            contradicting_option = _mount_access_contradicting_option(mount)
+            if contradicting_option:
+                errors.append(
+                    ValidationError(
+                        "vm_mount_access_option_conflict",
+                        f"inventory/vms/{vm_name}.yaml.mounts[{index}].options_extra",
+                        f"VM {vm_name} Mount {mount.get('name', index)} uses option {contradicting_option} "
+                        f"which contradicts access {mount.get('access')}",
                     )
                 )
     return errors
+
+
+def _mount_access_contradicting_option(mount):
+    access = mount.get("access")
+    options = {str(option).split("=", 1)[0] for option in mount.get("options_extra", []) or []}
+    if access == "read_only" and "rw" in options:
+        return "rw"
+    if access == "read_write" and "ro" in options:
+        return "ro"
+    return None
+
+
+def _vm_static_addresses(vm):
+    addresses = []
+    for interface in vm.get("network", {}).get("interfaces", []) or []:
+        address = interface.get("address")
+        if address:
+            addresses.append(address.split("/", 1)[0])
+    return addresses
 
 
 def _validate_vm_host_resources(model):

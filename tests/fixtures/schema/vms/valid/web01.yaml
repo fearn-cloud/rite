@@ -19,9 +19,12 @@ network:
       gateway: 10.0.10.1
 cloud_init:
   hostname: web01
-nfs_mounts:
-  - export: media
+mounts:
+  - name: media
+    dataset: media
+    protocol: nfs
     mount_point: /mnt/nas/media
+    access: read_only
     options_extra: [ro]
 backup:
   enabled: true

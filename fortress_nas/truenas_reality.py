@@ -1,0 +1,96 @@
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) != 3:
+        print(
+            "usage: python3 -m fortress_nas.truenas_reality <endpoint> <management-address> <api-token-env>",
+            file=sys.stderr,
+        )
+        return 2
+
+    endpoint_name, management_address, api_token_env = argv
+    credential = os.environ.get(api_token_env)
+    if not credential:
+        print(f"{api_token_env} is not set for NAS Endpoint {endpoint_name}", file=sys.stderr)
+        return 1
+
+    fake_reality = os.environ.get("FORTRESS_FAKE_TRUENAS_REALITY_JSON")
+    if fake_reality:
+        _write_fake_env_log(api_token_env, credential)
+        sys.stdout.write(Path(fake_reality).read_text())
+        return 0
+
+    try:
+        reality = load_live_truenas_reality(management_address, credential)
+    except Exception as error:
+        print(f"failed to query TrueNAS reality for NAS Endpoint {endpoint_name}: {error}", file=sys.stderr)
+        return 1
+
+    json.dump(reality, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def load_live_truenas_reality(management_address, credential):
+    from truenas_api_client import Client
+
+    uri = f"ws://{management_address}/api/current"
+    with Client(uri=uri) as client:
+        _login_with_api_key(client, credential)
+        datasets = [_dataset_payload(client, dataset) for dataset in client.call("pool.dataset.query")]
+        nfs_shares = [_nfs_share_payload(share) for share in client.call("sharing.nfs.query")]
+    return {"datasets": datasets, "nfs_shares": nfs_shares, "previous_mounts": []}
+
+
+def _login_with_api_key(client, credential):
+    username, separator, key = credential.partition(":")
+    if separator:
+        client.login_with_api_key(username, key)
+    else:
+        client.login_with_api_key("root", credential)
+
+
+def _dataset_payload(client, dataset):
+    mountpoint = _property_value(dataset.get("mountpoint"))
+    payload = {"path": mountpoint or f"/mnt/{dataset.get('id')}"}
+    if payload["path"]:
+        try:
+            stat = client.call("filesystem.stat", payload["path"])
+        except Exception:
+            stat = {}
+        if "uid" in stat or "gid" in stat:
+            payload["owner"] = {"uid": stat.get("uid"), "gid": stat.get("gid")}
+    return payload
+
+
+def _nfs_share_payload(share):
+    paths = share.get("paths") or []
+    path = paths[0] if paths else share.get("path")
+    return {
+        "name": share.get("comment") or f"truenas-nfs-{share.get('id')}",
+        "path": path,
+        "access": "read_only" if share.get("ro") else "read_write",
+        "clients": share.get("hosts") or share.get("networks") or [],
+        "fortress_marker": share.get("comment"),
+    }
+
+
+def _property_value(value):
+    if isinstance(value, dict):
+        return value.get("value") or value.get("rawvalue") or value.get("parsed")
+    return value
+
+
+def _write_fake_env_log(api_token_env, credential):
+    log_path = os.environ.get("FORTRESS_FAKE_TRUENAS_ENV_LOG")
+    if log_path:
+        Path(log_path).write_text(f"{api_token_env}={credential}\n")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

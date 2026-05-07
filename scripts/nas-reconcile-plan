@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,9 +13,18 @@ from fortress_inventory.model import load_inventory_tree
 from fortress_nas.reconcile import RecordingNasClient, build_nas_reconcile_plan, load_reality
 
 
+SOPS_EXTRACT_RECONCILE_CREDENTIAL = '["api_credentials"]["reconcile"]["value"]'
+
+
+class ReconcileCommandError(Exception):
+    pass
+
+
 def main():
     parser = argparse.ArgumentParser(prog="scripts/nas-reconcile-plan")
-    parser.add_argument("--reality-json", required=True, help="read-only TrueNAS reality fixture")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--reality-json", help="read-only TrueNAS reality fixture")
+    mode.add_argument("--live", metavar="ENDPOINT", help="load reality from the named NAS Endpoint")
     parser.add_argument("--apply", action="store_true", help="apply fortress-owned Share changes")
     parser.add_argument(
         "--confirm-disruptive-mount-changes",
@@ -34,9 +44,16 @@ def main():
     args = parser.parse_args()
 
     repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
-    inventory = load_inventory_tree(repo_root)
-    with Path(args.reality_json).open() as handle:
-        reality = load_reality(json.load(handle))
+    try:
+        inventory = load_inventory_tree(repo_root)
+        if args.reality_json:
+            with Path(args.reality_json).open() as handle:
+                reality = load_reality(json.load(handle))
+        else:
+            reality = _load_live_reality(repo_root, inventory, args.live)
+    except ReconcileCommandError as error:
+        print(error, file=sys.stderr)
+        return 1
 
     client = RecordingNasClient() if args.apply else None
     plan = build_nas_reconcile_plan(
@@ -48,9 +65,81 @@ def main():
         acceptance_ephemeral_datasets=args.acceptance_ephemeral_datasets,
         destroy_ephemeral_datasets=args.destroy_ephemeral_datasets,
     )
+    if args.live:
+        plan["connection"][args.live]["credential_source"] = (
+            f"inventory/nas/{args.live}.sops.yaml:api_credentials.reconcile.value"
+        )
     json.dump(plan, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 1 if plan["blocked"] else 0
+
+
+def _load_live_reality(repo_root, inventory, endpoint_name):
+    endpoint_yaml = repo_root / "inventory" / "nas" / f"{endpoint_name}.yaml"
+    if endpoint_name not in inventory.nas_endpoints or not endpoint_yaml.is_file():
+        raise ReconcileCommandError(
+            f"NAS Endpoint {endpoint_name} is not declared in Inventory at {endpoint_yaml}"
+        )
+    endpoint_sops = repo_root / "inventory" / "nas" / f"{endpoint_name}.sops.yaml"
+    if not endpoint_sops.is_file():
+        raise ReconcileCommandError(
+            f"NAS Endpoint Sibling SOPS File is required at {endpoint_sops}"
+        )
+    endpoint = inventory.nas_endpoints[endpoint_name]
+    if not endpoint.get("api_token_env"):
+        raise ReconcileCommandError(f"NAS Endpoint {endpoint_name} must declare api_token_env")
+    try:
+        credential = _sops_extract(endpoint_sops, SOPS_EXTRACT_RECONCILE_CREDENTIAL)
+    except subprocess.CalledProcessError as error:
+        raise ReconcileCommandError(
+            f"failed to decrypt NAS Reconcile Credential for NAS Endpoint {endpoint_name} "
+            f"from {endpoint_sops}"
+        ) from error
+    if not credential:
+        raise ReconcileCommandError(
+            f"missing api_credentials.reconcile.value in NAS Endpoint Sibling SOPS File "
+            f"for NAS Endpoint {endpoint_name}: {endpoint_sops}"
+        )
+
+    child_env = os.environ.copy()
+    child_env[endpoint["api_token_env"]] = credential
+    pythonpath = child_env.get("PYTHONPATH")
+    child_env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else f"{REPO_ROOT}{os.pathsep}{pythonpath}"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fortress_nas.truenas_reality",
+            endpoint_name,
+            endpoint["management_address"],
+            endpoint["api_token_env"],
+        ],
+        cwd=repo_root,
+        env=child_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise ReconcileCommandError(
+            f"failed to load live TrueNAS reality for NAS Endpoint {endpoint_name}"
+        )
+    try:
+        return load_reality(json.loads(result.stdout))
+    except json.JSONDecodeError as error:
+        raise ReconcileCommandError(
+            f"live TrueNAS reality loader returned invalid JSON for NAS Endpoint {endpoint_name}"
+        ) from error
+
+
+def _sops_extract(sops_file, extract):
+    return subprocess.run(
+        ["sops", "--decrypt", "--extract", extract, str(sops_file)],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.strip()
 
 
 if __name__ == "__main__":

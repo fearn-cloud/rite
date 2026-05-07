@@ -33,6 +33,12 @@ nas-reconcile-plan reality_json:
 nas-reconcile reality_json confirm_disruptive_mount_changes="false":
     @if [ "{{confirm_disruptive_mount_changes}}" = "true" ] || [ "{{confirm_disruptive_mount_changes}}" = "confirm_disruptive_mount_changes=true" ]; then ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply --confirm-disruptive-mount-changes; else ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply; fi
 
+nas-reconcile-live-plan endpoint:
+    @./scripts/nas-reconcile-plan --live {{endpoint}}
+
+nas-reconcile-live endpoint confirm_disruptive_mount_changes="false":
+    @if [ "{{confirm_disruptive_mount_changes}}" = "true" ] || [ "{{confirm_disruptive_mount_changes}}" = "confirm_disruptive_mount_changes=true" ]; then ./scripts/nas-reconcile-plan --live {{endpoint}} --apply --confirm-disruptive-mount-changes; else ./scripts/nas-reconcile-plan --live {{endpoint}} --apply; fi
+
 templates-build host:
     @./scripts/templates-build {{host}}
 

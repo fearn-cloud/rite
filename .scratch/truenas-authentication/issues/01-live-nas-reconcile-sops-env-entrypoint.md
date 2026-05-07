@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Live NAS Reconcile SOPS env entrypoint
 
@@ -8,11 +8,11 @@ Add the live NAS Reconcile command surface for a named NAS Endpoint and export i
 
 ## Acceptance criteria
 
-- [ ] `scripts/nas-reconcile-plan --live truenas` requires `inventory/nas/truenas.yaml` and `inventory/nas/truenas.sops.yaml` before attempting network access.
-- [ ] The workflow decrypts `api_credentials.reconcile.value` from `inventory/nas/truenas.sops.yaml` and exports it only to the child process environment named by `api_token_env`.
-- [ ] Missing endpoint, missing Sibling SOPS File, missing `api_token_env`, and failed SOPS extraction produce clear operator errors without printing the credential value.
-- [ ] Existing `--reality-json` plan/apply tests continue to pass without any NAS Endpoint Sibling SOPS File.
-- [ ] `just` exposes endpoint-explicit live plan/apply tasks.
+- [x] `scripts/nas-reconcile-plan --live truenas` requires `inventory/nas/truenas.yaml` and `inventory/nas/truenas.sops.yaml` before attempting network access.
+- [x] The workflow decrypts `api_credentials.reconcile.value` from `inventory/nas/truenas.sops.yaml` and exports it only to the child process environment named by `api_token_env`.
+- [x] Missing endpoint, missing Sibling SOPS File, missing `api_token_env`, and failed SOPS extraction produce clear operator errors without printing the credential value.
+- [x] Existing `--reality-json` plan/apply tests continue to pass without any NAS Endpoint Sibling SOPS File.
+- [x] `just` exposes endpoint-explicit live plan/apply tasks.
 
 ## Blocked by
 

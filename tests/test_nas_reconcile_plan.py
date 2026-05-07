@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -19,6 +20,10 @@ class NasReconcilePlanTests(unittest.TestCase):
         self.assertIn("./scripts/nas-reconcile-plan --reality-json {{reality_json}}", justfile)
         self.assertIn("nas-reconcile reality_json confirm_disruptive_mount_changes=", justfile)
         self.assertIn("--apply --confirm-disruptive-mount-changes", justfile)
+        self.assertIn("nas-reconcile-live-plan endpoint:", justfile)
+        self.assertIn("./scripts/nas-reconcile-plan --live {{endpoint}}", justfile)
+        self.assertIn("nas-reconcile-live endpoint confirm_disruptive_mount_changes=", justfile)
+        self.assertIn("--live {{endpoint}} --apply --confirm-disruptive-mount-changes", justfile)
 
     def test_operator_command_reports_missing_adopted_dataset_without_mutating_truenas(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -235,6 +240,117 @@ class NasReconcilePlanTests(unittest.TestCase):
                     "api_token_env": "TRUENAS_API_TOKEN",
                     "credentials": "operator_environment",
                 },
+            )
+
+    def test_live_plan_requires_named_nas_endpoint_before_loading_reality(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            endpoint_path = root / "inventory" / "nas" / "truenas.yaml"
+            endpoint_path.unlink()
+
+            result = self._run_live_reconcile(root, "truenas")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("NAS Endpoint truenas is not declared in Inventory", result.stderr)
+            self.assertIn("inventory/nas/truenas.yaml", result.stderr)
+
+    def test_live_plan_requires_endpoint_sibling_sops_file_before_loading_reality(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+
+            result = self._run_live_reconcile(root, "truenas")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("NAS Endpoint Sibling SOPS File is required", result.stderr)
+            self.assertIn("inventory/nas/truenas.sops.yaml", result.stderr)
+
+    def test_live_plan_requires_api_token_env_before_decrypting_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            endpoint_path = root / "inventory" / "nas" / "truenas.yaml"
+            endpoint_path.write_text(
+                endpoint_path.read_text().replace("api_token_env: TRUENAS_API_TOKEN\n", "")
+            )
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text(
+                "api_credentials:\n  reconcile:\n    value: super-secret-token\n"
+            )
+
+            result = self._run_live_reconcile(root, "truenas")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("NAS Endpoint truenas must declare api_token_env", result.stderr)
+            self.assertNotIn("super-secret-token", result.stderr)
+
+    def test_live_plan_reports_failed_sops_extraction_without_printing_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text("encrypted\n")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'super-secret-token should stay hidden\\n' >&2\n"
+                "exit 1\n"
+            )
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+
+            result = self._run_live_reconcile(root, "truenas", extra_env={"PATH": f"{bin_dir}:{os.environ['PATH']}"})
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("failed to decrypt NAS Reconcile Credential", result.stderr)
+            self.assertIn("inventory/nas/truenas.sops.yaml", result.stderr)
+            self.assertNotIn("super-secret-token", result.stderr)
+
+    def test_live_plan_exports_reconcile_credential_only_to_child_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text("encrypted\n")
+            reality_path = root / "truenas-reality.json"
+            reality_path.write_text(
+                json.dumps(
+                    {
+                        "datasets": [
+                            {"path": "/mnt/pool/media", "owner": {"uid": 1000, "gid": 1000}},
+                        ],
+                        "nfs_shares": [],
+                    }
+                )
+            )
+            env_log = root / "live-env.log"
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text("#!/usr/bin/env bash\nprintf 'super-secret-token\\n'\n")
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+
+            result = self._run_live_reconcile(
+                root,
+                "truenas",
+                extra_env={
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                    "FORTRESS_FAKE_TRUENAS_REALITY_JSON": str(reality_path),
+                    "FORTRESS_FAKE_TRUENAS_ENV_LOG": str(env_log),
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("super-secret-token", result.stdout)
+            self.assertNotIn("super-secret-token", result.stderr)
+            self.assertEqual(env_log.read_text(), "TRUENAS_API_TOKEN=super-secret-token\n")
+            plan = json.loads(result.stdout)
+            self.assertTrue(plan["read_only"])
+            self.assertEqual(
+                plan["connection"]["truenas"]["credential_source"],
+                "inventory/nas/truenas.sops.yaml:api_credentials.reconcile.value",
             )
 
     def test_inline_connection_secrets_are_still_redacted_from_plan_output(self):
@@ -959,6 +1075,20 @@ class NasReconcilePlanTests(unittest.TestCase):
         env["FORTRESS_ROOT"] = str(root)
         return subprocess.run(
             [str(REPO_ROOT / "scripts" / "nas-reconcile-plan"), "--reality-json", str(reality_path), *args],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def _run_live_reconcile(self, root, endpoint, *args, extra_env=None):
+        env = os.environ.copy()
+        env["FORTRESS_ROOT"] = str(root)
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            [str(REPO_ROOT / "scripts" / "nas-reconcile-plan"), "--live", endpoint, *args],
             cwd=REPO_ROOT,
             env=env,
             text=True,

@@ -1,6 +1,6 @@
 # VM Mounts reference Datasets
 
-Status: ready-for-agent
+Status: done
 Category: enhancement
 
 ## What to build
@@ -9,12 +9,12 @@ Replace the old `nfs_mounts[].export` contract with VM `mounts[]` declarations t
 
 ## Acceptance criteria
 
-- [ ] `inventory/vms/_schema.json` accepts `mounts[]` with required `name`, `dataset`, `protocol`, `mount_point`, and `access`, and no longer requires or documents `nfs_mounts[].export`.
-- [ ] Cross-file validation rejects Mounts referencing missing Datasets.
-- [ ] Cross-file validation rejects duplicate Mount Names within a VM.
-- [ ] Cross-file validation rejects Mount-bearing VMs without an unambiguous static IP address.
-- [ ] The VM NFS mount Ansible role renders systemd `.mount` units from `mounts[]` where `protocol: nfs`.
-- [ ] `access` is authoritative: `read_only` renders read-only behavior, and protocol options that contradict `access` are rejected.
+- [x] `inventory/vms/_schema.json` accepts `mounts[]` with required `name`, `dataset`, `protocol`, `mount_point`, and `access`, and no longer requires or documents `nfs_mounts[].export`.
+- [x] Cross-file validation rejects Mounts referencing missing Datasets.
+- [x] Cross-file validation rejects duplicate Mount Names within a VM.
+- [x] Cross-file validation rejects Mount-bearing VMs without an unambiguous static IP address.
+- [x] The VM NFS mount Ansible role renders systemd `.mount` units from `mounts[]` where `protocol: nfs`.
+- [x] `access` is authoritative: `read_only` renders read-only behavior, and protocol options that contradict `access` are rejected.
 
 ## Blocked by
 
@@ -49,15 +49,15 @@ Contradictory protocol options must not be allowed to override `access`. For exa
 - Protocol option handling should make `access` authoritative and reject options that contradict it.
 
 **Acceptance criteria:**
-- [ ] VM schema validation accepts Mount declarations with required `name`, `dataset`, `protocol`, `mount_point`, and `access`.
-- [ ] VM schema validation rejects incomplete Mount declarations and no longer requires or documents `nfs_mounts[].export`.
-- [ ] Cross-file validation rejects Mounts whose `dataset` does not resolve to a declared Dataset.
-- [ ] Cross-file validation rejects duplicate Mount Names within a single VM while allowing the same Mount Name on different VMs.
-- [ ] Cross-file validation rejects a VM with one or more Mounts unless that VM has exactly one unambiguous static IP address.
-- [ ] VM Configure renders systemd `.mount` units from `mounts` entries where `protocol` is `nfs`.
-- [ ] `read_only` Mounts render read-only NFS behavior, and `read_write` Mounts render read-write behavior.
-- [ ] Protocol options or extra mount options that contradict the declared `access` are rejected before rendering.
-- [ ] Existing tests and fixtures are updated from the legacy NFS export contract to the Dataset-backed Mount contract where applicable.
+- [x] VM schema validation accepts Mount declarations with required `name`, `dataset`, `protocol`, `mount_point`, and `access`.
+- [x] VM schema validation rejects incomplete Mount declarations and no longer requires or documents `nfs_mounts[].export`.
+- [x] Cross-file validation rejects Mounts whose `dataset` does not resolve to a declared Dataset.
+- [x] Cross-file validation rejects duplicate Mount Names within a single VM while allowing the same Mount Name on different VMs.
+- [x] Cross-file validation rejects a VM with one or more Mounts unless that VM has exactly one unambiguous static IP address.
+- [x] VM Configure renders systemd `.mount` units from `mounts` entries where `protocol` is `nfs`.
+- [x] `read_only` Mounts render read-only NFS behavior, and `read_write` Mounts render read-write behavior.
+- [x] Protocol options or extra mount options that contradict the declared `access` are rejected before rendering.
+- [x] Existing tests and fixtures are updated from the legacy NFS export contract to the Dataset-backed Mount contract where applicable.
 
 **Out of scope:**
 - Implementing NAS Reconcile plan or TrueNAS API writes.

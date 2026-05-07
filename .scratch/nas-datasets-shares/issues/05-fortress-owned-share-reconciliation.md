@@ -1,6 +1,6 @@
 # Fortress-owned Share reconciliation
 
-Status: ready-for-agent
+Status: done
 Category: enhancement
 
 ## What to build
@@ -9,12 +9,12 @@ Extend NAS Reconcile from read-only planning to API-backed writes for fortress-o
 
 ## Acceptance criteria
 
-- [ ] Created NFS Shares carry a durable fortress ownership marker and deterministic identity.
-- [ ] NAS Reconcile updates only fortress-owned Shares and refuses to mutate unmanaged Shares.
-- [ ] NAS Reconcile destroys stale fortress-owned Shares only when no VM or Service declaration still requires them.
-- [ ] Mount removal, `access` change, and `mount_point` change are surfaced in preflight output and require explicit operator confirmation.
-- [ ] NAS Reconcile does not roll back Shares after downstream VM Configure or Service deployment failures.
-- [ ] Tests cover create, update, stale delete, unmanaged conflict refusal, and confirmation-gated changes.
+- [x] Created NFS Shares carry a durable fortress ownership marker and deterministic identity.
+- [x] NAS Reconcile updates only fortress-owned Shares and refuses to mutate unmanaged Shares.
+- [x] NAS Reconcile destroys stale fortress-owned Shares only when no VM or Service declaration still requires them.
+- [x] Mount removal, `access` change, and `mount_point` change are surfaced in preflight output and require explicit operator confirmation.
+- [x] NAS Reconcile does not roll back Shares after downstream VM Configure or Service deployment failures.
+- [x] Tests cover create, update, stale delete, unmanaged conflict refusal, and confirmation-gated changes.
 
 ## Blocked by
 
@@ -49,15 +49,15 @@ Potentially disruptive Mount changes need an explicit operator confirmation gate
 - Preflight/confirmation model — should represent Mount removals, Mount `access` changes, and Mount `mount_point` changes before writes proceed.
 
 **Acceptance criteria:**
-- [ ] Created NFS Shares carry a durable fortress ownership marker and deterministic identity.
-- [ ] NAS Reconcile updates only fortress-owned Shares and refuses to mutate unmanaged Shares.
-- [ ] NAS Reconcile creates missing fortress-owned NFS Shares with derived Dataset path, protocol, access policy, and VM client IPs.
-- [ ] NAS Reconcile updates drifted fortress-owned NFS Shares to match derived intent.
-- [ ] NAS Reconcile destroys stale fortress-owned Shares only when no VM Mount or Service declaration still requires them.
-- [ ] Mount removal, `access` change, and `mount_point` change are surfaced in preflight output and require explicit operator confirmation.
-- [ ] NAS Reconcile does not roll back Shares after downstream VM Configure or Service deployment failures.
-- [ ] Tests cover create, update, stale delete, unmanaged conflict refusal, and confirmation-gated changes.
-- [ ] Secrets and TrueNAS credentials remain redacted from logs, errors, and plan/apply output.
+- [x] Created NFS Shares carry a durable fortress ownership marker and deterministic identity.
+- [x] NAS Reconcile updates only fortress-owned Shares and refuses to mutate unmanaged Shares.
+- [x] NAS Reconcile creates missing fortress-owned NFS Shares with derived Dataset path, protocol, access policy, and VM client IPs.
+- [x] NAS Reconcile updates drifted fortress-owned NFS Shares to match derived intent.
+- [x] NAS Reconcile destroys stale fortress-owned Shares only when no VM Mount or Service declaration still requires them.
+- [x] Mount removal, `access` change, and `mount_point` change are surfaced in preflight output and require explicit operator confirmation.
+- [x] NAS Reconcile does not roll back Shares after downstream VM Configure or Service deployment failures.
+- [x] Tests cover create, update, stale delete, unmanaged conflict refusal, and confirmation-gated changes.
+- [x] Secrets and TrueNAS credentials remain redacted from logs, errors, and plan/apply output.
 
 **Out of scope:**
 - Creating, deleting, adopting, or repairing ordinary adopted Datasets.

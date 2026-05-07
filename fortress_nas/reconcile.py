@@ -5,6 +5,23 @@ from dataclasses import dataclass
 class NasReality:
     datasets: dict
     nfs_shares: list
+    previous_mounts: list
+
+
+class RecordingNasClient:
+    def __init__(self):
+        self.operations = []
+
+    def create_nfs_share(self, share):
+        self.operations.append({"method": "create_nfs_share", "share": share})
+
+    def update_nfs_share(self, share, desired):
+        self.operations.append(
+            {"method": "update_nfs_share", "share": share, "desired": desired}
+        )
+
+    def delete_nfs_share(self, share):
+        self.operations.append({"method": "delete_nfs_share", "share": share})
 
 
 def load_reality(data):
@@ -13,10 +30,20 @@ def load_reality(data):
         for dataset in data.get("datasets", []) or []
         if dataset.get("path")
     }
-    return NasReality(datasets=datasets, nfs_shares=data.get("nfs_shares", []) or [])
+    return NasReality(
+        datasets=datasets,
+        nfs_shares=data.get("nfs_shares", []) or [],
+        previous_mounts=data.get("previous_mounts", []) or [],
+    )
 
 
-def build_nas_reconcile_plan(inventory, reality):
+def build_nas_reconcile_plan(
+    inventory,
+    reality,
+    apply=False,
+    client=None,
+    confirm_disruptive_mount_changes=False,
+):
     dataset_findings = []
     for dataset in sorted(inventory.datasets.values(), key=lambda item: item.get("name", "")):
         if dataset.get("lifecycle", "adopted") != "adopted":
@@ -58,18 +85,156 @@ def build_nas_reconcile_plan(inventory, reality):
 
     desired_nfs_shares = derive_desired_nfs_shares(inventory)
     share_findings = _share_findings(desired_nfs_shares, reality.nfs_shares)
+    preflight_findings = _mount_preflight_findings(inventory, reality.previous_mounts)
     blocking_codes = {"unmanaged_share_overlap"}
 
-    return {
-        "read_only": True,
-        "blocked": bool(dataset_findings)
-        or any(finding["code"] in blocking_codes for finding in share_findings),
-        "write_actions": [],
+    blocked = bool(dataset_findings) or any(
+        finding["code"] in blocking_codes for finding in share_findings
+    )
+    confirmation_required = bool(preflight_findings) and not confirm_disruptive_mount_changes
+    blocked = blocked or confirmation_required
+    write_actions = []
+    if apply and not blocked:
+        write_actions = _write_actions(desired_nfs_shares, reality.nfs_shares)
+        if client:
+            _apply_write_actions(client, write_actions)
+
+    result = {
+        "read_only": not apply,
+        "blocked": blocked,
+        "write_actions": write_actions,
+        "rollback_actions": [],
         "connection": _redacted_connection(inventory),
         "dataset_findings": dataset_findings,
         "desired_nfs_shares": desired_nfs_shares,
+        "preflight_findings": preflight_findings,
+        "confirmation_required": confirmation_required,
         "share_findings": share_findings,
     }
+    if client:
+        result["api_operations"] = client.operations
+    return result
+
+
+def _write_actions(desired_nfs_shares, existing_nfs_shares):
+    existing_by_name = {share.get("name"): share for share in existing_nfs_shares}
+    desired_names = {share["name"] for share in desired_nfs_shares}
+    actions = []
+    for desired in desired_nfs_shares:
+        if desired["name"] not in existing_by_name:
+            actions.append({"action": "create_nfs_share", "share": _owned_share_payload(desired)})
+            continue
+        existing = existing_by_name[desired["name"]]
+        desired_payload = _owned_share_payload(desired)
+        if _is_fortress_owned_share(existing) and _share_drifted(existing, desired_payload):
+            actions.append(
+                {
+                    "action": "update_nfs_share",
+                    "share": desired["name"],
+                    "desired": desired_payload,
+                }
+            )
+    for existing in sorted(existing_nfs_shares, key=lambda item: item.get("name", "")):
+        if _is_fortress_owned_share(existing) and existing.get("name") not in desired_names:
+            actions.append(
+                {
+                    "action": "delete_nfs_share",
+                    "share": existing.get("name"),
+                    "path": existing.get("path"),
+                }
+            )
+    return actions
+
+
+def _apply_write_actions(client, write_actions):
+    for action in write_actions:
+        if action["action"] == "create_nfs_share":
+            client.create_nfs_share(action["share"])
+        elif action["action"] == "update_nfs_share":
+            client.update_nfs_share(action["share"], action["desired"])
+        elif action["action"] == "delete_nfs_share":
+            client.delete_nfs_share(action["share"])
+
+
+def _owned_share_payload(desired):
+    return {
+        "name": desired["name"],
+        "path": desired["path"],
+        "protocol": desired["protocol"],
+        "access": desired["access"],
+        "clients": desired["clients"],
+        "fortress_owned": True,
+        "fortress_marker": _fortress_marker(desired["name"]),
+    }
+
+
+def _fortress_marker(name):
+    return f"fortress:nfs-share:{name}"
+
+
+def _share_drifted(existing, desired):
+    for key in ("path", "access", "clients", "fortress_marker"):
+        if existing.get(key) != desired.get(key):
+            return True
+    return False
+
+
+def _mount_preflight_findings(inventory, previous_mounts):
+    previous_by_key = {
+        (mount.get("vm"), mount.get("name")): mount
+        for mount in previous_mounts
+        if mount.get("vm") and mount.get("name")
+    }
+    current_by_key = {}
+    for vm_name, vm in inventory.vms.items():
+        for mount in vm.get("mounts", []) or []:
+            if mount.get("name"):
+                current_by_key[(vm_name, mount["name"])] = mount
+
+    findings = []
+    for vm_name, mount_name in sorted(previous_by_key):
+        previous = previous_by_key[(vm_name, mount_name)]
+        current = current_by_key.get((vm_name, mount_name))
+        if not current:
+            findings.append(
+                {
+                    "code": "mount_removed",
+                    "vm": vm_name,
+                    "mount": mount_name,
+                    "dataset": previous.get("dataset"),
+                    "message": f"Mount {mount_name} on VM {vm_name} was removed",
+                }
+            )
+            continue
+        if previous.get("access") != current.get("access"):
+            findings.append(
+                {
+                    "code": "mount_access_changed",
+                    "vm": vm_name,
+                    "mount": mount_name,
+                    "previous": previous.get("access"),
+                    "current": current.get("access"),
+                    "message": (
+                        f"Mount {mount_name} on VM {vm_name} access changed from "
+                        f"{previous.get('access')} to {current.get('access')}"
+                    ),
+                }
+            )
+        if previous.get("mount_point") != current.get("mount_point"):
+            findings.append(
+                {
+                    "code": "mount_point_changed",
+                    "vm": vm_name,
+                    "mount": mount_name,
+                    "previous": previous.get("mount_point"),
+                    "current": current.get("mount_point"),
+                    "message": (
+                        f"Mount {mount_name} on VM {vm_name} mount_point changed from "
+                        f"{previous.get('mount_point')} to {current.get('mount_point')}"
+                    ),
+                }
+            )
+    return findings
 
 
 def derive_desired_nfs_shares(inventory):
@@ -152,7 +317,9 @@ def _share_findings(desired_nfs_shares, existing_nfs_shares):
 
 
 def _is_fortress_owned_share(share):
-    return share.get("fortress_owned") is True
+    return share.get("fortress_owned") is True or share.get("fortress_marker") == _fortress_marker(
+        share.get("name")
+    )
 
 
 def _paths_overlap(existing_path, desired_path):

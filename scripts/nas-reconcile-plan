@@ -9,12 +9,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from fortress_inventory.model import load_inventory_tree
-from fortress_nas.reconcile import build_nas_reconcile_plan, load_reality
+from fortress_nas.reconcile import RecordingNasClient, build_nas_reconcile_plan, load_reality
 
 
 def main():
     parser = argparse.ArgumentParser(prog="scripts/nas-reconcile-plan")
     parser.add_argument("--reality-json", required=True, help="read-only TrueNAS reality fixture")
+    parser.add_argument("--apply", action="store_true", help="apply fortress-owned Share changes")
+    parser.add_argument(
+        "--confirm-disruptive-mount-changes",
+        action="store_true",
+        help="continue when Mount removal, access changes, or mount_point changes are detected",
+    )
     args = parser.parse_args()
 
     repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
@@ -22,7 +28,14 @@ def main():
     with Path(args.reality_json).open() as handle:
         reality = load_reality(json.load(handle))
 
-    plan = build_nas_reconcile_plan(inventory, reality)
+    client = RecordingNasClient() if args.apply else None
+    plan = build_nas_reconcile_plan(
+        inventory,
+        reality,
+        apply=args.apply,
+        client=client,
+        confirm_disruptive_mount_changes=args.confirm_disruptive_mount_changes,
+    )
     json.dump(plan, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 1 if plan["blocked"] else 0

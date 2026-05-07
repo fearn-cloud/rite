@@ -30,6 +30,9 @@ service-deploy service:
 nas-reconcile-plan reality_json:
     @./scripts/nas-reconcile-plan --reality-json {{reality_json}}
 
+nas-reconcile reality_json confirm_disruptive_mount_changes="false":
+    @if [ "{{confirm_disruptive_mount_changes}}" = "true" ] || [ "{{confirm_disruptive_mount_changes}}" = "confirm_disruptive_mount_changes=true" ]; then ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply --confirm-disruptive-mount-changes; else ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply; fi
+
 templates-build host:
     @./scripts/templates-build {{host}}
 

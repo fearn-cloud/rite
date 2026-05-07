@@ -1,0 +1,19 @@
+- name: Deploy Service
+  hosts: "{{ deploy_service_backend_vm }}"
+  gather_facts: false
+  tasks:
+    - name: Validate Share-backed Volume subpaths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ fortress_share_backed_volume_subpaths | default([]) }}"
+      register: fortress_service_volume_subpath_stats
+
+    - name: Refuse missing Share-backed Volume subpaths
+      ansible.builtin.fail:
+        msg: "Share-backed Volume subpath {{ item.item }} does not exist on Backend VM {{ deploy_service_backend_vm }}"
+      loop: "{{ fortress_service_volume_subpath_stats.results | default([]) }}"
+      when: not item.stat.exists
+
+    - name: Start Service containers
+      ansible.builtin.debug:
+        msg: "TODO: render and start {{ deploy_service }}"

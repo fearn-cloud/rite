@@ -21,6 +21,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors = []
     errors.extend(_validate_service_backends(model))
     errors.extend(_validate_service_hostnames(model))
+    errors.extend(_validate_service_share_backed_volumes(model))
     errors.extend(_validate_vm_inventory_policy(model))
     errors.extend(_validate_vm_refs(model))
     errors.extend(_validate_dataset_names(model))
@@ -127,6 +128,77 @@ def _validate_service_hostnames(model):
         else:
             seen[hostname] = service_name
     return errors
+
+
+def _validate_service_share_backed_volumes(model):
+    errors = []
+    for service_name, service in model.services.items():
+        backend_vm_name = service.get("backend", {}).get("vm")
+        backend_vm = model.vms.get(backend_vm_name)
+        if not backend_vm:
+            continue
+        vm_mounts = {
+            mount.get("name"): mount
+            for mount in backend_vm.get("mounts", []) or []
+            if mount.get("name")
+        }
+        for container_index, _container, volume_index, volume in _service_volumes(service):
+            mount_name = volume.get("mount")
+            if not mount_name:
+                continue
+            if _unsafe_share_backed_source(volume.get("source")):
+                errors.append(
+                    ValidationError(
+                        "unsafe_service_volume_source",
+                        _service_volume_path(service_name, container_index, volume_index, "source"),
+                        f"Service {service_name} Share-backed Volume source {volume.get('source')} "
+                        "must be / or a relative subpath without .. traversal",
+                    )
+                )
+            if mount_name not in vm_mounts:
+                errors.append(
+                    ValidationError(
+                        "missing_service_volume_mount",
+                        _service_volume_path(service_name, container_index, volume_index, "mount"),
+                        f"Service {service_name} Share-backed Volume references missing Mount Name {mount_name} "
+                        f"on Backend VM {backend_vm_name}",
+                    )
+                )
+                continue
+            mount = vm_mounts[mount_name]
+            volume_access = volume.get("access", mount.get("access"))
+            if mount.get("access") == "read_only" and volume_access == "read_write":
+                errors.append(
+                    ValidationError(
+                        "service_volume_widens_mount_access",
+                        _service_volume_path(service_name, container_index, volume_index, "access"),
+                        f"Service {service_name} Share-backed Volume requests read_write access to read_only "
+                        f"Mount {mount_name} on Backend VM {backend_vm_name}",
+                    )
+                )
+    return errors
+
+
+def _unsafe_share_backed_source(source):
+    if source == "/":
+        return False
+    if not source or source.startswith("/"):
+        return True
+    return ".." in str(source).split("/")
+
+
+def _service_volumes(service):
+    containers = service.get("deploy", {}).get("containers", []) or []
+    for container_index, container in enumerate(containers):
+        for volume_index, volume in enumerate(container.get("volumes", []) or []):
+            yield container_index, container, volume_index, volume
+
+
+def _service_volume_path(service_name, container_index, volume_index, field):
+    return (
+        f"inventory/services/{service_name}.yaml.deploy.containers"
+        f"[{container_index}].volumes[{volume_index}].{field}"
+    )
 
 
 def _validate_vm_refs(model):

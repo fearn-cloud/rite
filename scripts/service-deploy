@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.validate import validate_inventory_model
+from fortress_services.deploy import share_backed_volume_subpaths
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/service-deploy <service>", file=sys.stderr)
+        return 2
+
+    service_name = sys.argv[1].removeprefix("service=")
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    service = model.services.get(service_name)
+    if not service:
+        print(
+            f"Service {service_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'services' / f'{service_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    errors = validate_inventory_model(model)
+    if errors:
+        for error in errors:
+            print(f"{error.code}: {error.path}: {error.message}", file=sys.stderr)
+        return 1
+
+    backend_vm_name = service.get("backend", {}).get("vm")
+    backend_vm = model.vms[backend_vm_name]
+    vm_sops = repo_root / "inventory" / "vms" / f"{backend_vm_name}.sops.yaml"
+    if not vm_sops.is_file():
+        print(f"VM Sibling SOPS File is required at {vm_sops}. Run VM Prepare first.", file=sys.stderr)
+        return 1
+
+    extra_vars = {
+        "deploy_service": service_name,
+        "deploy_service_backend_vm": backend_vm_name,
+        "fortress_service": service,
+        "fortress_share_backed_volume_subpaths": share_backed_volume_subpaths(service, backend_vm),
+    }
+    try:
+        subprocess.run(
+            [
+                str(repo_root / "scripts" / "decrypt-keys"),
+                str(vm_sops),
+                "--",
+                "ansible-playbook",
+                str(repo_root / "ansible" / "playbooks" / "service-deploy.yml"),
+                "-i",
+                str(repo_root / "inventory" / "fortress.yaml"),
+                "--limit",
+                backend_vm_name,
+                "--extra-vars",
+                json.dumps(extra_vars),
+            ],
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        return error.returncode or 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

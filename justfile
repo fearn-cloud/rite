@@ -25,7 +25,7 @@ vm-destroy vm delete_vm_yaml="false":
     @if [ "{{delete_vm_yaml}}" = "true" ] || [ "{{delete_vm_yaml}}" = "delete_vm_yaml=true" ]; then ./scripts/vm-destroy {{vm}} --delete-vm-yaml; else ./scripts/vm-destroy {{vm}}; fi
 
 service-deploy service:
-    @echo "TODO: deploy Service {{service}}"
+    @./scripts/service-deploy {{service}}
 
 templates-build host:
     @./scripts/templates-build {{host}}

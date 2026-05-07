@@ -33,7 +33,44 @@
           "properties": {
             "type": { "const": "quadlet" },
             "network": { "type": "string" },
-            "containers": { "type": "array", "minItems": 1, "items": { "type": "object" } }
+            "containers": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "volumes": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["host", "container"],
+                          "properties": {
+                            "host": { "type": "string", "pattern": "^/" },
+                            "container": { "type": "string", "pattern": "^/" },
+                            "access": { "enum": ["read_only", "read_write"] }
+                          }
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["mount", "source", "container"],
+                          "properties": {
+                            "mount": { "type": "string", "minLength": 1 },
+                            "source": { "type": "string", "minLength": 1 },
+                            "container": { "type": "string", "pattern": "^/" },
+                            "access": { "enum": ["read_only", "read_write"] }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           },
           "additionalProperties": true
         },

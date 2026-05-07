@@ -1,6 +1,6 @@
 # Share-backed Service volumes
 
-Status: needs-triage
+Status: done
 
 ## What to build
 
@@ -8,12 +8,12 @@ Add Service volume declarations that consume Dataset access through a VM-local M
 
 ## Acceptance criteria
 
-- [ ] Service schema accepts Share-backed Volume declarations separately from ordinary host-path bind mounts.
-- [ ] Cross-file validation resolves each Share-backed Volume `mount` against the Service Backend VM's Mount Names.
-- [ ] Validation rejects Share-backed Volumes that reference missing Mounts or attempt to widen Mount access.
-- [ ] Validation rejects unsafe sources such as absolute host paths other than `source: /` and any `..` traversal.
-- [ ] Quadlet rendering adds ordering on the corresponding systemd `.mount` unit for Share-backed Volumes.
-- [ ] Service deployment validates declared Share-backed Volume subpaths before starting containers.
+- [x] Service schema accepts Share-backed Volume declarations separately from ordinary host-path bind mounts.
+- [x] Cross-file validation resolves each Share-backed Volume `mount` against the Service Backend VM's Mount Names.
+- [x] Validation rejects Share-backed Volumes that reference missing Mounts or attempt to widen Mount access.
+- [x] Validation rejects unsafe sources such as absolute host paths other than `source: /` and any `..` traversal.
+- [x] Quadlet rendering adds ordering on the corresponding systemd `.mount` unit for Share-backed Volumes.
+- [x] Service deployment validates declared Share-backed Volume subpaths before starting containers.
 
 ## Blocked by
 

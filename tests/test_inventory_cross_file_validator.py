@@ -97,6 +97,79 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_service_hostnames_must_be_unique(self):
         self.assertIn("duplicate_service_hostname", self.codes_for("inventory_invalid/duplicate-hostname"))
 
+    def test_share_backed_service_volumes_must_reference_backend_vm_mount_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "services" / "immich.yaml").write_text(
+                "name: immich\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                "      volumes:\n"
+                "        - mount: missing-media\n"
+                "          source: /\n"
+                "          container: /photos\n"
+                "          access: read_only\n"
+            )
+
+            self.assertIn("missing_service_volume_mount", {error.code for error in validate_inventory_tree(root)})
+
+    def test_share_backed_service_volumes_must_not_widen_mount_access(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text().replace("    access: read_write\n", "    access: read_only\n"))
+            (root / "inventory" / "services" / "immich.yaml").write_text(
+                "name: immich\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                "      volumes:\n"
+                "        - mount: media\n"
+                "          source: /\n"
+                "          container: /photos\n"
+                "          access: read_write\n"
+            )
+
+            self.assertIn("service_volume_widens_mount_access", {error.code for error in validate_inventory_tree(root)})
+
+    def test_share_backed_service_volume_sources_must_stay_under_mount_root(self):
+        unsafe_sources = ["/mnt/pool/media", "../photos", "photos/../secrets"]
+        for source in unsafe_sources:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                (root / "inventory" / "services" / "immich.yaml").write_text(
+                    "name: immich\n"
+                    "backend:\n"
+                    "  vm: media01\n"
+                    "  port: 2283\n"
+                    "deploy:\n"
+                    "  type: quadlet\n"
+                    "  containers:\n"
+                    "    - name: server\n"
+                    "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                    "      volumes:\n"
+                    "        - mount: media\n"
+                    f"          source: {source}\n"
+                    "          container: /photos\n"
+                    "          access: read_only\n"
+                )
+
+                self.assertIn("unsafe_service_volume_source", {error.code for error in validate_inventory_tree(root)})
+
     def test_vm_placement_host_must_exist(self):
         self.assertIn("missing_vm_host", self.codes_for("inventory_invalid/missing-vm-host"))
 

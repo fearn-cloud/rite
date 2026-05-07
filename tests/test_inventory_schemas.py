@@ -244,3 +244,42 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("nfs_mounts", result.stdout + result.stderr)
+
+    def test_service_schema_accepts_share_backed_volumes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "immich.yaml"
+            service_yaml.write_text(
+                "name: immich\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                "      volumes:\n"
+                "        - host: /srv/services/immich/upload\n"
+                "          container: /usr/src/app/upload\n"
+                "        - mount: media\n"
+                "          source: /\n"
+                "          container: /photos\n"
+                "          access: read_only\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            service_yaml.write_text(
+                service_yaml.read_text().replace(
+                    "        - mount: media\n",
+                    "        - host: /srv/services/immich/photos\n"
+                    "          mount: media\n",
+                )
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("volumes", result.stdout + result.stderr)

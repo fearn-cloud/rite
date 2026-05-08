@@ -1,0 +1,96 @@
+from contextlib import contextmanager
+
+
+MANAGEMENT_API_REACHABILITY = "management API reachability"
+NAS_RECONCILE_CREDENTIAL_AUTHENTICATION = "NAS Reconcile Credential authentication"
+DATASET_READ = "Dataset read"
+NFS_SHARE_READ = "NFS Share read"
+
+
+class TrueNasCapabilityError(Exception):
+    def __init__(self, capability, reason):
+        self.capability = capability
+        self.reason = reason
+        super().__init__(f"{capability} failed: {reason}")
+
+
+class LiveTrueNasClient:
+    def __init__(self, client, credential):
+        self._client = client
+        self._credential = credential
+
+    @classmethod
+    @contextmanager
+    def connect(cls, management_address, credential, client_class=None):
+        if client_class is None:
+            from truenas_api_client import Client
+
+            client_class = Client
+
+        uri = f"ws://{management_address}/api/current"
+        try:
+            with client_class(uri=uri) as client:
+                try:
+                    _login_with_api_key(client, credential)
+                except Exception as error:
+                    raise TrueNasCapabilityError(
+                        NAS_RECONCILE_CREDENTIAL_AUTHENTICATION,
+                        _safe_reason(error, credential),
+                    ) from error
+                try:
+                    if hasattr(client, "ping"):
+                        client.ping()
+                    else:
+                        client.call("core.ping")
+                except Exception as error:
+                    raise TrueNasCapabilityError(
+                        MANAGEMENT_API_REACHABILITY, _safe_reason(error, credential)
+                    ) from error
+                yield cls(client, credential)
+        except TrueNasCapabilityError:
+            raise
+        except Exception as error:
+            raise TrueNasCapabilityError(
+                MANAGEMENT_API_REACHABILITY, _safe_reason(error, credential)
+            ) from error
+
+    def preflight(self):
+        self._call(DATASET_READ, "pool.dataset.query", [], {"limit": 1})
+        self._call(NFS_SHARE_READ, "sharing.nfs.query", [], {"limit": 1})
+        # TrueNAS does not expose a stable non-mutating NFS Share write permission
+        # probe here; live apply relies on the actual reconcile operation to fail safely.
+
+    def datasets(self):
+        return self._call(DATASET_READ, "pool.dataset.query")
+
+    def nfs_shares(self):
+        return self._call(NFS_SHARE_READ, "sharing.nfs.query")
+
+    def filesystem_stat(self, path):
+        return self._call(DATASET_READ, "filesystem.stat", path)
+
+    def _call(self, capability, method, *args):
+        try:
+            return self._client.call(method, *args)
+        except Exception as error:
+            raise TrueNasCapabilityError(capability, _safe_reason(error, self._credential)) from error
+
+
+def _login_with_api_key(client, credential):
+    username, separator, key = credential.partition(":")
+    if separator:
+        client.login_with_api_key(username, key)
+    else:
+        client.login_with_api_key("root", credential)
+
+
+def _safe_reason(error, credential):
+    text = str(error).strip()
+    if not text:
+        return error.__class__.__name__
+    if credential:
+        text = text.replace(credential, "[redacted]")
+        username, separator, key = credential.partition(":")
+        if separator:
+            text = text.replace(key, "[redacted]")
+    return text

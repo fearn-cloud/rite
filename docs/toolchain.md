@@ -47,6 +47,7 @@ The Dockerfile holds nothing platform-shared. If a tool is needed to work on the
 | `tofu` (1.11.6) | upstream `.deb` from `opentofu/opentofu` GitHub release | Not in Debian repos. Pinned. |
 | `just` (1.50.0) | upstream tarball from `casey/just` GitHub release | Not in Debian repos. Pinned. |
 | `ansible-core`, `ansible-lint`, `pre-commit`, `check-jsonschema`, `yq` | pipx | Need newer than apt; pipx with `PIPX_HOME=/opt/pipx` and `PIPX_BIN_DIR=/usr/local/bin` makes shims available system-wide. `passlib` is injected into the `ansible-core` venv for the `password_hash` filter. |
+| `truenas_api_client` | `/opt/fortress-python` venv from official `truenas/api_client` git tag | Runtime library for live NAS Reconcile. It is not a standalone CLI tool, so fortress keeps it in a dedicated venv and invokes the live reality loader with that interpreter when present. |
 
 **apt-vs-upstream rule**: if a tool ships in Debian 13 main and we don't care about being on the bleeding edge, use apt. Otherwise use the upstream release artifact (`.deb` if available, tarball otherwise) and pin the version.
 
@@ -62,9 +63,10 @@ Pinned versions live at the top of [`scripts/setup/install-toolchain.sh`](../scr
 OPENTOFU_VERSION="${OPENTOFU_VERSION:-1.11.6}"
 JUST_VERSION="${JUST_VERSION:-1.50.0}"
 SOPS_VERSION="${SOPS_VERSION:-3.12.2}"
+TRUENAS_API_CLIENT_TAG="${TRUENAS_API_CLIENT_TAG:-TS-25.10.3}"
 ```
 
-**Pinned**: tofu, just, sops. These are downloaded directly from GitHub and we want builds to be reproducible.
+**Pinned**: tofu, just, sops, and the TrueNAS API client tag. These are downloaded directly from GitHub and we want builds to be reproducible.
 
 **Unpinned (latest from PyPI)**: `ansible-core`, `ansible-lint`, `pre-commit`, `check-jsonschema`, `yq`. Each has an `_VERSION` env var — set it in CI when reproducibility matters more than freshness.
 

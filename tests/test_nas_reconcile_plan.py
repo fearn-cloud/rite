@@ -7,6 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fortress_nas.truenas_client import (
+    MANAGEMENT_API_REACHABILITY,
+    NAS_RECONCILE_CREDENTIAL_AUTHENTICATION,
+    NFS_SHARE_READ,
+    LiveTrueNasClient,
+    TrueNasCapabilityError,
+)
+from fortress_nas.truenas_reality import load_live_truenas_reality
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
@@ -352,6 +361,151 @@ class NasReconcilePlanTests(unittest.TestCase):
                 plan["connection"]["truenas"]["credential_source"],
                 "inventory/nas/truenas.sops.yaml:api_credentials.reconcile.value",
             )
+
+    def test_live_plan_reports_preflight_capability_failure_without_printing_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text("encrypted\n")
+            reality_path = root / "truenas-reality.json"
+            reality_path.write_text(json.dumps({"datasets": [], "nfs_shares": []}))
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text("#!/usr/bin/env bash\nprintf 'super-secret-token\\n'\n")
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+
+            result = self._run_live_reconcile(
+                root,
+                "truenas",
+                extra_env={
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                    "FORTRESS_FAKE_TRUENAS_REALITY_JSON": str(reality_path),
+                    "FORTRESS_FAKE_TRUENAS_PREFLIGHT_FAILURE": (
+                        "TrueNAS preflight failed: Dataset read failed for super-secret-token"
+                    ),
+                },
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("Dataset read", result.stderr)
+            self.assertIn("failed to load live TrueNAS reality", result.stderr)
+            self.assertNotIn("super-secret-token", result.stderr)
+
+    def test_live_truenas_adapter_runs_non_mutating_preflight_before_loading_reality(self):
+        raw_client = FakeTrueNasRawClient(
+            responses={
+                "core.ping": "pong",
+                "pool.dataset.query": [
+                    {"id": "pool/media", "mountpoint": {"value": "/mnt/pool/media"}},
+                ],
+                "sharing.nfs.query": [
+                    {
+                        "id": 7,
+                        "comment": "fortress-nfs-media-read-write",
+                        "paths": ["/mnt/pool/media"],
+                        "hosts": ["10.0.10.101"],
+                    }
+                ],
+                "filesystem.stat": {"uid": 1000, "gid": 1000},
+            }
+        )
+
+        reality = load_live_truenas_reality(
+            "10.0.10.10",
+            "operator:super-secret-token",
+            client_factory=FakeTrueNasClientFactory(raw_client),
+        )
+
+        self.assertEqual(
+            raw_client.operations[2:6],
+            [
+                ("login_with_api_key", "operator", "super-secret-token"),
+                ("call", "core.ping", ()),
+                ("call", "pool.dataset.query", ([], {"limit": 1})),
+                ("call", "sharing.nfs.query", ([], {"limit": 1})),
+            ],
+        )
+        self.assertNotIn("create", str(raw_client.operations))
+        self.assertNotIn("update", str(raw_client.operations))
+        self.assertNotIn("delete", str(raw_client.operations))
+        self.assertEqual(
+            reality,
+            {
+                "datasets": [
+                    {"path": "/mnt/pool/media", "owner": {"uid": 1000, "gid": 1000}},
+                ],
+                "nfs_shares": [
+                    {
+                        "name": "fortress-nfs-media-read-write",
+                        "path": "/mnt/pool/media",
+                        "access": "read_write",
+                        "clients": ["10.0.10.101"],
+                        "fortress_marker": "fortress-nfs-media-read-write",
+                    }
+                ],
+                "previous_mounts": [],
+            },
+        )
+
+    def test_live_truenas_adapter_names_failed_preflight_capability_without_credential(self):
+        raw_client = FakeTrueNasRawClient(
+            responses={"core.ping": "pong"},
+            failures={"sharing.nfs.query": RuntimeError("denied super-secret-token")},
+        )
+
+        with self.assertRaises(TrueNasCapabilityError) as raised:
+            load_live_truenas_reality(
+                "10.0.10.10",
+                "operator:super-secret-token",
+                client_factory=FakeTrueNasClientFactory(raw_client),
+            )
+
+        self.assertEqual(raised.exception.capability, NFS_SHARE_READ)
+        self.assertIn("NFS Share read", str(raised.exception))
+        self.assertNotIn("super-secret-token", str(raised.exception))
+        self.assertEqual(
+            raw_client.operations[2:6],
+            [
+                ("login_with_api_key", "operator", "super-secret-token"),
+                ("call", "core.ping", ()),
+                ("call", "pool.dataset.query", ([], {"limit": 1})),
+                ("call", "sharing.nfs.query", ([], {"limit": 1})),
+            ],
+        )
+
+    def test_live_truenas_adapter_names_invalid_credential_without_printing_it(self):
+        raw_client = FakeTrueNasRawClient(
+            responses={},
+            failures={"login_with_api_key": RuntimeError("bad super-secret-token")},
+        )
+
+        with self.assertRaises(TrueNasCapabilityError) as raised:
+            with LiveTrueNasClient.connect(
+                "10.0.10.10",
+                "operator:super-secret-token",
+                client_class=FakeRawClientClass(raw_client),
+            ):
+                pass
+
+        self.assertEqual(raised.exception.capability, NAS_RECONCILE_CREDENTIAL_AUTHENTICATION)
+        self.assertNotIn("super-secret-token", str(raised.exception))
+
+    def test_live_truenas_adapter_names_connection_failure(self):
+        raw_client = FakeTrueNasRawClient(responses={})
+        raw_client.enter_failure = RuntimeError("network unavailable")
+
+        with self.assertRaises(TrueNasCapabilityError) as raised:
+            with LiveTrueNasClient.connect(
+                "10.0.10.10",
+                "operator:super-secret-token",
+                client_class=FakeRawClientClass(raw_client),
+            ):
+                pass
+
+        self.assertEqual(raised.exception.capability, MANAGEMENT_API_REACHABILITY)
+        self.assertIn("network unavailable", str(raised.exception))
 
     def test_inline_connection_secrets_are_still_redacted_from_plan_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1095,3 +1249,53 @@ class NasReconcilePlanTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+
+
+class FakeTrueNasClientFactory:
+    def __init__(self, raw_client):
+        self._raw_client = raw_client
+
+    def connect(self, management_address, credential):
+        return LiveTrueNasClient.connect(
+            management_address,
+            credential,
+            client_class=FakeRawClientClass(self._raw_client),
+        )
+
+
+class FakeRawClientClass:
+    def __init__(self, raw_client):
+        self._raw_client = raw_client
+
+    def __call__(self, uri):
+        self._raw_client.operations.append(("connect", uri, ()))
+        return self._raw_client
+
+
+class FakeTrueNasRawClient:
+    def __init__(self, responses, failures=None):
+        self.responses = responses
+        self.failures = failures or {}
+        self.operations = []
+
+    def __enter__(self):
+        self.operations.append(("enter", None, ()))
+        if hasattr(self, "enter_failure"):
+            raise self.enter_failure
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.operations.append(("exit", None, ()))
+
+    def login_with_api_key(self, username, key):
+        self.operations.append(("login_with_api_key", username, key))
+        failure = self.failures.get("login_with_api_key")
+        if failure:
+            raise failure
+
+    def call(self, method, *args):
+        self.operations.append(("call", method, args))
+        failure = self.failures.get(method)
+        if failure:
+            raise failure
+        return self.responses.get(method, [])

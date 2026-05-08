@@ -3,6 +3,8 @@ import os
 import sys
 from pathlib import Path
 
+from fortress_nas.truenas_client import LiveTrueNasClient, TrueNasCapabilityError
+
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -21,12 +23,22 @@ def main(argv=None):
 
     fake_reality = os.environ.get("FORTRESS_FAKE_TRUENAS_REALITY_JSON")
     if fake_reality:
+        fake_preflight_failure = os.environ.get("FORTRESS_FAKE_TRUENAS_PREFLIGHT_FAILURE")
+        if fake_preflight_failure:
+            print(fake_preflight_failure, file=sys.stderr)
+            return 1
         _write_fake_env_log(api_token_env, credential)
         sys.stdout.write(Path(fake_reality).read_text())
         return 0
 
     try:
         reality = load_live_truenas_reality(management_address, credential)
+    except TrueNasCapabilityError as error:
+        print(
+            f"TrueNAS preflight failed for NAS Endpoint {endpoint_name}: {error}",
+            file=sys.stderr,
+        )
+        return 1
     except Exception as error:
         print(f"failed to query TrueNAS reality for NAS Endpoint {endpoint_name}: {error}", file=sys.stderr)
         return 1
@@ -36,23 +48,12 @@ def main(argv=None):
     return 0
 
 
-def load_live_truenas_reality(management_address, credential):
-    from truenas_api_client import Client
-
-    uri = f"ws://{management_address}/api/current"
-    with Client(uri=uri) as client:
-        _login_with_api_key(client, credential)
-        datasets = [_dataset_payload(client, dataset) for dataset in client.call("pool.dataset.query")]
-        nfs_shares = [_nfs_share_payload(share) for share in client.call("sharing.nfs.query")]
+def load_live_truenas_reality(management_address, credential, client_factory=LiveTrueNasClient):
+    with client_factory.connect(management_address, credential) as client:
+        client.preflight()
+        datasets = [_dataset_payload(client, dataset) for dataset in client.datasets()]
+        nfs_shares = [_nfs_share_payload(share) for share in client.nfs_shares()]
     return {"datasets": datasets, "nfs_shares": nfs_shares, "previous_mounts": []}
-
-
-def _login_with_api_key(client, credential):
-    username, separator, key = credential.partition(":")
-    if separator:
-        client.login_with_api_key(username, key)
-    else:
-        client.login_with_api_key("root", credential)
 
 
 def _dataset_payload(client, dataset):
@@ -60,7 +61,7 @@ def _dataset_payload(client, dataset):
     payload = {"path": mountpoint or f"/mnt/{dataset.get('id')}"}
     if payload["path"]:
         try:
-            stat = client.call("filesystem.stat", payload["path"])
+            stat = client.filesystem_stat(payload["path"])
         except Exception:
             stat = {}
         if "uid" in stat or "gid" in stat:

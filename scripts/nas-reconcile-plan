@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+FORTRESS_RUNTIME_PYTHON = Path("/opt/fortress-python/bin/python3")
 sys.path.insert(0, str(REPO_ROOT))
 
 from fortress_inventory.model import load_inventory_tree
@@ -107,7 +108,7 @@ def _load_live_reality(repo_root, inventory, endpoint_name):
     child_env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else f"{REPO_ROOT}{os.pathsep}{pythonpath}"
     result = subprocess.run(
         [
-            sys.executable,
+            _live_reality_python(),
             "-m",
             "fortress_nas.truenas_reality",
             endpoint_name,
@@ -121,8 +122,10 @@ def _load_live_reality(repo_root, inventory, endpoint_name):
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
+        detail = _safe_child_error(result.stderr, credential)
+        suffix = f": {detail}" if detail else ""
         raise ReconcileCommandError(
-            f"failed to load live TrueNAS reality for NAS Endpoint {endpoint_name}"
+            f"failed to load live TrueNAS reality for NAS Endpoint {endpoint_name}{suffix}"
         )
     try:
         return load_reality(json.loads(result.stdout))
@@ -140,6 +143,28 @@ def _sops_extract(sops_file, extract):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ).stdout.strip()
+
+
+def _live_reality_python():
+    override = os.environ.get("FORTRESS_PYTHON")
+    if override:
+        return override
+    if FORTRESS_RUNTIME_PYTHON.is_file():
+        return str(FORTRESS_RUNTIME_PYTHON)
+    return sys.executable
+
+
+def _safe_child_error(stderr, credential):
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    detail = lines[-1]
+    if credential:
+        detail = detail.replace(credential, "[redacted]")
+        username, separator, key = credential.partition(":")
+        if separator:
+            detail = detail.replace(key, "[redacted]")
+    return detail
 
 
 if __name__ == "__main__":

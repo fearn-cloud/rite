@@ -15,6 +15,8 @@ OPENTOFU_VERSION="${OPENTOFU_VERSION:-1.11.6}"
 JUST_VERSION="${JUST_VERSION:-1.50.0}"
 # sops isn't packaged in Debian 13; pulled from upstream .deb releases.
 SOPS_VERSION="${SOPS_VERSION:-3.12.2}"
+TRUENAS_API_CLIENT_TAG="${TRUENAS_API_CLIENT_TAG:-TS-25.10.3}"
+FORTRESS_PYTHON_VENV="${FORTRESS_PYTHON_VENV:-/opt/fortress-python}"
 
 # Empty = let pipx pull the latest from PyPI. Pin in CI when reproducibility
 # matters more than freshness.
@@ -168,6 +170,13 @@ install_python_tools() {
   pipx_install yq "$YQ_VERSION"
 }
 
+install_fortress_python_runtime() {
+  python3 -m venv "$FORTRESS_PYTHON_VENV"
+  "$FORTRESS_PYTHON_VENV/bin/python3" -m pip install --upgrade pip
+  "$FORTRESS_PYTHON_VENV/bin/python3" -m pip install --force-reinstall \
+    "git+https://github.com/truenas/api_client.git@${TRUENAS_API_CLIENT_TAG}"
+}
+
 cleanup_apt() {
   apt-get clean
   rm -rf /var/lib/apt/lists/*
@@ -182,6 +191,7 @@ main() {
   install_sops
   install_just
   install_python_tools
+  install_fortress_python_runtime
   cleanup_apt
   echo
   echo "fortress toolchain installed."
@@ -193,6 +203,8 @@ main() {
   echo "  sops          $(sops --version | head -n1)"
   echo "  age           $(age --version)"
   echo "  python        $(python3 --version)"
+  echo "  fortress py   $("$FORTRESS_PYTHON_VENV/bin/python3" --version)"
+  echo "  TrueNAS API   ${TRUENAS_API_CLIENT_TAG}"
 }
 
 main "$@"

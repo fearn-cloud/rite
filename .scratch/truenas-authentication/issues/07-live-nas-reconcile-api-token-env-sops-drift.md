@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 Category: bug
 
 # Live NAS Reconcile rejects SOPS-backed NAS Endpoint without api_token_env
@@ -64,12 +64,12 @@ Given the current real inventory and the user's report, the likely fix is the se
 - The live command currently reports `connection.<endpoint>.credential_source` as `inventory/nas/<endpoint>.sops.yaml:api_credentials.reconcile.value`, which should remain credential-safe.
 
 **Acceptance criteria:**
-- [ ] `scripts/nas-reconcile-plan --live truenas` no longer fails with `NAS Endpoint truenas must declare api_token_env` against the current real inventory.
-- [ ] Live NAS Reconcile still decrypts only `api_credentials.reconcile.value` from the endpoint Sibling SOPS File for ordinary live plan/apply.
-- [ ] The decrypted NAS Reconcile Credential is not printed in stdout, stderr, logs, plan output, or temporary files.
-- [ ] Missing endpoint Inventory, missing endpoint Sibling SOPS File, missing SOPS credential material, failed SOPS extraction, and live TrueNAS connection/preflight failures still produce clear operator errors.
-- [ ] `inventory/nas/_schema.json`, fixture NAS endpoint YAML, `docs/architecture.md`, ADR 0019, and tests agree on whether `api_token_env` is required plaintext configuration or an internal implementation detail.
-- [ ] Replace or update `test_live_plan_requires_api_token_env_before_decrypting_credential` so the test suite protects the chosen credential model instead of the stale one.
+- [x] `scripts/nas-reconcile-plan --live truenas` no longer fails with `NAS Endpoint truenas must declare api_token_env` against the current real inventory.
+- [x] Live NAS Reconcile still decrypts only `api_credentials.reconcile.value` from the endpoint Sibling SOPS File for ordinary live plan/apply.
+- [x] The decrypted NAS Reconcile Credential is not printed in stdout, stderr, logs, plan output, or temporary files.
+- [x] Missing endpoint Inventory, missing endpoint Sibling SOPS File, missing SOPS credential material, failed SOPS extraction, and live TrueNAS connection/preflight failures still produce clear operator errors.
+- [x] `inventory/nas/_schema.json`, fixture NAS endpoint YAML, `docs/architecture.md`, ADR 0019, and tests agree on whether `api_token_env` is required plaintext configuration or an internal implementation detail.
+- [x] Replace or update `test_live_plan_requires_api_token_env_before_decrypting_credential` so the test suite protects the chosen credential model instead of the stale one.
 
 **Suggested implementation notes:**
 - Prefer a small helper in `scripts/nas-reconcile-plan` for the runtime environment variable name if removing plaintext `api_token_env`; for example derive a stable uppercase name from the endpoint such as `FORTRESS_NAS_RECONCILE_TRUENAS_TOKEN`.

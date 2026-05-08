@@ -181,6 +181,10 @@ _Avoid_: backup pool.
 A named external NAS system fortress can reconcile against.
 _Avoid_: NAS server (too broad), TrueNAS host (implementation-specific).
 
+**NAS Software Version**:
+The declared product/version release currently running on a NAS Endpoint.
+_Avoid_: API version, client version.
+
 **Management Address**:
 The address fortress uses to reach a NAS Endpoint's management API.
 _Avoid_: NAS address, server address.
@@ -193,9 +197,21 @@ _Avoid_: NAS address, management address.
 An operator-provided NAS API credential used by NAS Reconcile to inspect Datasets and manage Fortress-owned Shares.
 _Avoid_: NAS admin token, TrueNAS root credential.
 
+**NAS Reconcile API Key Name**:
+The TrueNAS-side name `fortress-nas-reconcile` for the NAS Reconcile Credential.
+_Avoid_: generic api key, admin key.
+
+**NAS Credential Ceremony**:
+The manual operator process of creating both NAS API credentials outside fortress before storing them in the NAS Endpoint's Sibling SOPS File.
+_Avoid_: credential provisioning, credential automation.
+
 **Acceptance NAS Credential**:
 An operator-provided NAS API credential used only by Acceptance Tests that must create or destroy Ephemeral Datasets.
 _Avoid_: test NAS admin token, ordinary NAS Reconcile Credential.
+
+**Acceptance NAS API Key Name**:
+The TrueNAS-side name `fortress-acceptance-ephemeral-datasets` for the Acceptance NAS Credential.
+_Avoid_: test key, broad acceptance key.
 
 **Credential Source**:
 The non-secret location from which an operator workflow obtains a credential.
@@ -276,8 +292,10 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **PBS** backs up every **VM** with `backup.enabled: true`; **PBS** itself is a **VM**.
 - A **NAS Endpoint** is an **Entity**.
 - A **NAS Endpoint** has zero or more **Datasets**.
+- A **NAS Endpoint** has exactly one **NAS Software Version**.
 - A **NAS Endpoint** has one **Management Address** and one **Share Address**.
 - A **NAS Reconcile Credential** belongs to exactly one **NAS Endpoint**.
+- A **NAS Credential Ceremony** produces one **NAS Reconcile Credential** and one **Acceptance NAS Credential** for a **NAS Endpoint**.
 - An **Acceptance NAS Credential** may mutate **Ephemeral Datasets** but is not used for ordinary fleet **NAS Reconcile**.
 - NAS server and protocol defaults are global topology; **Datasets** are per-entity Inventory.
 - **NAS Reconcile** validates **Datasets** and converges **Shares**.

@@ -4,11 +4,11 @@ Status: needs-triage
 
 ## What to build
 
-Add the separate Acceptance NAS Credential path for live Acceptance Tests that need to create or destroy Ephemeral Datasets, without broadening the ordinary NAS Reconcile Credential.
+Add the separate Acceptance NAS Credential path for live Acceptance Tests that need to create or destroy Ephemeral Datasets, without broadening the ordinary NAS Reconcile Credential. The Acceptance NAS Credential is created during the same NAS Credential Ceremony as the ordinary NAS Reconcile Credential, but ordinary workflows must still ignore it.
 
 ## Acceptance criteria
 
-- [ ] Acceptance-only live workflows use a separate SOPS purpose under `api_credentials`, distinct from `api_credentials.reconcile.value`.
+- [ ] Acceptance-only live workflows use `api_credentials.acceptance.value`, distinct from the ordinary `api_credentials.reconcile.value` path.
 - [ ] Ordinary live NAS Reconcile never reads or exports the Acceptance NAS Credential.
 - [ ] Ephemeral Dataset create/destroy remains gated by explicit acceptance flags and cannot run against ordinary fleet Inventory by default.
 - [ ] Missing acceptance credential material fails before network access when an acceptance workflow requires Ephemeral Dataset mutation.

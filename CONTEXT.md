@@ -302,6 +302,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **NAS Reconcile** is conceptually API-backed; its first implementation may be a read-only **NAS Reconcile Plan**.
 - **NAS Reconcile** runs before **Configure** for VMs that declare **Mounts**.
 - **NAS Reconcile** does not roll back **Shares** after downstream **Configure** or Service deployment failures.
+- Ordinary **NAS Reconcile** must refuse all **Dataset** write actions before contacting a NAS Endpoint.
 - Service deployment validates Share-backed consumption but does not run **NAS Reconcile** implicitly.
 - A **Datastore** uses the same **Dataset**, **Share**, and **Mount** model as other NAS-backed storage.
 - A **Dataset** declaration includes the NAS endpoint it belongs to.

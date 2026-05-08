@@ -14,7 +14,9 @@ from fortress_nas.truenas_client import (
     LiveTrueNasClient,
     TrueNasCapabilityError,
 )
+from fortress_nas.reconcile import build_nas_reconcile_plan, load_reality
 from fortress_nas.truenas_reality import load_live_truenas_reality
+from fortress_inventory.model import load_inventory_tree
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -442,7 +444,6 @@ class NasReconcilePlanTests(unittest.TestCase):
                         "path": "/mnt/pool/media",
                         "access": "read_write",
                         "clients": ["10.0.10.101"],
-                        "fortress_marker": "fortress-nfs-media-read-write",
                     }
                 ],
                 "previous_mounts": [],
@@ -474,6 +475,133 @@ class NasReconcilePlanTests(unittest.TestCase):
                 ("call", "sharing.nfs.query", ([], {"limit": 1})),
             ],
         )
+
+    def test_live_truenas_adapter_preserves_fortress_owned_nfs_share_marker(self):
+        raw_client = FakeTrueNasRawClient(
+            responses={
+                "core.ping": "pong",
+                "pool.dataset.query": [],
+                "sharing.nfs.query": [
+                    {
+                        "id": 7,
+                        "comment": "fortress:nfs-share:fortress-nfs-media-read-write",
+                        "paths": ["/mnt/pool/media"],
+                        "hosts": ["10.0.10.101"],
+                    }
+                ],
+            }
+        )
+
+        reality = load_live_truenas_reality(
+            "10.0.10.10",
+            "operator:super-secret-token",
+            client_factory=FakeTrueNasClientFactory(raw_client),
+        )
+
+        self.assertEqual(
+            reality["nfs_shares"],
+            [
+                {
+                    "name": "fortress-nfs-media-read-write",
+                    "path": "/mnt/pool/media",
+                    "access": "read_write",
+                    "clients": ["10.0.10.101"],
+                    "fortress_marker": "fortress:nfs-share:fortress-nfs-media-read-write",
+                }
+            ],
+        )
+
+    def test_live_reality_reports_drifted_fortress_owned_nfs_share_in_read_only_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            inventory = load_inventory_tree(root)
+            raw_client = FakeTrueNasRawClient(
+                responses={
+                    "core.ping": "pong",
+                    "pool.dataset.query": [
+                        {"id": "pool/media", "mountpoint": {"value": "/mnt/pool/media"}},
+                    ],
+                    "sharing.nfs.query": [
+                        {
+                            "id": 7,
+                            "comment": "fortress:nfs-share:fortress-nfs-media-read-write",
+                            "paths": ["/mnt/pool/media"],
+                            "hosts": ["10.0.10.199"],
+                        }
+                    ],
+                    "filesystem.stat": {"uid": 1000, "gid": 1000},
+                }
+            )
+            live_reality = load_live_truenas_reality(
+                "10.0.10.10",
+                "operator:super-secret-token",
+                client_factory=FakeTrueNasClientFactory(raw_client),
+            )
+
+            plan = build_nas_reconcile_plan(inventory, load_reality(live_reality))
+
+            self.assertIn(
+                {
+                    "code": "drifted_fortress_owned_share",
+                    "share": "fortress-nfs-media-read-write",
+                    "path": "/mnt/pool/media",
+                    "expected": {
+                        "access": "read_write",
+                        "clients": ["10.0.10.101"],
+                        "fortress_marker": "fortress:nfs-share:fortress-nfs-media-read-write",
+                    },
+                    "actual": {
+                        "access": "read_write",
+                        "clients": ["10.0.10.199"],
+                        "fortress_marker": "fortress:nfs-share:fortress-nfs-media-read-write",
+                    },
+                    "message": "Fortress-owned NFS Share fortress-nfs-media-read-write has drifted",
+                },
+                plan["share_findings"],
+            )
+
+    def test_live_reality_blocks_unmanaged_overlapping_nfs_share_in_read_only_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            inventory = load_inventory_tree(root)
+            raw_client = FakeTrueNasRawClient(
+                responses={
+                    "core.ping": "pong",
+                    "pool.dataset.query": [
+                        {"id": "pool/media", "mountpoint": {"value": "/mnt/pool/media"}},
+                    ],
+                    "sharing.nfs.query": [
+                        {
+                            "id": 8,
+                            "comment": "manual-media-share",
+                            "paths": ["/mnt/pool/media"],
+                            "hosts": ["10.0.10.101"],
+                        }
+                    ],
+                    "filesystem.stat": {"uid": 1000, "gid": 1000},
+                }
+            )
+            live_reality = load_live_truenas_reality(
+                "10.0.10.10",
+                "operator:super-secret-token",
+                client_factory=FakeTrueNasClientFactory(raw_client),
+            )
+
+            plan = build_nas_reconcile_plan(inventory, load_reality(live_reality))
+
+            self.assertTrue(plan["blocked"])
+            self.assertIn(
+                {
+                    "code": "unmanaged_share_overlap",
+                    "share": "manual-media-share",
+                    "dataset": "media",
+                    "path": "/mnt/pool/media",
+                    "message": "Unmanaged NFS Share manual-media-share overlaps desired Dataset media",
+                },
+                plan["share_findings"],
+            )
 
     def test_live_truenas_adapter_names_invalid_credential_without_printing_it(self):
         raw_client = FakeTrueNasRawClient(

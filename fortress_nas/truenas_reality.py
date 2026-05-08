@@ -72,13 +72,21 @@ def _dataset_payload(client, dataset):
 def _nfs_share_payload(share):
     paths = share.get("paths") or []
     path = paths[0] if paths else share.get("path")
-    return {
-        "name": share.get("comment") or f"truenas-nfs-{share.get('id')}",
+    comment = share.get("comment")
+    name = comment or f"truenas-nfs-{share.get('id')}"
+    marker = None
+    if isinstance(comment, str) and comment.startswith("fortress:nfs-share:"):
+        marker = comment
+        name = comment.removeprefix("fortress:nfs-share:")
+    payload = {
+        "name": name,
         "path": path,
         "access": "read_only" if share.get("ro") else "read_write",
         "clients": share.get("hosts") or share.get("networks") or [],
-        "fortress_marker": share.get("comment"),
     }
+    if marker:
+        payload["fortress_marker"] = marker
+    return payload
 
 
 def _property_value(value):

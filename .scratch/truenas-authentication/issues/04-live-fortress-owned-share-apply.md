@@ -10,6 +10,7 @@ Wire live `--apply` to execute the existing NAS Reconcile write actions against 
 
 - [ ] `scripts/nas-reconcile-plan --live truenas --apply` executes planned `create_nfs_share`, `update_nfs_share`, and `delete_nfs_share` actions through the TrueNAS client.
 - [ ] Apply refuses to create, update, delete, or repair ordinary Adopted Datasets.
+- [ ] Ordinary live apply refuses any Dataset write action (`create_dataset`, `update_dataset`, or `delete_dataset`) before contacting TrueNAS unless the workflow is in explicit acceptance-ephemeral mode.
 - [ ] Share writes include the durable Fortress ownership marker used by existing planning logic.
 - [ ] If a TrueNAS write fails, the workflow stops at the first failed operation, returns non-zero, and reports the operation class and Share target.
 - [ ] Failed apply does not attempt rollback or compensating delete/update; the next live plan shows remaining drift.

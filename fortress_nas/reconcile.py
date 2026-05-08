@@ -372,6 +372,20 @@ def _share_findings(desired_nfs_shares, existing_nfs_shares):
                     "message": f"Desired NFS Share {desired['name']} is missing",
                 }
             )
+            continue
+        existing = existing_by_name[desired["name"]]
+        desired_payload = _owned_share_payload(desired)
+        if _is_fortress_owned_share(existing) and _share_drifted(existing, desired_payload):
+            findings.append(
+                {
+                    "code": "drifted_fortress_owned_share",
+                    "share": desired["name"],
+                    "path": desired["path"],
+                    "expected": _share_drift_summary(desired_payload),
+                    "actual": _share_drift_summary(existing),
+                    "message": f"Fortress-owned NFS Share {desired['name']} has drifted",
+                }
+            )
     for share in sorted(existing_nfs_shares, key=lambda item: item.get("name", "")):
         if share.get("fortress_owned") is True and share.get("name") not in desired_names:
             findings.append(
@@ -400,6 +414,14 @@ def _share_findings(desired_nfs_shares, existing_nfs_shares):
                     }
                 )
     return findings
+
+
+def _share_drift_summary(share):
+    return {
+        "access": share.get("access"),
+        "clients": share.get("clients"),
+        "fortress_marker": share.get("fortress_marker"),
+    }
 
 
 def _ephemeral_cleanup_share_findings(inventory, existing_nfs_shares):

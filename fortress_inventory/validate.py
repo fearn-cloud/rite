@@ -21,6 +21,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors = []
     errors.extend(_validate_service_backends(model))
     errors.extend(_validate_service_hostnames(model))
+    errors.extend(_validate_quadlet_services(model))
     errors.extend(_validate_service_share_backed_volumes(model))
     errors.extend(_validate_vm_inventory_policy(model))
     errors.extend(_validate_vm_refs(model))
@@ -84,6 +85,15 @@ def _validate_service_backends(model):
     seen_ports = {}
     for service_name, service in model.services.items():
         backend = service.get("backend", {})
+        if not isinstance(backend, dict):
+            errors.append(
+                ValidationError(
+                    "service_backend_not_singular",
+                    f"inventory/services/{service_name}.yaml.backend",
+                    f"Service {service_name} must declare one singular Backend for issue 07",
+                )
+            )
+            continue
         vm_name = backend.get("vm")
         port = backend.get("port")
         if vm_name and vm_name not in model.vms:
@@ -110,13 +120,204 @@ def _validate_service_backends(model):
     return errors
 
 
+def _validate_quadlet_services(model):
+    errors = []
+    errors.extend(_validate_published_ports(model))
+    errors.extend(_validate_service_images(model))
+    errors.extend(_validate_service_groups(model))
+    errors.extend(_validate_container_dependencies(model))
+    return errors
+
+
+def _validate_published_ports(model):
+    errors = []
+    seen = {}
+    for service_name, service in model.services.items():
+        if service.get("deploy", {}).get("type") != "quadlet":
+            continue
+        backend = service.get("backend", {})
+        if not isinstance(backend, dict):
+            continue
+        backend_vm_name = backend.get("vm")
+        backend_port = backend.get("port")
+        ingress_backend_seen = False
+        for container_index, container, port_index, published_port in _service_published_ports(service):
+            host_port = published_port.get("host", published_port.get("container"))
+            protocol = published_port.get("protocol", "tcp")
+            if published_port.get("ingress") is True and host_port == backend_port:
+                ingress_backend_seen = True
+            if backend_vm_name and host_port:
+                for protocol_part in _published_port_protocols(protocol):
+                    key = (backend_vm_name, host_port, protocol_part)
+                    if key in seen:
+                        other_service, other_container_index, other_port_index = seen[key]
+                        errors.append(
+                            ValidationError(
+                                "published_port_collision",
+                                _service_published_port_path(service_name, container_index, port_index, "host"),
+                                f"Services {other_service} and {service_name} both publish "
+                                f"{protocol_part.upper()} port {host_port} on Backend VM {backend_vm_name}",
+                            )
+                        )
+                    else:
+                        seen[key] = (service_name, container_index, port_index)
+        if service.get("ingress", {}).get("enabled") and backend_port and not ingress_backend_seen:
+            errors.append(
+                ValidationError(
+                    "missing_ingress_published_port",
+                    f"inventory/services/{service_name}.yaml.backend.port",
+                    f"Service {service_name} enables Ingress but no Published Port explicitly marks "
+                    f"Backend port {backend_port} with ingress: true",
+                )
+            )
+    return errors
+
+
+def _published_port_protocols(protocol):
+    if protocol == "tcp_udp":
+        return ("tcp", "udp")
+    return (protocol or "tcp",)
+
+
+def _validate_service_images(model):
+    errors = []
+    for service_name, service in model.services.items():
+        if service.get("deploy", {}).get("type") != "quadlet":
+            continue
+        for container_index, container in enumerate(service.get("deploy", {}).get("containers", []) or []):
+            image = container.get("image")
+            if image and not _image_is_pinned(image):
+                errors.append(
+                    ValidationError(
+                        "unpinned_service_image",
+                        f"inventory/services/{service_name}.yaml.deploy.containers[{container_index}].image",
+                        f"Service {service_name} container {container.get('name', container_index)} "
+                        f"uses unpinned image {image}",
+                    )
+                )
+    return errors
+
+
+def _image_is_pinned(image):
+    if "@sha256:" in image:
+        return True
+    remainder = image.rsplit("/", 1)[-1]
+    if ":" not in remainder:
+        return False
+    return not remainder.endswith(":latest")
+
+
+def _validate_service_groups(model):
+    errors = []
+    group_backend_vms = {}
+    aliases_by_network = {}
+    for service_name, service in model.services.items():
+        if service.get("deploy", {}).get("type") != "quadlet":
+            continue
+        group_name = service.get("service_group")
+        backend = service.get("backend", {})
+        backend_vm_name = backend.get("vm") if isinstance(backend, dict) else None
+        if group_name:
+            existing_vm = group_backend_vms.setdefault(group_name, backend_vm_name)
+            if existing_vm != backend_vm_name:
+                errors.append(
+                    ValidationError(
+                        "service_group_spans_backend_vms",
+                        f"inventory/services/{service_name}.yaml.service_group",
+                        f"Service Group {group_name} spans Backend VMs {existing_vm} and {backend_vm_name}",
+                    )
+                )
+            network_key = ("service_group", group_name)
+        else:
+            network_key = ("service", service_name)
+        aliases = aliases_by_network.setdefault(network_key, {})
+        for container_index, container in enumerate(service.get("deploy", {}).get("containers", []) or []):
+            alias = container.get("name")
+            if not alias:
+                continue
+            if alias in aliases:
+                other_service = aliases[alias]
+                errors.append(
+                    ValidationError(
+                        "container_alias_collision",
+                        f"inventory/services/{service_name}.yaml.deploy.containers[{container_index}].name",
+                        f"Services {other_service} and {service_name} both declare Container Alias {alias} "
+                        f"in the same network namespace",
+                    )
+                )
+            else:
+                aliases[alias] = service_name
+    return errors
+
+
+def _validate_container_dependencies(model):
+    errors = []
+    for service_name, service in model.services.items():
+        if service.get("deploy", {}).get("type") != "quadlet":
+            continue
+        containers = service.get("deploy", {}).get("containers", []) or []
+        container_names = {container.get("name") for container in containers if container.get("name")}
+        graph = {}
+        for container_index, container in enumerate(containers):
+            container_name = container.get("name")
+            graph[container_name] = list(container.get("depends_on", []) or [])
+            for dependency in graph[container_name]:
+                if dependency not in container_names:
+                    errors.append(
+                        ValidationError(
+                            "missing_container_dependency",
+                            f"inventory/services/{service_name}.yaml.deploy.containers[{container_index}].depends_on",
+                            f"Service {service_name} container {container_name} depends on missing "
+                            f"same-Service container {dependency}",
+                        )
+                    )
+        if _has_dependency_cycle(graph):
+            errors.append(
+                ValidationError(
+                    "container_dependency_cycle",
+                    f"inventory/services/{service_name}.yaml.deploy.containers",
+                    f"Service {service_name} has a Container Dependency cycle",
+                )
+            )
+    return errors
+
+
+def _has_dependency_cycle(graph):
+    visiting = set()
+    visited = set()
+
+    def visit(container_name):
+        if container_name in visiting:
+            return True
+        if container_name in visited:
+            return False
+        visiting.add(container_name)
+        for dependency in graph.get(container_name, []):
+            if dependency in graph and visit(dependency):
+                return True
+        visiting.remove(container_name)
+        visited.add(container_name)
+        return False
+
+    return any(visit(container_name) for container_name in graph)
+
+
 def _validate_service_hostnames(model):
     errors = []
     seen = {}
     for service_name, service in model.services.items():
-        hostname = service.get("hostname")
-        if not hostname:
+        if service.get("ingress", {}).get("enabled") and not service.get("hostname"):
+            errors.append(
+                ValidationError(
+                    "missing_ingress_hostname",
+                    f"inventory/services/{service_name}.yaml.hostname",
+                    f"Service {service_name} enables Ingress but does not declare a hostname",
+                )
+            )
             continue
+        if not service.get("ingress", {}).get("enabled"):
+            continue
+        hostname = service.get("hostname")
         if hostname in seen:
             errors.append(
                 ValidationError(
@@ -133,7 +334,10 @@ def _validate_service_hostnames(model):
 def _validate_service_share_backed_volumes(model):
     errors = []
     for service_name, service in model.services.items():
-        backend_vm_name = service.get("backend", {}).get("vm")
+        backend = service.get("backend", {})
+        if not isinstance(backend, dict):
+            continue
+        backend_vm_name = backend.get("vm")
         backend_vm = model.vms.get(backend_vm_name)
         if not backend_vm:
             continue
@@ -194,10 +398,24 @@ def _service_volumes(service):
             yield container_index, container, volume_index, volume
 
 
+def _service_published_ports(service):
+    containers = service.get("deploy", {}).get("containers", []) or []
+    for container_index, container in enumerate(containers):
+        for port_index, published_port in enumerate(container.get("published_ports", []) or []):
+            yield container_index, container, port_index, published_port
+
+
 def _service_volume_path(service_name, container_index, volume_index, field):
     return (
         f"inventory/services/{service_name}.yaml.deploy.containers"
         f"[{container_index}].volumes[{volume_index}].{field}"
+    )
+
+
+def _service_published_port_path(service_name, container_index, port_index, field):
+    return (
+        f"inventory/services/{service_name}.yaml.deploy.containers"
+        f"[{container_index}].published_ports[{port_index}].{field}"
     )
 
 

@@ -43,6 +43,30 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
         self.assertIn("After=mnt-nas-media.mount", unit)
         self.assertIn("Volume=/mnt/nas/media/photos:/photos:ro", unit)
 
+    def test_service_owned_volume_sources_are_relative_service_paths(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                        "volumes": [
+                            {
+                                "service_path": "upload",
+                                "container": "/usr/src/app/upload",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+
+        unit = render_quadlet_container(service, {}, service["deploy"]["containers"][0])
+
+        self.assertIn("Volume=/srv/services/immich/upload:/usr/src/app/upload:rw", unit)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -261,7 +261,7 @@ class InventorySchemaTests(unittest.TestCase):
                 "    - name: server\n"
                 "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
                 "      volumes:\n"
-                "        - host: /srv/services/immich/upload\n"
+                "        - service_path: upload\n"
                 "          container: /usr/src/app/upload\n"
                 "        - mount: media\n"
                 "          source: /\n"
@@ -276,7 +276,7 @@ class InventorySchemaTests(unittest.TestCase):
             service_yaml.write_text(
                 service_yaml.read_text().replace(
                     "        - mount: media\n",
-                    "        - host: /srv/services/immich/photos\n"
+                    "        - service_path: photos\n"
                     "          mount: media\n",
                 )
             )
@@ -285,3 +285,33 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("volumes", result.stdout + result.stderr)
+
+    def test_service_schema_rejects_pre_issue_07_quadlet_scaffold_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "immich.yaml"
+            service_yaml.write_text(
+                "name: immich\n"
+                "hostname: photos.fearn.cloud\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  network: immich-net\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                "      ports: ['2283:2283']\n"
+                "      volumes:\n"
+                "        - host: /srv/services/immich/upload\n"
+                "          container: /usr/src/app/upload\n"
+                "      env_from_secrets:\n"
+                "        - secret: db_password\n"
+                "          env_var_file: DB_PASSWORD_FILE\n"
+                "      requires_mounts: []\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("deploy", result.stdout + result.stderr)

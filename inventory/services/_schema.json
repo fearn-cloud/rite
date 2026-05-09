@@ -1,11 +1,59 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "access": { "enum": ["read_only", "read_write"] },
+    "container_path": { "type": "string", "pattern": "^/" },
+    "service_path": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "(^/|(^|/)\\.\\.($|/))" }
+    },
+    "share_source": {
+      "type": "string",
+      "minLength": 1,
+      "anyOf": [
+        { "const": "/" },
+        { "not": { "pattern": "(^/|(^|/)\\.\\.($|/))" } }
+      ]
+    },
+    "service_owned_volume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service_path", "container"],
+      "properties": {
+        "service_path": { "$ref": "#/$defs/service_path" },
+        "container": { "$ref": "#/$defs/container_path" },
+        "access": { "$ref": "#/$defs/access" }
+      }
+    },
+    "share_backed_volume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mount", "source", "container"],
+      "properties": {
+        "mount": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/share_source" },
+        "container": { "$ref": "#/$defs/container_path" },
+        "access": { "$ref": "#/$defs/access" }
+      }
+    }
+  },
   "type": "object",
   "additionalProperties": false,
   "required": ["name", "backend", "deploy"],
   "properties": {
     "name": { "type": "string", "minLength": 1 },
     "hostname": { "type": "string", "minLength": 1 },
+    "service_group": { "type": "string", "minLength": 1 },
+    "service_data_owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "gid"],
+      "properties": {
+        "uid": { "type": "integer", "minimum": 0 },
+        "gid": { "type": "integer", "minimum": 0 }
+      }
+    },
     "backend": {
       "type": "object",
       "additionalProperties": false,
@@ -21,58 +69,83 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "exposure": { "enum": ["lan_only"] },
-        "tls": { "enum": ["letsencrypt_dns"] }
+        "tls": { "enum": ["letsencrypt_dns"] },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": { "enum": ["none"] }
+          }
+        }
       }
     },
-    "auth": { "type": "object" },
     "deploy": {
       "oneOf": [
         {
           "type": "object",
+          "additionalProperties": false,
           "required": ["type", "containers"],
           "properties": {
             "type": { "const": "quadlet" },
-            "network": { "type": "string" },
             "containers": {
               "type": "array",
               "minItems": 1,
               "items": {
                 "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "image"],
                 "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "image": { "type": "string", "minLength": 1 },
+                  "published_ports": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["container"],
+                      "properties": {
+                        "container": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                        "host": { "type": "integer", "minimum": 1, "maximum": 65535 },
+                        "bind": { "type": "string", "minLength": 1 },
+                        "protocol": { "enum": ["tcp", "udp", "tcp_udp"] },
+                        "ingress": { "type": "boolean" }
+                      }
+                    }
+                  },
                   "volumes": {
                     "type": "array",
                     "items": {
                       "oneOf": [
-                        {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": ["host", "container"],
-                          "properties": {
-                            "host": { "type": "string", "pattern": "^/" },
-                            "container": { "type": "string", "pattern": "^/" },
-                            "access": { "enum": ["read_only", "read_write"] }
-                          }
-                        },
-                        {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": ["mount", "source", "container"],
-                          "properties": {
-                            "mount": { "type": "string", "minLength": 1 },
-                            "source": { "type": "string", "minLength": 1 },
-                            "container": { "type": "string", "pattern": "^/" },
-                            "access": { "enum": ["read_only", "read_write"] }
-                          }
-                        }
+                        { "$ref": "#/$defs/service_owned_volume" },
+                        { "$ref": "#/$defs/share_backed_volume" }
                       ]
                     }
+                  },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": ["string", "number", "boolean"] }
+                  },
+                  "secrets": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["secret", "env"],
+                      "properties": {
+                        "secret": { "type": "string", "minLength": 1 },
+                        "env": { "type": "string", "minLength": 1 }
+                      }
+                    }
+                  },
+                  "depends_on": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
                   }
-                },
-                "additionalProperties": true
+                }
               }
             }
-          },
-          "additionalProperties": true
+          }
         },
         {
           "type": "object",

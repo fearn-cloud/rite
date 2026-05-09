@@ -115,6 +115,197 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_service_hostnames_must_be_unique(self):
         self.assertIn("duplicate_service_hostname", self.codes_for("inventory_invalid/duplicate-hostname"))
 
+    def test_service_ingress_defaults_and_hostname_requirement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            service_path = root / "inventory" / "services" / "immich.yaml"
+            service_path.write_text(
+                "name: immich\n"
+                "hostname: photos.fearn.cloud\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+            )
+
+            model = load_inventory_tree(root)
+
+            self.assertEqual(
+                {
+                    "enabled": True,
+                    "exposure": "lan_only",
+                    "tls": "letsencrypt_dns",
+                    "auth": {"type": "none"},
+                },
+                model.services["immich"]["ingress"],
+            )
+            self.assertNotIn("missing_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
+
+            service_path.write_text(
+                service_path.read_text()
+                .replace("hostname: photos.fearn.cloud\n", "")
+                .replace("  containers:\n", "  containers:\n")
+            )
+
+            model = load_inventory_tree(root)
+
+            self.assertEqual({"enabled": False}, model.services["immich"]["ingress"])
+            self.assertNotIn("missing_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
+
+            service_path.write_text(service_path.read_text().replace("deploy:\n", "ingress:\n  enabled: true\ndeploy:\n"))
+
+            self.assertIn("missing_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
+
+    def test_duplicate_hostnames_only_matter_for_ingress_enabled_services(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", hostname="photos.fearn.cloud", ingress_enabled=True)
+            self.write_fixture_service(root, "photos", hostname="photos.fearn.cloud", ingress_enabled=False)
+
+            self.assertNotIn("duplicate_service_hostname", {error.code for error in validate_inventory_tree(root)})
+
+            self.write_fixture_service(root, "photos", hostname="photos.fearn.cloud", ingress_enabled=True)
+
+            self.assertIn("duplicate_service_hostname", {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_backend_is_singular_for_issue_07(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "services" / "immich.yaml").write_text(
+                "name: immich\n"
+                "backend:\n"
+                "  - vm: media01\n"
+                "    port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+            )
+
+            self.assertIn("service_backend_not_singular", {error.code for error in validate_inventory_tree(root)})
+
+    def test_published_ports_require_ingress_marker_and_do_not_collide_on_backend_vm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", port=2283, published_ports=["        - container: 2283\n"])
+
+            self.assertIn("missing_ingress_published_port", {error.code for error in validate_inventory_tree(root)})
+
+            self.write_fixture_service(
+                root,
+                "immich",
+                port=2283,
+                published_ports=["        - container: 2283\n", "          ingress: true\n"],
+            )
+
+            errors = validate_inventory_tree(root)
+            self.assertNotIn("missing_ingress_published_port", {error.code for error in errors})
+            self.assertEqual("127.0.0.1", load_inventory_tree(root).services["immich"]["deploy"]["containers"][0]["published_ports"][0]["bind"])
+            self.assertEqual("tcp", load_inventory_tree(root).services["immich"]["deploy"]["containers"][0]["published_ports"][0]["protocol"])
+
+            self.write_fixture_service(
+                root,
+                "photos",
+                hostname="gallery.fearn.cloud",
+                port=3000,
+                published_ports=["        - host: 2283\n", "          container: 3000\n"],
+            )
+
+            self.assertIn("published_port_collision", {error.code for error in validate_inventory_tree(root)})
+
+    def test_tcp_udp_published_ports_collide_with_tcp_and_udp_on_same_backend_vm(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(
+                root,
+                "immich",
+                published_ports=["        - container: 2283\n", "          protocol: tcp_udp\n", "          ingress: true\n"],
+            )
+            self.write_fixture_service(
+                root,
+                "photos",
+                hostname="gallery.fearn.cloud",
+                port=3000,
+                published_ports=[
+                    "        - host: 2283\n",
+                    "          container: 3000\n",
+                    "          protocol: udp\n",
+                ],
+            )
+
+            self.assertIn("published_port_collision", {error.code for error in validate_inventory_tree(root)})
+
+    def test_image_references_must_be_pinned(self):
+        unpinned_images = ["postgres", "postgres:latest"]
+        for image in unpinned_images:
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                self.write_fixture_service(root, "immich", image=image)
+
+                self.assertIn("unpinned_service_image", {error.code for error in validate_inventory_tree(root)})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", image="postgres@sha256:" + "a" * 64)
+
+            self.assertNotIn("unpinned_service_image", {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_groups_share_one_backend_vm_and_alias_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", service_group="media", container_name="server")
+            self.write_fixture_vm(root, "media02", 102)
+            self.write_fixture_service(root, "photos", hostname="gallery.fearn.cloud", vm="media02", port=3000, service_group="media")
+
+            self.assertIn("service_group_spans_backend_vms", {error.code for error in validate_inventory_tree(root)})
+
+            self.write_fixture_service(root, "photos", hostname="gallery.fearn.cloud", vm="media01", port=3000, service_group="media", container_name="server")
+
+            self.assertIn("container_alias_collision", {error.code for error in validate_inventory_tree(root)})
+
+    def test_isolated_services_have_isolated_alias_namespaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", container_name="server")
+            self.write_fixture_service(root, "photos", hostname="gallery.fearn.cloud", port=3000, container_name="server")
+
+            self.assertNotIn("container_alias_collision", {error.code for error in validate_inventory_tree(root)})
+
+    def test_container_dependencies_must_be_same_service_and_acyclic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_fixture_service(root, "immich", depends_on=["postgres"])
+
+            self.assertIn("missing_container_dependency", {error.code for error in validate_inventory_tree(root)})
+
+            self.write_fixture_service(
+                root,
+                "immich",
+                extra_containers=[
+                    "    - name: postgres\n"
+                    "      image: postgres:16\n"
+                    "      depends_on: [server]\n"
+                ],
+                depends_on=["postgres"],
+            )
+
+            self.assertIn("container_dependency_cycle", {error.code for error in validate_inventory_tree(root)})
+
     def test_share_backed_service_volumes_must_reference_backend_vm_mount_names(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -477,4 +668,49 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             "  memory: 4096\n"
             "cloud_init:\n"
             f"  hostname: {name}\n"
+        )
+
+    def write_fixture_service(
+        self,
+        root,
+        name,
+        hostname="photos.fearn.cloud",
+        vm="media01",
+        port=2283,
+        image="ghcr.io/immich-app/immich-server:v1.120.0",
+        ingress_enabled=None,
+        service_group=None,
+        container_name="server",
+        published_ports=None,
+        depends_on=None,
+        extra_containers=None,
+    ):
+        ingress = ""
+        if ingress_enabled is not None:
+            ingress = f"ingress:\n  enabled: {'true' if ingress_enabled else 'false'}\n"
+        group = f"service_group: {service_group}\n" if service_group else ""
+        ports = ""
+        if published_ports is not None:
+            ports = "      published_ports:\n" + "".join(published_ports)
+        dependencies = f"      depends_on: [{', '.join(depends_on)}]\n" if depends_on else ""
+        containers = (
+            f"    - name: {container_name}\n"
+            f"      image: {image}\n"
+            f"{ports}"
+            f"{dependencies}"
+        )
+        if extra_containers:
+            containers += "".join(extra_containers)
+        (root / "inventory" / "services" / f"{name}.yaml").write_text(
+            f"name: {name}\n"
+            f"{group}"
+            f"hostname: {hostname}\n"
+            "backend:\n"
+            f"  vm: {vm}\n"
+            f"  port: {port}\n"
+            f"{ingress}"
+            "deploy:\n"
+            "  type: quadlet\n"
+            "  containers:\n"
+            f"{containers}"
         )

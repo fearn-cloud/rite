@@ -26,7 +26,10 @@ def render_quadlet_container(service, vm, container):
                 f"{volume['container']}:{_volume_mode(volume, mount)}"
             )
         else:
-            lines.append(f"Volume={volume['host']}:{volume['container']}:{_volume_mode(volume)}")
+            lines.append(
+                f"Volume={_service_owned_volume_source(service, volume)}:"
+                f"{volume['container']}:{_volume_mode(volume)}"
+            )
 
     if unit_dependencies:
         dependencies = " ".join(dict.fromkeys(unit_dependencies))
@@ -46,6 +49,10 @@ def _share_backed_volume_source(mount, volume):
     if volume["source"] == "/":
         return mount["mount_point"]
     return str(PurePosixPath(mount["mount_point"]) / volume["source"])
+
+
+def _service_owned_volume_source(service, volume):
+    return str(PurePosixPath("/srv/services") / service["name"] / volume["service_path"])
 
 
 def _volume_mode(volume, mount=None):

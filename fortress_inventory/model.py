@@ -1,3 +1,4 @@
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,10 +21,11 @@ class InventoryModel:
 def load_inventory_tree(root):
     root = Path(root)
     inventory_root = root / "inventory"
+    services = _load_entity_dir(inventory_root / "services")
     return InventoryModel(
         hosts=_load_entity_dir(inventory_root / "hosts"),
         vms=_load_entity_dir(inventory_root / "vms"),
-        services=_load_entity_dir(inventory_root / "services"),
+        services=_default_services(services),
         datasets=_load_entity_dir(inventory_root / "datasets"),
         nas_endpoints=_load_entity_dir(inventory_root / "nas"),
         templates=_load_entity_dir(inventory_root / "templates"),
@@ -48,3 +50,27 @@ def _load_optional_yaml(path):
     if not path.is_file():
         return {}
     return load_yaml(path)
+
+
+def _default_services(services):
+    return {
+        service_name: _default_service(service)
+        for service_name, service in services.items()
+    }
+
+
+def _default_service(service):
+    service = deepcopy(service)
+    ingress = dict(service.get("ingress") or {})
+    if "enabled" not in ingress:
+        ingress["enabled"] = bool(service.get("hostname"))
+    if ingress["enabled"]:
+        ingress.setdefault("exposure", "lan_only")
+        ingress.setdefault("tls", "letsencrypt_dns")
+        ingress.setdefault("auth", {"type": "none"})
+    service["ingress"] = ingress
+    for container in service.get("deploy", {}).get("containers", []) or []:
+        for published_port in container.get("published_ports", []) or []:
+            published_port.setdefault("bind", "127.0.0.1")
+            published_port.setdefault("protocol", "tcp")
+    return service

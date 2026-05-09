@@ -1,5 +1,9 @@
 name: immich
 hostname: photos.fearn.cloud
+service_group: media
+service_data_owner:
+  uid: 1000
+  gid: 1000
 backend:
   vm: media01
   port: 2283
@@ -7,22 +11,31 @@ ingress:
   enabled: true
   exposure: lan_only
   tls: letsencrypt_dns
-auth:
-  type: none
+  auth:
+    type: none
 deploy:
   type: quadlet
-  network: immich-net
   containers:
     - name: server
       image: ghcr.io/immich-app/immich-server:v1.120.0
-      ports: ["2283:2283"]
+      published_ports:
+        - host: 2283
+          container: 2283
+          protocol: tcp
+          ingress: true
       volumes:
-        - host: /opt/services/immich/upload
+        - service_path: upload
           container: /usr/src/app/upload
+          access: read_write
+        - mount: media
+          source: photos
+          container: /photos
+          access: read_only
       env:
         DB_HOSTNAME: immich-postgres
-      env_from_secrets:
+      secrets:
         - secret: db_password
-          env_var_file: DB_PASSWORD_FILE
+          env: DB_PASSWORD_FILE
       depends_on: [postgres]
-      requires_mounts: []
+    - name: postgres
+      image: postgres:16

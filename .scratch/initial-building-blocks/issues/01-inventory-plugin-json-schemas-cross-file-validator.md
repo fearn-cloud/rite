@@ -12,7 +12,7 @@ The yaml-as-source-of-truth machinery: schemas to enforce shape per file, cross-
 
 - [x] JSON Schemas exist for: host, vm, service, template, global vars
 - [x] `check-jsonschema` wired into pre-commit, validates each inventory file against its schema
-- [x] Cross-file validator (Python, pure-function) checks: service-to-VM refs, port collisions, hostname uniqueness, VM-to-host refs, VM-to-template refs, NFS export name refs
+- [x] Cross-file validator (Python, pure-function) checks: service-to-VM refs, port collisions, hostname uniqueness, VM-to-host refs, VM-to-template refs, Dataset/Mount refs
 - [x] Cross-file validator wired into pre-commit
 - [x] Decryption health check: every `.sops.yaml` in the repo is decryptable with the current age recipients; wired into pre-commit
 - [x] Custom ansible inventory plugin (Python) reads `inventory/{hosts,vms,services}/`, decrypts sibling `.sops.yaml` to tmpfs, builds groups (`proxmox_hosts`, `vms`, `vms_on_<host>`), shapes namespaced hostvars
@@ -47,7 +47,7 @@ Flat per-Entity YAML should become the working source of truth for the first rea
 - Entity YAML shapes for Host, VM, Service, Template, and global vars should match the domain language in `CONTEXT.md`: Host, Node, VM, Template, Service, Backend, Inventory, Sibling SOPS File, Export, and Mount.
 - JSON Schema contracts should validate required fields, object shapes, enums where already settled, and reject common typos with useful paths.
 - The cross-file validator should expose pure functions that accept an inventory-like tree or parsed model and return structured validation results without requiring live infrastructure.
-- Cross-file rules should cover Service Backend VM references, Backend port collisions per VM, duplicate Service hostnames, VM placement Host references, VM Template references, and VM NFS Export references.
+- Cross-file rules should cover Service Backend VM references, Backend port collisions per VM, duplicate Service hostnames, VM placement Host references, VM Template references, and Dataset/Mount references.
 - The Ansible inventory plugin should read the per-Entity YAML model, optionally merge/decrypt sibling SOPS data into tmpfs-backed material where needed, build `proxmox_hosts`, `vms`, and `vms_on_<host>` groups, and expose namespaced hostvars without flattening away the domain model.
 - The SOPS decryption health check should verify every Sibling SOPS File in the repo can be decrypted with the configured age recipients without leaking decrypted values.
 
@@ -55,7 +55,7 @@ Flat per-Entity YAML should become the working source of truth for the first rea
 - [ ] Schemas exist for Host, VM, Service, Template, and global vars, with tests or fixtures demonstrating valid examples pass and invalid examples fail with expected error locations.
 - [ ] `check-jsonschema` is wired into pre-commit for the relevant declaration files.
 - [ ] A pure Python cross-file validator validates the repository tree and fixture trees without contacting Proxmox, Ansible, Tofu, TrueNAS, Cloudflare, or DNS.
-- [ ] The cross-file validator reports actionable errors for missing VM references from Services, Backend port collisions on the same VM, duplicate Service hostnames, missing Host references from VMs, missing Template references from VMs, and missing Export references from VM Mount declarations.
+- [ ] The cross-file validator reports actionable errors for missing VM references from Services, Backend port collisions on the same VM, duplicate Service hostnames, missing Host references from VMs, missing Template references from VMs, and missing Dataset references from VM Mount declarations.
 - [ ] The cross-file validator is wired into pre-commit.
 - [ ] A decryption health check verifies all Sibling SOPS Files are decryptable with the current age recipients and is wired into pre-commit.
 - [ ] The custom Ansible inventory plugin loads Host, VM, and Service declarations from the Inventory, handles absent sibling SOPS files gracefully, and constructs the expected Host and VM groups.

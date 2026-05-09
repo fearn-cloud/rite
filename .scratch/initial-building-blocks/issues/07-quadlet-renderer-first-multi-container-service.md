@@ -6,14 +6,14 @@ docs/prds/initial-building-blocks.md
 
 ## What to build
 
-Service deployment via Podman Quadlets as the default substrate. Multi-container layouts are first-class. Podman secrets are injected via the `_FILE` env convention; each Service runs on an isolated Podman network unless it joins a same-VM Service Group; Service-owned container volumes are bind-mounts under `/srv/services/<service>/`; Export-backed volumes infer NFS Mount ordering and may bind the root of the Mount; image tags are pinned and auto-update is disabled.
+Service deployment via Podman Quadlets as the default substrate. Multi-container layouts are first-class. Podman secrets are injected via the `_FILE` env convention; each Service runs on an isolated Podman network unless it joins a same-VM Service Group; Service-owned container volumes are bind-mounts under `/srv/services/<service>/`; Share-backed Volumes reference a Mount Name declared on the Backend VM, bind the VM-side Mount root or a safe relative subpath, and add systemd ordering on that `.mount` unit; image tags are pinned and auto-update is disabled.
 
 The initial renderer uses rootful system Quadlets; fortress treats VM placement as the Service security boundary.
 
 ## Acceptance criteria
 
 - [ ] Service yaml schema with `deploy.type: quadlet`: hostname, optional `service_group`, singular backend (VM + port), ingress block (enabled/exposure/TLS strategy/auth), optional Service Data Owner, deploy block with list of containers (image, structured publish ports, source/target volumes, env, secrets, depends_on)
-- [ ] Optional Service Data Owner (`storage.uid`/`storage.gid`) creates/chowns Service-owned paths only; Export-backed Volume ownership remains governed by VM Mount/NAS conventions
+- [ ] Optional Service Data Owner (`storage.uid`/`storage.gid`) creates/chowns Service-owned paths only; Share-backed Volume ownership remains governed by the VM Mount/Dataset ownership convention
 - [ ] Quadlet Services may publish multiple TCP/UDP ports, but exactly one TCP-capable Published Port with `ingress: true` satisfies the HTTP-family Ingress Backend when ingress is enabled
 - [ ] Quadlet renderer ansible role produces `.container`, `.network`, dependency-aware unit options
 - [ ] Quadlets are rendered as rootful system units; rootless user Quadlets are out of scope for this issue
@@ -25,7 +25,10 @@ The initial renderer uses rootful system Quadlets; fortress treats VM placement 
 - [ ] Container `name` becomes the Podman network DNS alias, while rendered container identity is service-scoped as `<service>-<container>`; validator rejects alias collisions within each Service or Service Group network
 - [ ] Runtime artifacts use `fortress-` names: container units and Podman container names as `fortress-<service>-<container>`, isolated networks as `fortress-<service>`, and Service Group networks as `fortress-group-<service_group>`
 - [ ] Container volumes bind-mounted under a predictable path (e.g., `/srv/services/<name>/`)
-- [ ] Export-backed volumes translate to bind mounts and add `Requires=` + `After=` on the matching `.mount` unit; unusual extra native options use validated Quadlet Fragments
+- [ ] Share-backed Volumes use the service schema shape `mount`, `source`, `container`, and optional `access`; they do not declare NAS Endpoint, Dataset, Share, or protocol details directly
+- [ ] Share-backed Volumes resolve `mount` against the Service's Backend VM `mounts[].name`, translate to bind mounts from the Mount's `mount_point` or a safe relative subpath, and add `Requires=` + `After=` on the matching `.mount` unit; unusual extra native options use validated Quadlet Fragments
+- [ ] Share-backed Volume validation rejects missing Backend VM Mount Names, absolute non-root sources, `..` traversal, and attempts to widen a read-only Mount to read-write
+- [ ] Service deployment validates declared Share-backed Volume subpaths before starting containers, but does not run NAS Reconcile, create NAS Shares, or create VM Mount units implicitly
 - [ ] Quadlet Fragment sidecar files use native Quadlet syntax but cannot override fortress-owned generated keys such as image, container identity, network, published ports, volumes, secrets, or generated dependencies
 - [ ] Quadlet Fragments live under `inventory/services/<service>.quadlet.d/` as `<container>.container` fragments plus optional `network.network`; unknown fragment filenames are invalid
 - [ ] Quadlet Fragments are plaintext-only and must not contain secret values; all Service secrets go through the Service Sibling SOPS File and `_FILE` injection
@@ -42,7 +45,7 @@ The initial renderer uses rootful system Quadlets; fortress treats VM placement 
 - [ ] Redeploy performs a full Service restart in dependency order: stop containers in reverse topological order and start them in topological order; avoiding data loss or bad state takes priority over zero-downtime updates
 - [ ] If a container fails to start, deploy aborts remaining starts, surfaces the failed unit name and relevant journal/status guidance, and leaves rollback as an explicit operator action
 - [ ] `runbooks/new-service.md` written
-- [ ] Live acceptance demo deploys a contrived but real-world-shaped multi-container Service on a VM: web + postgres-like + redis-like containers, Service Secret, Service-owned volume, Export-backed root Mount volume, `depends_on`, multiple Published Ports with one Ingress Backend, optional Service Data Owner, and one validated Quadlet Fragment
+- [ ] Live acceptance demo deploys a contrived but real-world-shaped multi-container Service on a VM: web + postgres-like + redis-like containers, Service Secret, Service-owned volume, Share-backed Volume referencing an existing Backend VM Mount with `source: /`, `depends_on`, multiple Published Ports with one Ingress Backend, optional Service Data Owner, and one validated Quadlet Fragment
 
 ## Out of scope
 

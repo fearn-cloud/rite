@@ -6,15 +6,15 @@ docs/prds/initial-building-blocks.md
 
 ## What to build
 
-NAS topology declared once globally; per-VM NFS mount declarations reference exports by name; mounts implemented as systemd `.mount` units so quadlets can declare `Requires=` for ordering. UID/GID convention coordinated with TrueNAS dataset ownership.
+NAS topology declares NAS Endpoints and Datasets separately; per-VM Mount declarations reference Datasets by name and declare protocol, mount point, and access policy. Mounts are implemented as systemd `.mount` units so Quadlets can declare `Requires=` for ordering through Share-backed Volumes. UID/GID convention is coordinated with Dataset ownership.
 
 ## Acceptance criteria
 
-- [x] Global NAS topology in `inventory/group_vars/all.yaml`: server, named exports, default mount options, UID/GID convention
-- [x] VM yaml schema supports a `nfs_mounts:` block referencing exports by name
+- [x] NAS Endpoint and Dataset declarations exist, with global NAS protocol defaults and UID/GID convention
+- [x] VM yaml schema supports a `mounts:` block with `name`, `dataset`, `protocol`, `mount_point`, and `access`
 - [x] Per-VM mounts rendered as systemd `.mount` units on the VM
 - [x] UID/GID convention documented in `runbooks/nas-truenas.md` alongside required TrueNAS-side dataset ownership steps
-- [x] Cross-file validator checks NFS export name references resolve against global exports
+- [x] Cross-file validator checks Mount Dataset references resolve, Mount Names are unique within a VM, Mount-bearing VMs have one static IP address, and Access Policy constraints are respected
 - [x] `vm-up` workflow extended to write mount units when present
 - [ ] Demo: a test VM with declared mount has a functional, systemd-managed NFS mount
 

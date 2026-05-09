@@ -49,7 +49,7 @@ The yaml-as-source-of-truth machinery: schemas to enforce shape per file, cross-
 
 - [ ] JSON Schemas exist for: host, vm, service, template, global vars
 - [ ] `check-jsonschema` wired into pre-commit, validates each inventory file against its schema
-- [ ] Cross-file validator (Python, pure-function) checks: service-to-VM refs, port collisions, hostname uniqueness, VM-to-host refs, VM-to-template refs, NFS export name refs
+- [ ] Cross-file validator (Python, pure-function) checks: service-to-VM refs, port collisions, hostname uniqueness, VM-to-host refs, VM-to-template refs, Dataset/Mount refs
 - [ ] Cross-file validator wired into pre-commit
 - [ ] Decryption health check: every `.sops.yaml` in the repo is decryptable with the current age recipients; wired into pre-commit
 - [ ] Custom ansible inventory plugin (Python) reads `inventory/{hosts,vms,services}/`, decrypts sibling `.sops.yaml` to tmpfs, builds groups (`proxmox_hosts`, `vms`, `vms_on_<host>`), shapes namespaced hostvars
@@ -187,15 +187,15 @@ OpenTofu reads the same VM yaml files Ansible uses; provider aliases come from t
 
 ### What to build
 
-NAS topology declared once globally; per-VM NFS mount declarations reference exports by name; mounts implemented as systemd `.mount` units so quadlets can declare `Requires=` for ordering. UID/GID convention coordinated with TrueNAS dataset ownership.
+NAS topology declares NAS Endpoints and Datasets separately; per-VM Mount declarations reference Datasets by name and declare protocol, mount point, and access policy. Mounts are implemented as systemd `.mount` units so Quadlets can declare `Requires=` for ordering through Share-backed Volumes. UID/GID convention is coordinated with Dataset ownership.
 
 ### Acceptance criteria
 
-- [ ] Global NAS topology in `group_vars/all/nas.yaml`: server, named exports, default mount options, UID/GID convention
-- [ ] VM yaml schema supports a `nfs_mounts:` block referencing exports by name
+- [ ] NAS Endpoint and Dataset declarations exist, with global NAS protocol defaults and UID/GID convention
+- [ ] VM yaml schema supports a `mounts:` block with `name`, `dataset`, `protocol`, `mount_point`, and `access`
 - [ ] Per-VM mounts rendered as systemd `.mount` units on the VM
 - [ ] UID/GID convention documented in `runbooks/nas-truenas.md` alongside required TrueNAS-side dataset ownership steps
-- [ ] Cross-file validator checks NFS export name references resolve against global exports
+- [ ] Cross-file validator checks Mount Dataset references resolve, Mount Names are unique within a VM, Mount-bearing VMs have one static IP address, and Access Policy constraints are respected
 - [ ] `vm-up` workflow extended to write mount units when present
 - [ ] Demo: a test VM with declared mount has a functional, systemd-managed NFS mount
 
@@ -212,16 +212,16 @@ NAS topology declared once globally; per-VM NFS mount declarations reference exp
 
 ### What to build
 
-Service deployment via Podman Quadlets as the default substrate. Multi-container layouts are first-class. Podman secrets are injected via the `_FILE` env convention; each service runs on its own podman network; container volumes are bind-mounts under a predictable VM path; `requires_mounts:` wires NFS mount dependencies; image tags are pinned and auto-update is disabled.
+Service deployment via Podman Quadlets as the default substrate. Multi-container layouts are first-class. Podman secrets are injected via the `_FILE` env convention; each Service runs on an isolated Podman network unless it joins a same-VM Service Group; Service-owned volumes are bind-mounts under `/srv/services/<service>/`; Share-backed Volumes reference a Mount Name declared on the Backend VM and wire `.mount` dependencies; image tags are pinned and auto-update is disabled.
 
 ### Acceptance criteria
 
-- [ ] Service yaml schema with `deploy.type: quadlet`: hostname, backend (VM + port; list for HA), ingress block (enabled/exposure/TLS strategy/auth), deploy block with network name and list of containers (image, ports, volumes, env, env-from-secrets, depends_on, requires_mounts)
+- [ ] Service yaml schema with `deploy.type: quadlet`: hostname, optional `service_group`, singular Backend, ingress block (enabled/exposure/TLS strategy/auth), optional Service Data Owner, deploy block with list of containers (image, structured Published Ports, Service-owned volumes, Share-backed Volumes, env, Service Secret references, depends_on)
 - [ ] Quadlet renderer ansible role produces `.container`, `.network`, dependency-aware unit options
 - [ ] Podman secrets created from encrypted service sops file; consumed via `_FILE` env convention
-- [ ] Each service on its own podman network
+- [ ] Each Service gets its own Podman network by default; Services in the same Service Group share a group network
 - [ ] Container volumes bind-mounted under a predictable path (e.g., `/srv/services/<name>/`)
-- [ ] `requires_mounts:` translates to `Requires=` + `After=` on the matching `.mount` unit
+- [ ] Share-backed Volumes resolve against Backend VM Mount Names and translate to bind mounts with `Requires=` + `After=` on the matching `.mount` unit
 - [ ] Image tags pinned (no `:latest`); auto-update disabled
 - [ ] Golden-file tests cover: single-container, multi-container, secrets injection, networks, NFS-mount deps, image pinning variants
 - [ ] Cross-file validator extended: port collisions on the same VM, hostname uniqueness, VM ref resolution

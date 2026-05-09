@@ -1,0 +1,8 @@
+[Unit]
+Description=Fortress Service immich container postgres
+
+[Container]
+ContainerName=fortress-immich-postgres
+Image=postgres:16
+Network=fortress-group-media
+NetworkAlias=postgres

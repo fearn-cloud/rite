@@ -1,0 +1,14 @@
+[Unit]
+Description=Fortress Service immich container server
+Requires=fortress-immich-postgres.service mnt-nas-media.mount
+After=fortress-immich-postgres.service mnt-nas-media.mount
+BindsTo=fortress-immich-postgres.service
+
+[Container]
+ContainerName=fortress-immich-server
+Image=ghcr.io/immich-app/immich-server:v1.120.0
+Network=fortress-group-media
+NetworkAlias=server
+PublishPort=127.0.0.1:2283:2283/tcp
+Volume=/srv/services/immich/upload:/usr/src/app/upload:rw
+Volume=/mnt/nas/media/photos:/photos:ro

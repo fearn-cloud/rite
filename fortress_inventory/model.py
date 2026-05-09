@@ -13,6 +13,7 @@ class InventoryModel:
     nas_endpoints: dict
     templates: dict
     template_verification_policy: dict
+    acceptance_policies: dict
     globals: dict
 
 
@@ -27,6 +28,7 @@ def load_inventory_tree(root):
         nas_endpoints=_load_entity_dir(inventory_root / "nas"),
         templates=_load_entity_dir(inventory_root / "templates"),
         template_verification_policy=_load_optional_yaml(inventory_root / "template-verification-policy.yaml"),
+        acceptance_policies=_load_entity_dir(inventory_root / "acceptance"),
         globals=_load_optional_yaml(inventory_root / "group_vars" / "all.yaml"),
     )
 

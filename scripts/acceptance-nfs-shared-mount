@@ -1,0 +1,433 @@
+#!/usr/bin/env python3
+import ipaddress
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+POLICY_NAME = "nfs-shared-mount"
+ROLES = ("primary", "peer")
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    if args is None:
+        print(
+            "usage: scripts/acceptance-nfs-shared-mount "
+            "host=<host> template=<template> endpoint=<nas-endpoint> "
+            "[auto_confirm=<true|false>] [keep_on_fail=<true|false>]",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
+    early_overwrite_check = refuse_existing_artifacts(
+        repo_root,
+        [{"name": "tmp-nfs-primary"}, {"name": "tmp-nfs-peer"}],
+    )
+    if early_overwrite_check != 0:
+        return early_overwrite_check
+
+    inventory = load_inventory_tree(repo_root)
+    resolved = resolve_intent(repo_root, inventory, args)
+    if isinstance(resolved, int):
+        return resolved
+    intent = resolved
+
+    overwrite_check = refuse_existing_artifacts(repo_root, intent["vms"])
+    if overwrite_check != 0:
+        return overwrite_check
+
+    print_intent(intent)
+    if not args["auto_confirm"] and not confirm():
+        print("nfs shared-mount acceptance: cancelled")
+        return 1
+
+    generated = False
+    provisioned = []
+    try:
+        write_generated_vms(repo_root, intent)
+        generated = True
+        reconcile = run_reconcile(repo_root, intent, destroy=False)
+        if reconcile.returncode != 0:
+            return failed_after_generation(repo_root, intent, "NAS Reconcile", reconcile, args["keep_on_fail"], generated, provisioned)
+        assertion = assert_reconcile_share(reconcile.stdout, intent)
+        if assertion:
+            return failed_after_generation(repo_root, intent, "NAS Reconcile assertion", assertion, args["keep_on_fail"], generated, provisioned)
+
+        for vm in intent["vms"]:
+            command = [str(repo_root / "scripts" / "vm-up"), vm["name"]]
+            if args["auto_confirm"]:
+                command.append("--auto-confirm")
+                up = run(command)
+            else:
+                up = run(command, input_text=f"apply {vm['name']}\n")
+            if up.returncode != 0:
+                return failed_after_generation(repo_root, intent, f"vm-up {vm['name']}", up, args["keep_on_fail"], generated, provisioned)
+            provisioned.append(vm["name"])
+
+        verification = verify_shared_mount(repo_root, intent)
+        if verification.returncode != 0:
+            return failed_after_generation(repo_root, intent, "verification", verification, args["keep_on_fail"], generated, provisioned)
+
+        cleanup = cleanup_resources(repo_root, intent, provisioned)
+        if cleanup.returncode != 0:
+            print(f"cleanup failed: {phase_detail(cleanup)}", file=sys.stderr)
+            return 1
+        print("nfs shared-mount acceptance: passed")
+        return 0
+    except OSError as error:
+        result = subprocess.CompletedProcess([], 1, "", str(error))
+        return failed_after_generation(repo_root, intent, "workflow", result, args["keep_on_fail"], generated, provisioned)
+
+
+def parse_args(argv):
+    values = {}
+    for arg in argv:
+        if "=" not in arg:
+            return None
+        key, value = arg.split("=", 1)
+        values[key] = value.strip('"')
+    if set(values) - {"host", "template", "endpoint", "auto_confirm", "keep_on_fail"}:
+        return None
+    if not {"host", "template", "endpoint"} <= set(values):
+        return None
+    for key in ("auto_confirm", "keep_on_fail"):
+        values[key] = values.get(key, "false").lower()
+        if values[key] not in ("true", "false"):
+            return None
+        values[key] = values[key] == "true"
+    return values
+
+
+def resolve_intent(repo_root, inventory, args):
+    host_name = args["host"]
+    template_name = args["template"]
+    endpoint_name = args["endpoint"]
+    host = inventory.hosts.get(host_name)
+    if not host:
+        print(f"Host {host_name!r} is not declared at {repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}", file=sys.stderr)
+        return 1
+    if template_name not in inventory.templates:
+        print(f"Template {template_name!r} is not declared at {repo_root / 'inventory' / 'templates' / f'{template_name}.yaml'}", file=sys.stderr)
+        return 1
+    if template_name not in (host.get("proxmox", {}).get("templates", []) or []):
+        print(f"Host {host_name} does not declare Template {template_name} under proxmox.templates", file=sys.stderr)
+        return 1
+    if endpoint_name not in inventory.nas_endpoints:
+        print(f"NAS Endpoint {endpoint_name!r} is not declared at {repo_root / 'inventory' / 'nas' / f'{endpoint_name}.yaml'}", file=sys.stderr)
+        return 1
+    policy = inventory.acceptance_policies.get(POLICY_NAME)
+    if not policy:
+        print(f"Acceptance Policy {POLICY_NAME!r} is not declared at {repo_root / 'inventory' / 'acceptance' / f'{POLICY_NAME}.yaml'}", file=sys.stderr)
+        return 1
+    dataset = inventory.datasets.get(policy.get("dataset"))
+    if not dataset:
+        print(f"Acceptance Policy {POLICY_NAME} references missing Dataset {policy.get('dataset')!r}", file=sys.stderr)
+        return 1
+    if dataset.get("lifecycle") != "ephemeral":
+        print(f"Dataset {dataset.get('name')} must be lifecycle: ephemeral for Acceptance Test mutation", file=sys.stderr)
+        return 1
+    if dataset.get("nas") != endpoint_name:
+        print(f"Dataset {dataset.get('name')} belongs to NAS Endpoint {dataset.get('nas')}, not {endpoint_name}", file=sys.stderr)
+        return 1
+    if host_name not in (policy.get("storage_by_host", {}) or {}):
+        print(f"Acceptance Policy {POLICY_NAME} has no storage_by_host entry for Host {host_name}", file=sys.stderr)
+        return 1
+    bridge = derive_bridge(host_name, host, policy, ROLES[0])
+    if isinstance(bridge, int):
+        return bridge
+
+    vms = []
+    for role in ROLES:
+        declaration = (policy.get("vms", {}) or {}).get(role, {})
+        address = (declaration.get("address_by_host", {}) or {}).get(host_name)
+        if not address:
+            print(f"Acceptance Policy {POLICY_NAME} has no {role} address_by_host entry for Host {host_name}", file=sys.stderr)
+            return 1
+        role_bridge = derive_bridge(host_name, host, policy, role)
+        if isinstance(role_bridge, int):
+            return role_bridge
+        vms.append(
+            {
+                "role": role,
+                "name": declaration.get("name"),
+                "vmid": declaration.get("vmid"),
+                "address": address,
+                "client": str(ipaddress.ip_interface(address).ip),
+                "bridge": role_bridge,
+            }
+        )
+    return {
+        "host": host_name,
+        "template": template_name,
+        "endpoint": endpoint_name,
+        "policy": policy,
+        "dataset": dataset,
+        "vms": vms,
+    }
+
+
+def derive_bridge(host_name, host, policy, role):
+    declaration = (policy.get("vms", {}) or {}).get(role, {})
+    address = (declaration.get("address_by_host", {}) or {}).get(host_name)
+    if not address:
+        return 1
+    vm_ip = ipaddress.ip_interface(address).ip
+    matches = []
+    for bridge in host.get("network", {}).get("bridges", []) or []:
+        cidr = bridge.get("cidr")
+        if cidr and vm_ip in ipaddress.ip_network(cidr, strict=False):
+            matches.append(bridge)
+    if len(matches) != 1:
+        print(f"{role} VM address {address} must match exactly one Host bridge CIDR; found {len(matches)}", file=sys.stderr)
+        return 1
+    if not matches[0].get("gateway"):
+        print(f"Host {host_name} bridge {matches[0].get('name')} has no gateway for generated NFS Acceptance VM", file=sys.stderr)
+        return 1
+    return matches[0]
+
+
+def refuse_existing_artifacts(repo_root, vms):
+    for vm in vms:
+        for suffix in (".yaml", ".sops.yaml"):
+            path = repo_root / "inventory" / "vms" / f"{vm['name']}{suffix}"
+            if path.exists():
+                print(f"{path} already exists; refusing to overwrite generated NFS shared-mount Acceptance artifact", file=sys.stderr)
+                return 1
+    return 0
+
+
+def print_intent(intent):
+    print("NFS shared-mount Acceptance Test intent")
+    print(f"Host: {intent['host']}")
+    print(f"Template: {intent['template']}")
+    print(f"NAS Endpoint: {intent['endpoint']}")
+    print(f"Dataset: {intent['dataset']['name']}")
+    for vm in intent["vms"]:
+        print(f"{vm['role']}: {vm['name']} VMID {vm['vmid']} {vm['address']}")
+
+
+def confirm():
+    response = input("Type 'acceptance nfs shared mount' to continue: ")
+    return response == "acceptance nfs shared mount"
+
+
+def write_generated_vms(repo_root, intent):
+    for vm in intent["vms"]:
+        write_vm_yaml(repo_root / "inventory" / "vms" / f"{vm['name']}.yaml", intent, vm)
+
+
+def write_vm_yaml(path, intent, vm):
+    policy = intent["policy"]
+    hardware = policy["hardware"]
+    mount = policy["mount"]
+    storage = policy["storage_by_host"][intent["host"]]
+    path.write_text(
+        f"vmid: {vm['vmid']}\n"
+        "description: Generated NFS shared-mount Acceptance VM. Do not edit by hand.\n"
+        "lifecycle:\n"
+        "  kind: operational\n"
+        "  purpose: nfs-shared-mount-acceptance\n"
+        "  generated: true\n"
+        "placement:\n"
+        f"  host: {intent['host']}\n"
+        "source:\n"
+        f"  template: {intent['template']}\n"
+        "hardware:\n"
+        f"  cores: {hardware['cores']}\n"
+        f"  memory: {hardware['memory']}\n"
+        "  disks:\n"
+        f"    - storage: {storage}\n"
+        f"      size: {hardware['disk_size']}\n"
+        "network:\n"
+        "  interfaces:\n"
+        f"    - bridge: {vm['bridge']['name']}\n"
+        f"      address: {vm['address']}\n"
+        f"      gateway: {vm['bridge']['gateway']}\n"
+        "cloud_init:\n"
+        f"  hostname: {vm['name']}\n"
+        "mounts:\n"
+        f"  - name: {mount['name']}\n"
+        f"    dataset: {intent['dataset']['name']}\n"
+        "    protocol: nfs\n"
+        f"    mount_point: {mount['mount_point']}\n"
+        f"    access: {mount['access']}\n"
+        "backup:\n"
+        "  enabled: false\n"
+    )
+
+
+def run_reconcile(repo_root, intent, destroy):
+    command = [
+        str(repo_root / "scripts" / "nas-reconcile-plan"),
+        "--live",
+        intent["endpoint"],
+        "--acceptance-ephemeral-datasets",
+    ]
+    if destroy:
+        command.append("--destroy-ephemeral-datasets")
+    command.append("--apply")
+    return run(command)
+
+
+def assert_reconcile_share(stdout, intent):
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError as error:
+        return subprocess.CompletedProcess([], 1, "", f"reconcile output was not JSON: {error}")
+    expected_clients = sorted(vm["client"] for vm in intent["vms"])
+    expected_name = f"fortress-nfs-{intent['dataset']['name']}-{intent['policy']['mount']['access'].replace('_', '-')}"
+    matches = [
+        share for share in payload.get("desired_nfs_shares", []) or []
+        if share.get("name") == expected_name
+        and share.get("dataset") == intent["dataset"]["name"]
+        and sorted(share.get("clients", [])) == expected_clients
+    ]
+    if len(matches) != 1:
+        return subprocess.CompletedProcess(
+            [],
+            1,
+            "",
+            f"expected one Derived NFS Share {expected_name} with clients {expected_clients}",
+        )
+    return None
+
+
+def verify_shared_mount(repo_root, intent):
+    hostvars = load_hostvars(repo_root)
+    mount_point = intent["policy"]["mount"]["mount_point"]
+    unit = f"{mount_point.strip('/').replace('/', '-')}.mount"
+    checks = []
+    for vm in intent["vms"]:
+        checks.append((vm, ["systemctl", "is-active", unit], None))
+        checks.append((vm, ["findmnt", mount_point], None))
+    primary, peer = intent["vms"]
+    primary_file = f"{mount_point}/fortress-primary.txt"
+    peer_file = f"{mount_point}/fortress-peer.txt"
+    checks.extend(
+        [
+            (primary, ["sh", "-lc", f"printf primary > {primary_file}"], None),
+            (peer, ["cat", primary_file], "primary"),
+            (peer, ["sh", "-lc", f"printf peer > {peer_file}"], None),
+            (primary, ["cat", peer_file], "peer"),
+            (peer, ["rm", primary_file], None),
+            (primary, ["test", "!", "-e", primary_file], None),
+            (primary, ["rm", peer_file], None),
+            (peer, ["test", "!", "-e", peer_file], None),
+        ]
+    )
+    for vm, remote_command, expected_stdout in checks:
+        result = ssh_root(repo_root, vm["name"], hostvars, remote_command)
+        if result.returncode != 0:
+            return result
+        if expected_stdout is not None and result.stdout.strip() != expected_stdout:
+            return subprocess.CompletedProcess(remote_command, 1, result.stdout, f"expected {expected_stdout!r}, got {result.stdout.strip()!r}")
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def load_hostvars(repo_root):
+    result = subprocess.run(
+        ["ansible-inventory", "-i", str(repo_root / "inventory" / "fortress.yaml"), "--list"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    return json.loads(result.stdout).get("_meta", {}).get("hostvars", {})
+
+
+def ssh_root(repo_root, vm_name, hostvars, remote_command):
+    vm_vars = hostvars.get(vm_name, {})
+    ansible_host = _ansible_value(vm_vars.get("ansible_host"))
+    key_file = _ansible_value(vm_vars.get("ansible_ssh_private_key_file"))
+    if not ansible_host or not key_file:
+        return subprocess.CompletedProcess(remote_command, 1, "", f"VM {vm_name} missing Ansible SSH connection vars")
+    return run(
+        [
+            str(repo_root / "scripts" / "decrypt-keys"),
+            f"inventory/vms/{vm_name}.sops.yaml",
+            "--",
+            "ssh",
+            "-i",
+            key_file,
+            f"root@{ansible_host}",
+            *remote_command,
+        ]
+    )
+
+
+def _ansible_value(value):
+    if isinstance(value, dict) and set(value) == {"__ansible_unsafe"}:
+        return value["__ansible_unsafe"]
+    return value
+
+
+def failed_after_generation(repo_root, intent, phase, result, keep_on_fail, generated, provisioned):
+    message = f"{phase} failed: {phase_detail(result)}"
+    if keep_on_fail:
+        print(f"{message}; preserved NFS shared-mount acceptance resources for inspection", file=sys.stderr)
+        return 1
+    if generated:
+        cleanup = cleanup_resources(repo_root, intent, provisioned)
+        if cleanup.returncode != 0:
+            print(f"{message}; cleanup also failed: {phase_detail(cleanup)}", file=sys.stderr)
+            return 1
+    print(message, file=sys.stderr)
+    return 1
+
+
+def cleanup_resources(repo_root, intent, provisioned=None):
+    provisioned = set(provisioned or [])
+    stderr = []
+    for vm in intent["vms"]:
+        if vm["name"] in provisioned:
+            result = run([str(repo_root / "scripts" / "vm-destroy"), vm["name"], "--delete-vm-yaml"])
+            if result.returncode != 0:
+                stderr.append(phase_detail(result))
+        else:
+            delete_generated_artifacts(repo_root, vm["name"], stderr)
+    reconcile = run_reconcile(repo_root, intent, destroy=True)
+    if reconcile.returncode != 0:
+        stderr.append(phase_detail(reconcile))
+    if stderr:
+        return subprocess.CompletedProcess([], 1, "", "; ".join(stderr))
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def delete_generated_artifacts(repo_root, vm_name, stderr):
+    for suffix in (".sops.yaml", ".yaml"):
+        path = repo_root / "inventory" / "vms" / f"{vm_name}{suffix}"
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            stderr.append(f"failed to delete generated artifact {path}: {error}")
+
+
+def run(command, input_text=None):
+    try:
+        return subprocess.run(
+            command,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        return subprocess.CompletedProcess(command, 1, "", str(error))
+
+
+def phase_detail(result):
+    return (result.stderr or result.stdout or "").strip()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

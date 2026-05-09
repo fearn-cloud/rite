@@ -88,6 +88,24 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             codes = {error.code for error in validate_inventory_tree(root, allow_ephemeral_datasets=True)}
             self.assertNotIn("ordinary_ephemeral_dataset", codes)
 
+    def test_acceptance_policy_reference_allows_ephemeral_dataset_in_repo_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "acceptance").mkdir()
+            (root / "inventory" / "datasets" / "media.yaml").write_text(
+                "name: acceptance-media\n"
+                "nas: truenas\n"
+                "path: /mnt/pool/fortress-acceptance/media\n"
+                "lifecycle: ephemeral\n"
+            )
+            (root / "inventory" / "acceptance" / "nfs-shared-mount.yaml").write_text(
+                "dataset: acceptance-media\n"
+            )
+
+            codes = {error.code for error in validate_inventory_tree(root)}
+            self.assertNotIn("ordinary_ephemeral_dataset", codes)
+
     def test_service_backend_vm_must_exist(self):
         self.assertIn("missing_service_backend_vm", self.codes_for("inventory_invalid/missing-service-vm"))
 

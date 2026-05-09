@@ -1,0 +1,22 @@
+dataset: acceptance-nfs-demo
+mount:
+  name: nfs-demo
+  mount_point: /mnt/nfs-demo
+  access: read_write
+hardware:
+  cores: 1
+  memory: 1024
+  disk_size: 8G
+storage_by_host:
+  wintermute: fast
+vms:
+  primary:
+    name: tmp-nfs-primary
+    vmid: 8911
+    address_by_host:
+      wintermute: 10.10.0.231/24
+  peer:
+    name: tmp-nfs-peer
+    vmid: 8912
+    address_by_host:
+      wintermute: 10.10.0.232/24

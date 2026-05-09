@@ -1,0 +1,4 @@
+name: acceptance-nfs-demo
+nas: truenas
+path: /mnt/tank/fortress-acceptance/nfs-demo
+lifecycle: ephemeral

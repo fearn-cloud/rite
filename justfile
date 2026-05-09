@@ -45,6 +45,9 @@ templates-build host:
 template-verify host template keep_on_fail="false":
     @./scripts/template-verify host={{host}} template={{template}} keep_on_fail={{keep_on_fail}}
 
+acceptance-nfs-shared-mount host template endpoint auto_confirm="false" keep_on_fail="false":
+    @host="{{host}}"; template="{{template}}"; endpoint="{{endpoint}}"; auto_confirm="{{auto_confirm}}"; keep_on_fail="{{keep_on_fail}}"; ./scripts/acceptance-nfs-shared-mount host="${host#host=}" template="${template#template=}" endpoint="${endpoint#endpoint=}" auto_confirm="${auto_confirm#auto_confirm=}" keep_on_fail="${keep_on_fail#keep_on_fail=}"
+
 template-destroy host template delete_template_yaml="false":
     @if [ "{{delete_template_yaml}}" = "true" ] || [ "{{delete_template_yaml}}" = "delete_template_yaml=true" ]; then ./scripts/template-destroy {{host}} {{template}} --delete-template-yaml; else ./scripts/template-destroy {{host}} {{template}}; fi
 

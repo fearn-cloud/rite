@@ -30,6 +30,10 @@ _Avoid_: utility instance, temp VM.
 The fleet-level declaration of the reusable VMID, hardware, storage, and IP allocation used when creating Template Verification VMs across Hosts.
 _Avoid_: per-host test file, fixture inventory.
 
+**Acceptance Policy**:
+A fleet-level declaration of the reusable VMIDs, hardware, storage, and IP allocations used when an Acceptance Test creates disposable Operational VMs.
+_Avoid_: hard-coded test constants, fixture inventory.
+
 **Template**:
 A stopped Proxmox VM marked `template: 1` with a cloud-init drive, declared in `vm-templates/<name>.yaml`. Used as the clone source for new VMs. Lives on a specific Host.
 _Avoid_: image (reserve for the upstream Cloud Image).
@@ -269,6 +273,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Template Verification VM** is an **Operational VM**.
 - A **Template Verification Policy** defines the reusable slot from which each **Template Verification VM** is generated.
 - An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
+- A multi-VM **Acceptance Test** uses generated temporary **Operational VMs** rather than checked-in ordinary **VMs**.
+- Each workflow that needs reserved live-infrastructure slots owns its own **Acceptance Policy**.
 - A **Service** has one **Backend** **VM** (a list when HA is needed).
 - A **Service** may belong to at most one **Service Group**.
 - A Quadlet **Service**'s **Backend** port must match exactly one **Published Port**.
@@ -369,5 +375,5 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Multi-VM Backend**: Deferred. A **Service** has exactly one **Backend** for the initial Quadlet and Ingress implementation; HA Backend semantics will be designed when the Ingress supports multiple Backends.
 - **Adopted Share**: Deferred. Existing manual Shares are not adopted by fortress; overlapping unmanaged Shares block **NAS Reconcile** until the Operator removes or otherwise resolves them.
 - **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require an unambiguous static IP address for NFS Share client access.
-- **Dataset ACLs and modes**: Deferred. Dataset declarations model root owner UID/GID only until real acceptance cases justify ACL or mode expectations.
+- **Dataset ACLs and modes**: Deferred. Dataset declarations model root owner UID/GID only; root-level Acceptance Test writes do not settle mapped UID/GID or ACL semantics.
 - **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require a static IP address; selecting among multiple VM client addresses will be modeled when multi-interface VMs need NAS access.

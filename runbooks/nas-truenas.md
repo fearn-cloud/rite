@@ -43,7 +43,7 @@ The ordinary NAS Reconcile Credential must not create, update, or delete ordinar
 Create the Acceptance NAS Credential in the same operator session:
 
 1. In TrueNAS, create an API key named `fortress-acceptance-ephemeral`.
-2. Grant it only the privileges needed by Acceptance Tests that create or destroy Ephemeral Datasets.
+2. Grant it Dataset-read intent, Ephemeral Dataset create/delete intent, and NFS-Share-manage intent for Acceptance Tests that create or destroy Ephemeral Datasets and their derived fortress-owned Shares.
 3. Store the generated API key string at `api_credentials.acceptance.value` in `inventory/nas/<endpoint>.sops.yaml`.
 
 Do not use the Acceptance NAS Credential for routine NAS Reconcile. It exists so Acceptance Tests can prove Ephemeral Dataset mutation without widening the ordinary NAS Reconcile Credential.
@@ -66,6 +66,19 @@ Use this checklist to prove endpoint-explicit live NAS Reconcile can read TrueNA
 4. Confirm the command performs live preflight against the Management Address, loads TrueNAS reality, and prints a read-only plan.
 5. Confirm the output reports the Credential Source as `inventory/nas/truenas.sops.yaml:api_credentials.reconcile.value` and never prints the credential value.
 6. Confirm no ordinary Datasets are created, updated, or deleted, and no TrueNAS mutation occurs during the demo.
+
+Use the first-class NFS shared-mount Acceptance Test to prove the path from Ephemeral Dataset creation through two VM systemd Mounts, bidirectional filesystem behavior, and cleanup:
+
+1. Confirm `inventory/acceptance/nfs-shared-mount.yaml` reserves `tmp-nfs-primary`, `tmp-nfs-peer`, Host-specific static IPs, `acceptance-nfs-demo`, and the `/mnt/nfs-demo` read-write Mount.
+2. Confirm `inventory/datasets/acceptance-nfs-demo.yaml` declares `lifecycle: ephemeral`.
+3. Run `just acceptance-nfs-shared-mount host=<host> template=<template> endpoint=<nas-endpoint>`.
+4. Confirm the workflow prints the full intent and asks for one workflow-level confirmation. Use `auto_confirm=true` only when the generated VMs and NAS resources are expected.
+5. Confirm the workflow runs live NAS Reconcile with `scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --apply` before provisioning either VM.
+6. Confirm both generated VMs are provisioned through ordinary `vm-up`.
+7. Confirm the workflow checks `systemctl is-active mnt-nfs-demo.mount`, `findmnt /mnt/nfs-demo`, and bidirectional create/read/delete behavior over root SSH.
+8. Confirm default cleanup destroys `tmp-nfs-primary` and `tmp-nfs-peer` with `--delete-vm-yaml`, then runs `scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --destroy-ephemeral-datasets --apply` to destroy the fortress-owned NFS Share and fortress-marked Ephemeral Dataset.
+
+Use `keep_on_fail=true` when preserving generated VMs, generated Inventory/SOPS artifacts, and NAS acceptance resources would make debugging easier.
 
 Expected failure modes:
 

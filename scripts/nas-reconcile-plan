@@ -23,6 +23,7 @@ from fortress_nas.truenas_client import LiveTrueNasClient, TrueNasCapabilityErro
 
 
 SOPS_EXTRACT_RECONCILE_CREDENTIAL = '["api_credentials"]["reconcile"]["value"]'
+SOPS_EXTRACT_ACCEPTANCE_CREDENTIAL = '["api_credentials"]["acceptance"]["value"]'
 
 
 class ReconcileCommandError(Exception):
@@ -60,7 +61,7 @@ def main():
             with Path(args.reality_json).open() as handle:
                 reality = load_reality(json.load(handle))
         else:
-            live_context = _load_live_reality(repo_root, inventory, args.live)
+            live_context = _load_live_reality(repo_root, inventory, args)
             reality = live_context["reality"]
     except ReconcileCommandError as error:
         print(error, file=sys.stderr)
@@ -86,14 +87,15 @@ def main():
     if args.live:
         plan["connection"][args.live]["credentials"] = "operator_environment"
         plan["connection"][args.live]["credential_source"] = (
-            f"inventory/nas/{args.live}.sops.yaml:api_credentials.reconcile.value"
+            f"inventory/nas/{args.live}.sops.yaml:{live_context['credential_path']}"
         )
     json.dump(plan, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 1 if plan["blocked"] else 0
 
 
-def _load_live_reality(repo_root, inventory, endpoint_name):
+def _load_live_reality(repo_root, inventory, args):
+    endpoint_name = args.live
     endpoint_yaml = repo_root / "inventory" / "nas" / f"{endpoint_name}.yaml"
     if endpoint_name not in inventory.nas_endpoints or not endpoint_yaml.is_file():
         raise ReconcileCommandError(
@@ -105,21 +107,32 @@ def _load_live_reality(repo_root, inventory, endpoint_name):
             f"NAS Endpoint Sibling SOPS File is required at {endpoint_sops}"
         )
     endpoint = inventory.nas_endpoints[endpoint_name]
+    credential_path = (
+        "api_credentials.acceptance.value"
+        if args.acceptance_ephemeral_datasets
+        else "api_credentials.reconcile.value"
+    )
+    credential_extract = (
+        SOPS_EXTRACT_ACCEPTANCE_CREDENTIAL
+        if args.acceptance_ephemeral_datasets
+        else SOPS_EXTRACT_RECONCILE_CREDENTIAL
+    )
+    credential_label = "Acceptance NAS Credential" if args.acceptance_ephemeral_datasets else "NAS Reconcile Credential"
     try:
-        credential = _sops_extract(endpoint_sops, SOPS_EXTRACT_RECONCILE_CREDENTIAL)
+        credential = _sops_extract(endpoint_sops, credential_extract)
     except subprocess.CalledProcessError as error:
         raise ReconcileCommandError(
-            f"failed to decrypt NAS Reconcile Credential for NAS Endpoint {endpoint_name} "
+            f"failed to decrypt {credential_label} for NAS Endpoint {endpoint_name} "
             f"from {endpoint_sops}"
         ) from error
     if not credential:
         raise ReconcileCommandError(
-            f"missing api_credentials.reconcile.value in NAS Endpoint Sibling SOPS File "
+            f"missing {credential_path} in NAS Endpoint Sibling SOPS File "
             f"for NAS Endpoint {endpoint_name}: {endpoint_sops}"
         )
 
     child_env = os.environ.copy()
-    api_token_env = _reconcile_credential_env_name(endpoint_name)
+    api_token_env = _credential_env_name(endpoint_name, acceptance=args.acceptance_ephemeral_datasets)
     child_env[api_token_env] = credential
     pythonpath = child_env.get("PYTHONPATH")
     child_env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else f"{REPO_ROOT}{os.pathsep}{pythonpath}"
@@ -150,6 +163,7 @@ def _load_live_reality(repo_root, inventory, endpoint_name):
             "endpoint_name": endpoint_name,
             "management_address": endpoint["management_address"],
             "credential": credential,
+            "credential_path": credential_path,
             "reality": load_reality(json.loads(result.stdout)),
         }
     except json.JSONDecodeError as error:
@@ -186,6 +200,14 @@ def _apply_client(args, live_context):
 class _FakeLiveTrueNasApplyClient:
     def __init__(self, log_path):
         self._log_path = Path(log_path)
+
+    def create_dataset(self, dataset):
+        self._fail_if_requested("create_dataset", dataset["name"])
+        self._append({"method": "create_dataset", "dataset": dataset})
+
+    def delete_dataset(self, dataset, path):
+        self._fail_if_requested("delete_dataset", dataset)
+        self._append({"method": "delete_dataset", "dataset": dataset, "path": path})
 
     def create_nfs_share(self, share):
         self._fail_if_requested("create_nfs_share", share["name"])
@@ -229,8 +251,13 @@ def _live_reality_python():
 
 
 def _reconcile_credential_env_name(endpoint_name):
+    return _credential_env_name(endpoint_name, acceptance=False)
+
+
+def _credential_env_name(endpoint_name, acceptance=False):
     normalized = re.sub(r"[^A-Z0-9]+", "_", endpoint_name.upper()).strip("_")
-    return f"FORTRESS_NAS_RECONCILE_{normalized}_TOKEN"
+    purpose = "ACCEPTANCE" if acceptance else "RECONCILE"
+    return f"FORTRESS_NAS_{purpose}_{normalized}_TOKEN"
 
 
 def _safe_child_error(stderr, credential):

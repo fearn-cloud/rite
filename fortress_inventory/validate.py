@@ -265,8 +265,13 @@ def _validate_dataset_lifecycle_policy(model, allow_ephemeral_datasets=False):
     errors = []
     if allow_ephemeral_datasets:
         return errors
+    acceptance_dataset_names = {
+        policy.get("dataset")
+        for policy in model.acceptance_policies.values()
+        if policy.get("dataset")
+    }
     for dataset_file, dataset in model.datasets.items():
-        if dataset.get("lifecycle") == "ephemeral":
+        if dataset.get("lifecycle") == "ephemeral" and dataset.get("name") not in acceptance_dataset_names:
             errors.append(
                 ValidationError(
                     "ordinary_ephemeral_dataset",

@@ -17,11 +17,15 @@ class NASTrueNASRunbookTests(unittest.TestCase):
 
     def test_demo_vm_declares_systemd_managed_nfs_mount(self):
         demo = (REPO_ROOT / "inventory" / "vms" / "wintermute-demo.yaml").read_text()
+        dataset = (REPO_ROOT / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").read_text()
 
         self.assertIn("mounts:", demo)
-        self.assertIn("dataset: test", demo)
+        self.assertIn("dataset: acceptance-nfs-demo", demo)
         self.assertIn("protocol: nfs", demo)
-        self.assertIn("mount_point: /mnt/test", demo)
+        self.assertIn("mount_point: /mnt/nfs-demo", demo)
+        self.assertNotIn("dataset: test", demo)
+        self.assertIn("name: acceptance-nfs-demo", dataset)
+        self.assertIn("lifecycle: ephemeral", dataset)
 
     def test_runbook_documents_nas_credential_ceremony(self):
         runbook = (REPO_ROOT / "runbooks" / "nas-truenas.md").read_text()
@@ -49,5 +53,12 @@ class NASTrueNASRunbookTests(unittest.TestCase):
         self.assertIn("preflight", runbook)
         self.assertIn("read-only plan", runbook)
         self.assertIn("without mutating TrueNAS", runbook)
+        self.assertIn("scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --apply", runbook)
+        self.assertIn("systemctl is-active mnt-nfs-demo.mount", runbook)
+        self.assertIn("findmnt /mnt/nfs-demo", runbook)
+        self.assertIn(
+            "scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --destroy-ephemeral-datasets --apply",
+            runbook,
+        )
         self.assertIn("missing SOPS material", runbook)
         self.assertIn("insufficient privilege", runbook)

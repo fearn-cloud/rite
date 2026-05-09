@@ -63,7 +63,7 @@ def load_live_truenas_reality(
 def _dataset_payload(client, dataset):
     mountpoint = _property_value(dataset.get("mountpoint"))
     payload = {"path": mountpoint or f"/mnt/{dataset.get('id')}"}
-    comments = _property_value(dataset.get("comments"))
+    comments = _dataset_comments(dataset)
     if isinstance(comments, str) and comments.startswith("fortress:ephemeral-dataset:"):
         payload["fortress_marker"] = comments
     if payload["path"]:
@@ -74,6 +74,14 @@ def _dataset_payload(client, dataset):
         if "uid" in stat or "gid" in stat:
             payload["owner"] = {"uid": stat.get("uid"), "gid": stat.get("gid")}
     return payload
+
+
+def _dataset_comments(dataset):
+    comments = _property_value(dataset.get("comments"))
+    if comments is not None:
+        return comments
+    user_properties = dataset.get("user_properties") or {}
+    return _property_value(user_properties.get("comments"))
 
 
 def _nfs_share_payload(share):

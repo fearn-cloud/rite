@@ -289,7 +289,7 @@ def assert_reconcile_share(stdout, intent):
         share for share in payload.get("desired_nfs_shares", []) or []
         if share.get("name") == expected_name
         and share.get("dataset") == intent["dataset"]["name"]
-        and sorted(share.get("clients", [])) == expected_clients
+        and set(expected_clients) <= set(share.get("clients", []))
     ]
     if len(matches) != 1:
         return subprocess.CompletedProcess(

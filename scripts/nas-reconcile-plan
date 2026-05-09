@@ -10,6 +10,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FORTRESS_RUNTIME_PYTHON = Path("/opt/fortress-python/bin/python3")
+LIVE_APPLY_RUNTIME_REEXEC_ENV = "FORTRESS_NAS_RECONCILE_LIVE_APPLY_RUNTIME_REEXEC"
 sys.path.insert(0, str(REPO_ROOT))
 
 from fortress_inventory.model import load_inventory_tree
@@ -52,6 +53,9 @@ def main():
         help="destroy marked Acceptance Test Ephemeral Datasets instead of creating missing ones",
     )
     args = parser.parse_args()
+    reexec_result = _reexec_live_apply_with_selected_runtime(args)
+    if reexec_result is not None:
+        return reexec_result
 
     repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
     live_context = None
@@ -164,6 +168,7 @@ def _load_live_reality(repo_root, inventory, args):
             "management_address": endpoint["management_address"],
             "credential": credential,
             "credential_path": credential_path,
+            "tls_verify": endpoint.get("tls_verify", True),
             "reality": load_reality(json.loads(result.stdout)),
         }
     except json.JSONDecodeError as error:
@@ -188,6 +193,7 @@ def _apply_client(args, live_context):
         with LiveTrueNasClient.connect(
             live_context["management_address"],
             live_context["credential"],
+            tls_verify=live_context.get("tls_verify", True),
         ) as client:
             yield client
     except TrueNasCapabilityError as error:
@@ -239,6 +245,26 @@ def _sops_extract(sops_file, extract):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ).stdout.strip()
+
+
+def _reexec_live_apply_with_selected_runtime(args):
+    if not args.live or not args.apply:
+        return None
+    if os.environ.get(LIVE_APPLY_RUNTIME_REEXEC_ENV):
+        return None
+    selected_python = _live_reality_python()
+    if Path(selected_python).absolute() == Path(sys.executable).absolute():
+        return None
+    child_env = os.environ.copy()
+    child_env[LIVE_APPLY_RUNTIME_REEXEC_ENV] = "1"
+    pythonpath = child_env.get("PYTHONPATH")
+    child_env["PYTHONPATH"] = str(REPO_ROOT) if not pythonpath else f"{REPO_ROOT}{os.pathsep}{pythonpath}"
+    result = subprocess.run(
+        [selected_python, str(Path(__file__).resolve()), *sys.argv[1:]],
+        env=child_env,
+        text=True,
+    )
+    return result.returncode
 
 
 def _live_reality_python():

@@ -83,6 +83,7 @@ Use `keep_on_fail=true` when preserving generated VMs, generated Inventory/SOPS 
 Expected failure modes:
 
 - missing SOPS material: if `inventory/nas/truenas.sops.yaml` is absent or does not contain `api_credentials.reconcile.value`, the command fails before network access.
+- missing TrueNAS API client runtime: if the selected live Python runtime cannot import `truenas_api_client`, the command fails before reconciliation logic and tells the operator to run `scripts/setup/install-toolchain.sh` or set `FORTRESS_PYTHON` to a runtime with the official client installed. The expected dedicated runtime is `/opt/fortress-python/bin/python3`.
 - insufficient privilege: if the `fortress-nas-reconcile` API key lacks Dataset-read or NFS Share read capability, live preflight fails before reconciliation logic runs. If later apply privileges are missing, retry after fixing the TrueNAS-side key rather than broadening the credential to mutate ordinary Datasets.
 
 ## UID/GID convention

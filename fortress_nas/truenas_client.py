@@ -1,6 +1,8 @@
 from contextlib import contextmanager
+import sys
 
 
+TRUENAS_API_CLIENT_RUNTIME = "TrueNAS API client runtime"
 MANAGEMENT_API_REACHABILITY = "management API reachability"
 NAS_RECONCILE_CREDENTIAL_AUTHENTICATION = "NAS Reconcile Credential authentication"
 DATASET_READ = "Dataset read"
@@ -25,7 +27,21 @@ class LiveTrueNasClient:
     @contextmanager
     def connect(cls, management_address, credential, client_class=None, tls_verify=True):
         if client_class is None:
-            from truenas_api_client import Client
+            try:
+                from truenas_api_client import Client
+            except ModuleNotFoundError as error:
+                if error.name != "truenas_api_client":
+                    raise
+                raise TrueNasCapabilityError(
+                    TRUENAS_API_CLIENT_RUNTIME,
+                    (
+                        "missing Python package truenas_api_client in selected Python runtime "
+                        f"{sys.executable}. Run scripts/setup/install-toolchain.sh to create "
+                        "the expected fortress runtime at /opt/fortress-python/bin/python3, "
+                        "or set FORTRESS_PYTHON to a Python runtime that can import "
+                        "truenas_api_client."
+                    ),
+                ) from error
 
             client_class = Client
 
@@ -141,7 +157,7 @@ def _safe_reason(error, credential):
 
 def _nfs_share_payload(share):
     return {
-        "paths": [share["path"]],
+        "path": share["path"],
         "comment": share["fortress_marker"],
         "ro": share.get("access") == "read_only",
         "hosts": share.get("clients", []),

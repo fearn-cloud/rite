@@ -3,6 +3,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -449,6 +450,54 @@ class NasReconcilePlanTests(unittest.TestCase):
                 ],
             )
 
+    def test_live_apply_reexecs_into_selected_runtime_before_opening_apply_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text("encrypted\n")
+            reality_path = root / "truenas-reality.json"
+            reality_path.write_text(
+                json.dumps(
+                    {
+                        "datasets": [
+                            {"path": "/mnt/pool/media", "owner": {"uid": 1000, "gid": 1000}},
+                        ],
+                        "nfs_shares": [],
+                    }
+                )
+            )
+            apply_log = root / "live-apply.jsonl"
+            runtime_log = root / "runtime.log"
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text("#!/usr/bin/env bash\nprintf 'super-secret-token\\n'\n")
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+            fake_python = bin_dir / "fortress-python"
+            fake_python.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$FORTRESS_RUNTIME_LOG\"\n"
+                f"exec {sys.executable} \"$@\"\n"
+            )
+            fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
+
+            result = self._run_live_reconcile(
+                root,
+                "truenas",
+                "--apply",
+                extra_env={
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                    "FORTRESS_PYTHON": str(fake_python),
+                    "FORTRESS_RUNTIME_LOG": str(runtime_log),
+                    "FORTRESS_FAKE_TRUENAS_REALITY_JSON": str(reality_path),
+                    "FORTRESS_FAKE_TRUENAS_APPLY_LOG": str(apply_log),
+                },
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("scripts/nas-reconcile-plan", runtime_log.read_text())
+            self.assertTrue(apply_log.is_file())
+
     def test_live_acceptance_apply_uses_acceptance_credential_for_ephemeral_dataset_and_share(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -747,6 +796,67 @@ class NasReconcilePlanTests(unittest.TestCase):
             self.assertIn("failed to load live TrueNAS reality", result.stderr)
             self.assertNotIn("super-secret-token", result.stderr)
 
+    def test_live_plan_reports_missing_truenas_api_client_runtime_without_printing_credential(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.sops.yaml").write_text("encrypted\n")
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text("#!/usr/bin/env bash\nprintf 'super-secret-token\\n'\n")
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+            fake_python = bin_dir / "python-no-site"
+            fake_python.write_text(f"#!/usr/bin/env bash\nexec {sys.executable} -S \"$@\"\n")
+            fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
+
+            result = self._run_live_reconcile(
+                root,
+                "truenas",
+                extra_env={
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                    "FORTRESS_PYTHON": str(fake_python),
+                },
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("failed to load live TrueNAS reality", result.stderr)
+            self.assertIn("truenas_api_client", result.stderr)
+            self.assertIn("/opt/fortress-python/bin/python3", result.stderr)
+            self.assertIn("scripts/setup/install-toolchain.sh", result.stderr)
+            self.assertNotIn("super-secret-token", result.stderr)
+
+    def test_live_reality_module_reports_missing_truenas_api_client_runtime(self):
+        env = os.environ.copy()
+        env["FORTRESS_NAS_RECONCILE_TRUENAS_TOKEN"] = "super-secret-token"
+        env["PYTHONPATH"] = str(REPO_ROOT)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-S",
+                "-m",
+                "fortress_nas.truenas_reality",
+                "truenas",
+                "127.0.0.1",
+                "FORTRESS_NAS_RECONCILE_TRUENAS_TOKEN",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("TrueNAS preflight failed for NAS Endpoint truenas", result.stderr)
+        self.assertIn("truenas_api_client", result.stderr)
+        self.assertIn("/opt/fortress-python/bin/python3", result.stderr)
+        self.assertIn("scripts/setup/install-toolchain.sh", result.stderr)
+        self.assertNotIn("super-secret-token", result.stderr)
+
     def test_live_truenas_adapter_runs_non_mutating_preflight_before_loading_reality(self):
         raw_client = FakeTrueNasRawClient(
             responses={
@@ -977,7 +1087,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                     "sharing.nfs.create",
                     (
                         {
-                            "paths": ["/mnt/pool/media"],
+                            "path": "/mnt/pool/media",
                             "comment": "fortress:nfs-share:fortress-nfs-media-read-write",
                             "ro": False,
                             "hosts": ["10.0.10.101"],
@@ -992,7 +1102,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                     (
                         7,
                         {
-                            "paths": ["/mnt/pool/media"],
+                            "path": "/mnt/pool/media",
                             "comment": "fortress:nfs-share:fortress-nfs-media-read-write",
                             "ro": False,
                             "hosts": ["10.0.10.101"],
@@ -1060,6 +1170,41 @@ class NasReconcilePlanTests(unittest.TestCase):
                         "mountpoint": {"value": "/mnt/pool/fortress-acceptance/media"},
                         "comments": {
                             "value": "fortress:ephemeral-dataset:acceptance-media",
+                        },
+                    },
+                ],
+                "sharing.nfs.query": [],
+                "filesystem.stat": {"uid": 0, "gid": 0},
+            }
+        )
+
+        live_reality = load_live_truenas_reality(
+            "10.0.10.10",
+            "operator:super-secret-token",
+            client_factory=FakeTrueNasClientFactory(raw_client),
+        )
+
+        self.assertIn(
+            {
+                "path": "/mnt/pool/fortress-acceptance/media",
+                "owner": {"uid": 0, "gid": 0},
+                "fortress_marker": "fortress:ephemeral-dataset:acceptance-media",
+            },
+            live_reality["datasets"],
+        )
+
+    def test_live_reality_reads_fortress_ephemeral_dataset_marker_from_user_properties(self):
+        raw_client = FakeTrueNasRawClient(
+            responses={
+                "core.ping": "pong",
+                "pool.dataset.query": [
+                    {
+                        "id": "pool/fortress-acceptance/media",
+                        "mountpoint": "/mnt/pool/fortress-acceptance/media",
+                        "user_properties": {
+                            "comments": {
+                                "value": "fortress:ephemeral-dataset:acceptance-media",
+                            },
                         },
                     },
                 ],

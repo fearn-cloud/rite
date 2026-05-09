@@ -284,7 +284,7 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             "if [ \"$FORTRESS_FAIL_PHASE\" = nas-reconcile-plan ]; then echo 'nas reconcile failed intentionally' >&2; exit 42; fi\n"
             "python3 - <<'PY'\n"
             "import json\n"
-            "print(json.dumps({'desired_nfs_shares': [{'name': 'fortress-nfs-acceptance-nfs-demo-read-write', 'dataset': 'acceptance-nfs-demo', 'path': '/mnt/tank/fortress-acceptance/nfs-demo', 'protocol': 'nfs', 'access': 'read_write', 'clients': ['10.10.0.231', '10.10.0.232']}]}))\n"
+            "print(json.dumps({'desired_nfs_shares': [{'name': 'fortress-nfs-acceptance-nfs-demo-read-write', 'dataset': 'acceptance-nfs-demo', 'path': '/mnt/tank/fortress-acceptance/nfs-demo', 'protocol': 'nfs', 'access': 'read_write', 'clients': ['10.10.0.201', '10.10.0.231', '10.10.0.232']}]}))\n"
             "PY\n"
         )
         (scripts / "nas-reconcile-plan").chmod((scripts / "nas-reconcile-plan").stat().st_mode | stat.S_IXUSR)

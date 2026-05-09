@@ -9,3 +9,4 @@ tofu/.terraform/
 tofu/.terraform.lock.hcl
 tofu/*.tfstate
 tofu/*.tfstate.backup
+tofu/*.tfstate.*.backup

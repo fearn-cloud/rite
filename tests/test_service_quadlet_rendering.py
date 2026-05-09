@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from fortress_services.quadlet import render_quadlet_container, render_quadlet_service
 
@@ -112,6 +113,48 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
         rendered = render_quadlet_service(service, vm)
 
         self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "isolated_share_root")
+
+    def test_golden_quadlet_fragment_merge(self):
+        service = {
+            "name": "immich",
+            "backend": {"vm": "media01", "port": 2283},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "network.network").write_text(
+                "[Network]\nLabel=fortress.fragment=yes\n"
+            )
+            (fragment_dir / "server.container").write_text(
+                "\n".join(
+                    [
+                        "[Unit]",
+                        "StartLimitBurst=3",
+                        "",
+                        "[Container]",
+                        "User=1000",
+                        "",
+                        "[Service]",
+                        "RestartSec=10",
+                        "",
+                    ]
+                )
+            )
+
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+        self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "with_fragments")
 
     def test_single_container_service_renders_rootful_quadlet_artifacts(self):
         service = {
@@ -327,6 +370,180 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
         unit = render_quadlet_container(service, {}, service["deploy"]["containers"][0])
 
         self.assertIn("Volume=/srv/services/immich/upload:/usr/src/app/upload:rw", unit)
+
+    def test_quadlet_fragment_merges_native_options_into_container_artifact(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "server.container").write_text(
+                "\n".join(
+                    [
+                        "[Unit]",
+                        "StartLimitBurst=3",
+                        "",
+                        "[Container]",
+                        "User=1000",
+                        "",
+                    ]
+                )
+            )
+
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+        container = rendered.artifacts_by_filename["fortress-immich-server.container"]
+        self.assertIn("StartLimitBurst=3\n", container.content)
+        self.assertIn("User=1000\n", container.content)
+
+    def test_quadlet_fragment_rejects_unknown_fragment_filename(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "stale.container").write_text("[Container]\nUser=1000\n")
+
+            with self.assertRaisesRegex(ValueError, "unknown Quadlet Fragment.*stale.container"):
+                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+    def test_quadlet_fragment_rejects_invalid_ini_syntax(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "server.container").write_text("User=1000\n")
+
+            with self.assertRaisesRegex(ValueError, "invalid Quadlet Fragment INI syntax"):
+                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+    def test_quadlet_fragment_rejects_fortress_owned_generated_key(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "server.container").write_text("[Container]\nImage=postgres:16\n")
+
+            with self.assertRaisesRegex(ValueError, "fortress-owned key: Container.Image"):
+                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+    def test_quadlet_fragment_rejects_reserved_install_update_and_secret_keys(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                    }
+                ],
+            },
+        }
+
+        forbidden_fragments = {
+            "AutoUpdate=registry": "[Container]\nAutoUpdate=registry\n",
+            "Secret=db_password": "[Container]\nSecret=db_password\n",
+            "WantedBy=default.target": "[Install]\nWantedBy=default.target\n",
+        }
+        for label, fragment in forbidden_fragments.items():
+            with self.subTest(fragment=label), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+                fragment_dir.mkdir(parents=True)
+                (fragment_dir / "server.container").write_text(fragment)
+
+                with self.assertRaisesRegex(ValueError, "reserved fortress-owned key"):
+                    render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+    def test_quadlet_fragment_adds_repeated_unit_dependencies_without_replacing_generated_ones(self):
+        service = {
+            "name": "immich",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                        "depends_on": ["postgres"],
+                    },
+                    {
+                        "name": "postgres",
+                        "image": "postgres:16",
+                    },
+                ],
+            },
+        }
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fragment_dir = root / "inventory" / "services" / "immich.quadlet.d"
+            fragment_dir.mkdir(parents=True)
+            (fragment_dir / "server.container").write_text(
+                "[Unit]\nRequires=network-online.target\nAfter=network-online.target\n"
+            )
+
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+
+        container = rendered.artifacts_by_filename["fortress-immich-server.container"]
+        self.assertIn(
+            "Requires=fortress-immich-postgres.service network-online.target\n",
+            container.content,
+        )
+        self.assertIn(
+            "After=fortress-immich-postgres.service network-online.target\n",
+            container.content,
+        )
 
     def assert_golden_artifacts(self, rendered, fixture_dir):
         expected_files = sorted(path.name for path in fixture_dir.iterdir())

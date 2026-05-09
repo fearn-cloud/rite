@@ -1,0 +1,13 @@
+[Unit]
+Description=Fortress Service immich container server
+StartLimitBurst=3
+
+[Container]
+ContainerName=fortress-immich-server
+Image=ghcr.io/immich-app/immich-server:v1.120.0
+Network=fortress-immich
+NetworkAlias=server
+User=1000
+
+[Service]
+RestartSec=10

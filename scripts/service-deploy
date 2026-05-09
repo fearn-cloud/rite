@@ -9,7 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.validate import validate_inventory_model
-from fortress_services.deploy import service_secret_installations, share_backed_volume_subpaths
+from fortress_services.deploy import (
+    quadlet_deploy_vars,
+    service_secret_installations,
+    share_backed_volume_subpaths,
+)
 
 
 def main():
@@ -59,6 +63,7 @@ def main():
         "fortress_share_backed_volume_subpaths": share_backed_volume_subpaths(service, backend_vm),
         "fortress_service_secrets": service_secrets,
     }
+    extra_vars.update(quadlet_deploy_vars(service, backend_vm, inventory_root=repo_root / "inventory"))
     if service_secrets:
         extra_vars["fortress_service_sops_file"] = str(service_sops)
     try:

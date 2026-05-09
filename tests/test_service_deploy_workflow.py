@@ -148,6 +148,82 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         self.assertIn("no_log: true", playbook)
         self.assertIn("podman secret create", playbook)
 
+    def test_service_deploy_passes_rendered_artifacts_and_restart_order_to_playbook(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["cp", "-R", str(FIXTURES / "inventory_valid") + "/.", str(root)], check=True)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            calls_log = root / "calls.log"
+            self._fake_decrypt_keys(scripts_dir / "decrypt-keys", calls_log)
+            (root / "inventory" / "vms" / "media01.sops.yaml").write_text("encrypted vm material\n")
+            (root / "inventory" / "services" / "immich.yaml").write_text(
+                "name: immich\n"
+                "service_group: media\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 2283\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+                "      depends_on: [postgres]\n"
+                "    - name: postgres\n"
+                "      image: postgres:16\n"
+            )
+            env = os.environ.copy()
+            env["FORTRESS_ROOT"] = str(root)
+            env["CALLS_LOG"] = str(calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-deploy"), "immich"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            extra_vars = json.loads(calls_log.read_text().split("--extra-vars ", 1)[1])
+            self.assertEqual(
+                ["fortress-group-media.network", "fortress-immich-server.container", "fortress-immich-postgres.container"],
+                [artifact["filename"] for artifact in extra_vars["fortress_quadlet_artifacts"]],
+            )
+            self.assertEqual(
+                ["fortress-immich-postgres.service", "fortress-immich-server.service"],
+                extra_vars["fortress_service_start_units"],
+            )
+            self.assertEqual(
+                ["fortress-immich-server.service", "fortress-immich-postgres.service"],
+                extra_vars["fortress_service_stop_units"],
+            )
+            self.assertEqual(
+                ["/etc/containers/systemd/fortress-immich-server.container", "/etc/containers/systemd/fortress-immich-postgres.container"],
+                extra_vars["fortress_owned_quadlet_prune_paths"],
+            )
+            self.assertEqual("fortress_immich_", extra_vars["fortress_service_secret_prefix"])
+
+    def test_service_deploy_playbook_prunes_restarts_and_reports_start_failures(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "service-deploy.yml").read_text()
+        start_tasks = (REPO_ROOT / "ansible" / "tasks" / "service-start-unit.yml").read_text()
+        deploy_workflow = playbook + "\n" + start_tasks
+
+        self.assertIn("name: Find obsolete fortress-rendered container Quadlets for selected Service", playbook)
+        self.assertIn("patterns: \"fortress-{{ deploy_service }}-*.container\"", playbook)
+        self.assertIn("fortress_owned_quadlet_prune_paths", playbook)
+        self.assertIn("name: List fortress-owned Podman secrets for selected Service", playbook)
+        self.assertIn("{{ fortress_service_secret_prefix }}", playbook)
+        self.assertLess(
+            playbook.index("name: Stop Service containers in reverse dependency order"),
+            playbook.index("name: Start Service containers in dependency order"),
+        )
+        self.assertIn("systemctl start {{ item }}", deploy_workflow)
+        self.assertIn("Failed to start {{ item }}", deploy_workflow)
+        self.assertIn("journalctl -u {{ item }}", deploy_workflow)
+        self.assertNotIn("/srv/services/{{ deploy_service }}", deploy_workflow)
+
     def _fake_decrypt_keys(self, path, calls_log):
         path.write_text(
             "#!/usr/bin/env bash\n"

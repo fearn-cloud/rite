@@ -21,6 +21,75 @@
       loop: "{{ fortress_service_secrets | default([]) }}"
       no_log: true
 
-    - name: Start Service containers
-      ansible.builtin.debug:
-        msg: "TODO: render and start {{ deploy_service }}"
+    - name: Ensure Service Data Directories exist
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.uid | default(omit) }}"
+        group: "{{ item.gid | default(omit) }}"
+        mode: "0750"
+      loop: "{{ fortress_service_data_directories | default([]) }}"
+
+    - name: Ensure Quadlet system directory exists
+      ansible.builtin.file:
+        path: /etc/containers/systemd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render selected Service Quadlet artifacts
+      ansible.builtin.copy:
+        dest: "{{ item.path }}"
+        content: "{{ item.content }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ fortress_quadlet_artifacts }}"
+      register: fortress_rendered_quadlets
+
+    - name: Find obsolete fortress-rendered container Quadlets for selected Service
+      ansible.builtin.find:
+        paths: /etc/containers/systemd
+        patterns: "fortress-{{ deploy_service }}-*.container"
+        file_type: file
+      register: fortress_service_container_quadlets
+
+    - name: Prune obsolete fortress-rendered Quadlet units for selected Service
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ fortress_service_container_quadlets.files | default([]) }}"
+      when: item.path not in fortress_owned_quadlet_prune_paths
+      register: fortress_pruned_quadlets
+
+    - name: List fortress-owned Podman secrets for selected Service
+      ansible.builtin.shell: |
+        set -eu
+        podman secret ls --format '{{ "{{" }}.Name{{ "}}" }}' | awk '/^{{ fortress_service_secret_prefix }}/ { print }'
+      args:
+        executable: /bin/bash
+      register: fortress_existing_service_secrets
+      changed_when: false
+
+    - name: Prune obsolete service-scoped Podman secrets
+      ansible.builtin.command:
+        cmd: "podman secret rm {{ item }}"
+      loop: "{{ fortress_existing_service_secrets.stdout_lines | default([]) }}"
+      when: item not in (fortress_service_secrets | default([]) | map(attribute='podman_name') | list)
+
+    - name: Reload systemd after Quadlet changes
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: fortress_rendered_quadlets.changed or fortress_pruned_quadlets.changed
+
+    - name: Stop Service containers in reverse dependency order
+      ansible.builtin.command:
+        cmd: "systemctl stop {{ item }}"
+      loop: "{{ fortress_service_stop_units }}"
+      failed_when: false
+      changed_when: true
+
+    - name: Start Service containers in dependency order
+      ansible.builtin.include_tasks: ../tasks/service-start-unit.yml
+      loop: "{{ fortress_service_start_units }}"

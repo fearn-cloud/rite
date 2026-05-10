@@ -1,6 +1,7 @@
 .agents/
 .claude/
 *__pycache__/
+inventory/*/tmp-*.yaml
 inventory/vms/tmp-template-verify*.yaml
 inventory/vms/tmp-template-verify*.sops.yaml
 tofu/generated-providers.tf

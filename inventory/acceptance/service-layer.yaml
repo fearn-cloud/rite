@@ -1,0 +1,22 @@
+dataset: acceptance-service-layer
+mount:
+  name: service-layer
+  mount_point: /mnt/service-layer
+  access: read_write
+hardware:
+  cores: 1
+  memory: 1024
+  disk_size: 8G
+storage_by_host:
+  wintermute: fast
+vms:
+  primary:
+    name: tmp-service-primary
+    vmid: 8921
+    address_by_host:
+      wintermute: 10.10.0.233/24
+  peer:
+    name: tmp-service-peer
+    vmid: 8922
+    address_by_host:
+      wintermute: 10.10.0.234/24

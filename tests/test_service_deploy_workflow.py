@@ -157,6 +157,7 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         self.assertIn("no_log: true", playbook)
         self.assertIn("podman secret rm", playbook)
         self.assertIn("podman secret create", playbook)
+        self.assertIn("stdin_add_newline: false", playbook)
 
     def test_service_deploy_passes_rendered_artifacts_and_restart_order_to_playbook(self):
         with tempfile.TemporaryDirectory() as tmp:

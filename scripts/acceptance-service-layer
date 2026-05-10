@@ -1,0 +1,688 @@
+#!/usr/bin/env python3
+import hashlib
+import ipaddress
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+POLICY_NAME = "service-layer"
+SERVICE_NAME = "tmp-service-layer"
+ROLES = ("primary", "peer")
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    if args is None:
+        print(
+            "usage: scripts/acceptance-service-layer "
+            "host=<host> template=<template> endpoint=<nas-endpoint> "
+            "[auto_confirm=<true|false>] [keep_on_fail=<true|false>]",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
+    early_overwrite_check = refuse_existing_artifacts(
+        repo_root,
+        [{"name": "tmp-service-primary"}, {"name": "tmp-service-peer"}],
+    )
+    if early_overwrite_check != 0:
+        return early_overwrite_check
+
+    inventory = load_inventory_tree(repo_root)
+    resolved = resolve_intent(repo_root, inventory, args)
+    if isinstance(resolved, int):
+        return resolved
+    intent = resolved
+
+    overwrite_check = refuse_existing_artifacts(repo_root, intent["vms"])
+    if overwrite_check != 0:
+        return overwrite_check
+
+    print_intent(intent)
+    if not args["auto_confirm"] and not confirm():
+        print("service-layer acceptance: cancelled")
+        return 1
+
+    generated = False
+    provisioned = []
+    try:
+        progress("generating temporary Inventory artifacts")
+        write_generated_inventory(repo_root, intent)
+        generated = True
+        progress("encrypting generated Service Sibling SOPS File")
+        encryption = encrypt_service_sops(repo_root)
+        if encryption.returncode != 0:
+            return failed_after_generation(repo_root, intent, "Service Sibling SOPS File encryption", encryption, args["keep_on_fail"], generated, provisioned, require_nas_cleanup=False)
+        progress(f"reconciling Ephemeral Dataset and Derived NFS Share on NAS Endpoint {intent['endpoint']}")
+        reconcile = run_reconcile(repo_root, intent, destroy=False)
+        if reconcile.returncode != 0:
+            return failed_after_generation(
+                repo_root,
+                intent,
+                "NAS Reconcile",
+                reconcile,
+                args["keep_on_fail"],
+                generated,
+                provisioned,
+                require_nas_cleanup=False,
+            )
+        assertion = assert_reconcile_share(reconcile.stdout, intent)
+        if assertion:
+            return failed_after_generation(repo_root, intent, "NAS Reconcile assertion", assertion, args["keep_on_fail"], generated, provisioned)
+
+        for vm in intent["vms"]:
+            progress(f"provisioning {vm['role']} Acceptance VM {vm['name']}")
+            command = [str(repo_root / "scripts" / "vm-up"), vm["name"]]
+            provisioned.append(vm["name"])
+            if args["auto_confirm"]:
+                command.append("--auto-confirm")
+                up = run(command)
+            else:
+                up = run(command, input_text=f"apply {vm['name']}\n")
+            if up.returncode != 0:
+                return failed_after_generation(repo_root, intent, f"vm-up {vm['name']}", up, args["keep_on_fail"], generated, provisioned)
+
+        progress(f"deploying generated Service {SERVICE_NAME} to {intent['vms'][0]['name']}")
+        service_deploy = run_service_deploy(repo_root, intent)
+        if service_deploy.returncode != 0:
+            return failed_after_generation(repo_root, intent, "service-deploy", service_deploy, args["keep_on_fail"], generated, provisioned)
+
+        progress("verifying Service-layer contract")
+        verification = verify_service_layer(repo_root, intent)
+        if verification.returncode != 0:
+            return failed_after_generation(repo_root, intent, "verification", verification, args["keep_on_fail"], generated, provisioned)
+
+        progress("cleaning up generated Acceptance resources")
+        cleanup = cleanup_resources(repo_root, intent, provisioned)
+        if cleanup.returncode != 0:
+            print(f"cleanup failed: {phase_detail(cleanup)}", file=sys.stderr)
+            return 1
+        print("service-layer acceptance: passed")
+        return 0
+    except OSError as error:
+        result = subprocess.CompletedProcess([], 1, "", str(error))
+        return failed_after_generation(repo_root, intent, "workflow", result, args["keep_on_fail"], generated, provisioned)
+
+
+def parse_args(argv):
+    values = {}
+    for arg in argv:
+        if "=" not in arg:
+            return None
+        key, value = arg.split("=", 1)
+        values[key] = value.strip('"')
+    if set(values) - {"host", "template", "endpoint", "auto_confirm", "keep_on_fail"}:
+        return None
+    if not {"host", "template", "endpoint"} <= set(values):
+        return None
+    for key in ("auto_confirm", "keep_on_fail"):
+        values[key] = values.get(key, "false").lower()
+        if values[key] not in ("true", "false"):
+            return None
+        values[key] = values[key] == "true"
+    return values
+
+
+def resolve_intent(repo_root, inventory, args):
+    host_name = args["host"]
+    template_name = args["template"]
+    endpoint_name = args["endpoint"]
+    host = inventory.hosts.get(host_name)
+    if not host:
+        print(f"Host {host_name!r} is not declared at {repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}", file=sys.stderr)
+        return 1
+    if template_name not in inventory.templates:
+        print(f"Template {template_name!r} is not declared at {repo_root / 'inventory' / 'templates' / f'{template_name}.yaml'}", file=sys.stderr)
+        return 1
+    if template_name not in (host.get("proxmox", {}).get("templates", []) or []):
+        print(f"Host {host_name} does not declare Template {template_name} under proxmox.templates", file=sys.stderr)
+        return 1
+    if endpoint_name not in inventory.nas_endpoints:
+        print(f"NAS Endpoint {endpoint_name!r} is not declared at {repo_root / 'inventory' / 'nas' / f'{endpoint_name}.yaml'}", file=sys.stderr)
+        return 1
+    policy = inventory.acceptance_policies.get(POLICY_NAME)
+    if not policy:
+        print(f"Acceptance Policy {POLICY_NAME!r} is not declared at {repo_root / 'inventory' / 'acceptance' / f'{POLICY_NAME}.yaml'}", file=sys.stderr)
+        return 1
+    dataset = inventory.datasets.get(policy.get("dataset"))
+    if not dataset:
+        print(f"Acceptance Policy {POLICY_NAME} references missing Dataset {policy.get('dataset')!r}", file=sys.stderr)
+        return 1
+    if dataset.get("lifecycle") != "ephemeral":
+        print(f"Dataset {dataset.get('name')} must be lifecycle: ephemeral for Acceptance Test mutation", file=sys.stderr)
+        return 1
+    if dataset.get("nas") != endpoint_name:
+        print(f"Dataset {dataset.get('name')} belongs to NAS Endpoint {dataset.get('nas')}, not {endpoint_name}", file=sys.stderr)
+        return 1
+    if host_name not in (policy.get("storage_by_host", {}) or {}):
+        print(f"Acceptance Policy {POLICY_NAME} has no storage_by_host entry for Host {host_name}", file=sys.stderr)
+        return 1
+    bridge = derive_bridge(host_name, host, policy, ROLES[0])
+    if isinstance(bridge, int):
+        return bridge
+
+    vms = []
+    for role in ROLES:
+        declaration = (policy.get("vms", {}) or {}).get(role, {})
+        address = (declaration.get("address_by_host", {}) or {}).get(host_name)
+        if not address:
+            print(f"Acceptance Policy {POLICY_NAME} has no {role} address_by_host entry for Host {host_name}", file=sys.stderr)
+            return 1
+        role_bridge = derive_bridge(host_name, host, policy, role)
+        if isinstance(role_bridge, int):
+            return role_bridge
+        vms.append(
+            {
+                "role": role,
+                "name": declaration.get("name"),
+                "vmid": declaration.get("vmid"),
+                "address": address,
+                "client": str(ipaddress.ip_interface(address).ip),
+                "bridge": role_bridge,
+            }
+        )
+    return {
+        "host": host_name,
+        "template": template_name,
+        "endpoint": endpoint_name,
+        "policy": policy,
+        "dataset": dataset,
+        "vms": vms,
+    }
+
+
+def derive_bridge(host_name, host, policy, role):
+    declaration = (policy.get("vms", {}) or {}).get(role, {})
+    address = (declaration.get("address_by_host", {}) or {}).get(host_name)
+    if not address:
+        return 1
+    vm_ip = ipaddress.ip_interface(address).ip
+    matches = []
+    for bridge in host.get("network", {}).get("bridges", []) or []:
+        cidr = bridge.get("cidr")
+        if cidr and vm_ip in ipaddress.ip_network(cidr, strict=False):
+            matches.append(bridge)
+    if len(matches) != 1:
+        print(f"{role} VM address {address} must match exactly one Host bridge CIDR; found {len(matches)}", file=sys.stderr)
+        return 1
+    if not matches[0].get("gateway"):
+        print(f"Host {host_name} bridge {matches[0].get('name')} has no gateway for generated Service-layer Acceptance VM", file=sys.stderr)
+        return 1
+    return matches[0]
+
+
+def refuse_existing_artifacts(repo_root, vms):
+    for vm in vms:
+        for suffix in (".yaml", ".sops.yaml"):
+            path = repo_root / "inventory" / "vms" / f"{vm['name']}{suffix}"
+            if path.exists():
+                print(f"{path} already exists; refusing to overwrite generated Service-layer Acceptance artifact", file=sys.stderr)
+                return 1
+    for path in [
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml",
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml",
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d",
+    ]:
+        if path.exists():
+            print(f"{path} already exists; refusing to overwrite generated Service-layer Acceptance artifact", file=sys.stderr)
+            return 1
+    return 0
+
+
+def print_intent(intent):
+    print("Service-layer Acceptance Test intent")
+    print(f"Host: {intent['host']}")
+    print(f"Template: {intent['template']}")
+    print(f"NAS Endpoint: {intent['endpoint']}")
+    print(f"Dataset: {intent['dataset']['name']}")
+    for vm in intent["vms"]:
+        print(f"{vm['role']}: {vm['name']} VMID {vm['vmid']} {vm['address']}")
+
+
+def progress(message):
+    print(f"service-layer acceptance: {message}", flush=True)
+
+
+def confirm():
+    response = input("Type 'acceptance service layer' to continue: ")
+    return response == "acceptance service layer"
+
+
+def write_generated_inventory(repo_root, intent):
+    for vm in intent["vms"]:
+        write_vm_yaml(repo_root / "inventory" / "vms" / f"{vm['name']}.yaml", intent, vm)
+    write_service_yaml(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml", intent)
+    write_service_sops(repo_root, repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml")
+    write_service_quadlet_fragment(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d")
+
+
+def write_vm_yaml(path, intent, vm):
+    policy = intent["policy"]
+    hardware = policy["hardware"]
+    mount = policy["mount"]
+    storage = policy["storage_by_host"][intent["host"]]
+    path.write_text(
+        f"vmid: {vm['vmid']}\n"
+        "description: Generated Service-layer Acceptance VM. Do not edit by hand.\n"
+        "lifecycle:\n"
+        "  kind: operational\n"
+        "  purpose: service-layer-acceptance\n"
+        "  generated: true\n"
+        "placement:\n"
+        f"  host: {intent['host']}\n"
+        "source:\n"
+        f"  template: {intent['template']}\n"
+        "hardware:\n"
+        f"  cores: {hardware['cores']}\n"
+        f"  memory: {hardware['memory']}\n"
+        "  disks:\n"
+        f"    - storage: {storage}\n"
+        f"      size: {hardware['disk_size']}\n"
+        "network:\n"
+        "  interfaces:\n"
+        f"    - bridge: {vm['bridge']['name']}\n"
+        f"      address: {vm['address']}\n"
+        f"      gateway: {vm['bridge']['gateway']}\n"
+        "cloud_init:\n"
+        f"  hostname: {vm['name']}\n"
+        "mounts:\n"
+        f"  - name: {mount['name']}\n"
+        f"    dataset: {intent['dataset']['name']}\n"
+        "    protocol: nfs\n"
+        f"    mount_point: {mount['mount_point']}\n"
+        f"    access: {mount['access']}\n"
+        "backup:\n"
+        "  enabled: false\n"
+    )
+
+
+def write_service_yaml(path, intent):
+    mount = intent["policy"]["mount"]
+    primary = next(vm for vm in intent["vms"] if vm["role"] == "primary")
+    path.write_text(
+        f"name: {SERVICE_NAME}\n"
+        "service_group: service-layer-acceptance\n"
+        "service_data_owner:\n"
+        "  uid: 1000\n"
+        "  gid: 1000\n"
+        "backend:\n"
+        f"  vm: {primary['name']}\n"
+        "  port: 8080\n"
+        "ingress:\n"
+        "  enabled: false\n"
+        "deploy:\n"
+        "  type: quadlet\n"
+        "  containers:\n"
+        "    - name: web\n"
+        "      image: docker.io/library/nginx:1.27\n"
+        "      depends_on: [postgres, redis]\n"
+        "      published_ports:\n"
+        "        - bind: 0.0.0.0\n"
+        "          host: 8080\n"
+        "          container: 80\n"
+        "      volumes:\n"
+        "        - service_path: web\n"
+        "          container: /srv/fortress-service-layer-owned\n"
+        "          access: read_write\n"
+        f"        - mount: {mount['name']}\n"
+        "          source: /\n"
+        "          container: /usr/share/nginx/html\n"
+        "          access: read_only\n"
+        "      secrets:\n"
+        "        - secret: secrets.acceptance_token\n"
+        "          env: ACCEPTANCE_TOKEN_FILE\n"
+        "    - name: postgres\n"
+        "      image: docker.io/library/postgres:16\n"
+        "      secrets:\n"
+        "        - secret: secrets.acceptance_token\n"
+        "          env: POSTGRES_PASSWORD_FILE\n"
+        "      volumes:\n"
+        "        - service_path: postgres\n"
+        "          container: /var/lib/postgresql/data\n"
+        "          access: read_write\n"
+        "    - name: redis\n"
+        "      image: docker.io/library/redis:7\n"
+    )
+
+
+def write_service_sops(repo_root, path):
+    secret = service_secret_value(repo_root)
+    path.write_text(
+        "secrets:\n"
+        f"  acceptance_token: {secret}\n"
+    )
+
+
+def service_secret_value(repo_root):
+    return os.environ.get("FORTRESS_SERVICE_LAYER_SECRET", "generated-service-layer-acceptance-token")
+
+
+def encrypt_service_sops(repo_root):
+    return run(["sops", "--encrypt", "--in-place", str(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml")])
+
+
+def write_service_quadlet_fragment(path):
+    path.mkdir()
+    (path / "web.container").write_text(
+        "[Container]\n"
+        "Notify=false\n"
+        "\n"
+        "[Service]\n"
+        "RestartSec=5\n"
+    )
+
+
+def run_reconcile(repo_root, intent, destroy):
+    command = [
+        str(repo_root / "scripts" / "nas-reconcile-plan"),
+        "--live",
+        intent["endpoint"],
+        "--acceptance-ephemeral-datasets",
+    ]
+    if destroy:
+        command.append("--destroy-ephemeral-datasets")
+    command.append("--apply")
+    return run(command)
+
+
+def assert_reconcile_share(stdout, intent):
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError as error:
+        return subprocess.CompletedProcess([], 1, "", f"reconcile output was not JSON: {error}")
+    expected_clients = sorted(vm["client"] for vm in intent["vms"])
+    expected_name = f"fortress-nfs-{intent['dataset']['name']}-{intent['policy']['mount']['access'].replace('_', '-')}"
+    matches = [
+        share for share in payload.get("desired_nfs_shares", []) or []
+        if share.get("name") == expected_name
+        and share.get("dataset") == intent["dataset"]["name"]
+        and set(expected_clients) <= set(share.get("clients", []))
+    ]
+    if len(matches) != 1:
+        return subprocess.CompletedProcess(
+            [],
+            1,
+            "",
+            f"expected one Derived NFS Share {expected_name} with clients {expected_clients}",
+        )
+    return None
+
+
+def run_service_deploy(repo_root, intent):
+    return run([str(repo_root / "scripts" / "service-deploy"), SERVICE_NAME])
+
+
+def verify_service_layer(repo_root, intent):
+    hostvars = load_hostvars(repo_root)
+    mount_point = intent["policy"]["mount"]["mount_point"]
+    unit = systemd_mount_unit(mount_point)
+    checks = []
+    primary, peer = intent["vms"]
+    marker = os.environ.get("FORTRESS_SERVICE_LAYER_MARKER", f"fortress-service-layer-{int(time.time())}")
+    marker_file = f"{mount_point}/index.html"
+    expected_secret_hash = hashlib.sha256(service_secret_value(repo_root).encode()).hexdigest()
+    service_units = [
+        f"fortress-{SERVICE_NAME}-postgres.service",
+        f"fortress-{SERVICE_NAME}-redis.service",
+        f"fortress-{SERVICE_NAME}-web.service",
+    ]
+    checks.extend(
+        [
+            ("checking Primary Acceptance VM mount unit", primary, ["systemctl", "is-active", unit], None),
+            ("checking Primary Acceptance VM NFS mount", primary, ["findmnt", mount_point], None),
+            ("writing marker through Share-backed Volume", primary, ["sh", "-lc", f"printf {shlex.quote(marker)} > {shlex.quote(marker_file)}"], None),
+            *[
+                (f"checking Service unit {service_unit}", primary, ["systemctl", "is-active", service_unit], None)
+                for service_unit in service_units
+            ],
+            ("checking postgres Container Alias from web container", primary, ["podman", "exec", f"fortress-{SERVICE_NAME}-web", "getent", "hosts", "postgres"], None),
+            ("checking redis Container Alias from web container", primary, ["podman", "exec", f"fortress-{SERVICE_NAME}-web", "getent", "hosts", "redis"], None),
+            (
+                "checking Service Secret bytes inside web container",
+                primary,
+                [
+                    "podman",
+                    "exec",
+                    f"fortress-{SERVICE_NAME}-web",
+                    "sh",
+                    "-lc",
+                    "sha256sum \"$ACCEPTANCE_TOKEN_FILE\" | awk '{print $1}'",
+                ],
+                expected_secret_hash,
+            ),
+            ("checking peer-to-primary Published Port reachability", peer, ["curl", "-fsS", f"http://{primary['client']}:8080/"], marker),
+        ]
+    )
+    for description, vm, remote_command, expected_stdout in checks:
+        progress(description)
+        result = verify_ssh_check(repo_root, vm["name"], hostvars, remote_command, expected_stdout)
+        if result.returncode != 0:
+            return result
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def verify_ssh_check(repo_root, vm_name, hostvars, remote_command, expected_stdout):
+    attempts = int(os.environ.get("FORTRESS_VERIFY_RETRIES", "12"))
+    delay = float(os.environ.get("FORTRESS_VERIFY_RETRY_DELAY", "5"))
+    last_result = subprocess.CompletedProcess(remote_command, 1, "", "")
+    for attempt in range(attempts):
+        result = ssh_root(repo_root, vm_name, hostvars, remote_command)
+        if result.returncode == 0 and (expected_stdout is None or result.stdout.strip() == expected_stdout):
+            return result
+        if expected_stdout is not None and result.returncode == 0:
+            result = subprocess.CompletedProcess(
+                remote_command,
+                1,
+                result.stdout,
+                f"expected {expected_stdout!r}, got {result.stdout.strip()!r}",
+            )
+        last_result = result
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    return last_result
+
+
+def systemd_mount_unit(mount_point):
+    normalized = "/".join(part for part in str(mount_point).split("/") if part)
+    if not normalized:
+        return "-.mount"
+
+    escaped = []
+    at_start = True
+    for char in normalized:
+        if char == "/":
+            escaped.append("-")
+            at_start = True
+            continue
+        allowed = char.isalnum() or char in ":_."
+        if allowed and not (at_start and char == "."):
+            escaped.append(char)
+        else:
+            escaped.extend(f"\\x{byte:02x}" for byte in char.encode())
+        at_start = False
+    return f"{''.join(escaped)}.mount"
+
+
+def load_hostvars(repo_root):
+    result = subprocess.run(
+        ["ansible-inventory", "-i", str(repo_root / "inventory" / "fortress.yaml"), "--list"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    return json.loads(result.stdout).get("_meta", {}).get("hostvars", {})
+
+
+def ssh_root(repo_root, vm_name, hostvars, remote_command):
+    vm_vars = hostvars.get(vm_name, {})
+    ansible_host = _ansible_value(vm_vars.get("ansible_host"))
+    key_file = _ansible_value(vm_vars.get("ansible_ssh_private_key_file"))
+    user = _ansible_value(vm_vars.get("ansible_user")) or "admin"
+    if not ansible_host or not key_file:
+        return subprocess.CompletedProcess(remote_command, 1, "", f"VM {vm_name} missing Ansible SSH connection vars")
+    remote_shell_command = f"sudo sh -lc {shlex.quote(shlex.join(remote_command))}"
+    return run(
+        [
+            str(repo_root / "scripts" / "decrypt-keys"),
+            f"inventory/vms/{vm_name}.sops.yaml",
+            "--",
+            "ssh",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-i",
+            key_file,
+            f"{user}@{ansible_host}",
+            remote_shell_command,
+        ]
+    )
+
+
+def _ansible_value(value):
+    if isinstance(value, dict) and set(value) == {"__ansible_unsafe"}:
+        return value["__ansible_unsafe"]
+    return value
+
+
+def failed_after_generation(repo_root, intent, phase, result, keep_on_fail, generated, provisioned, require_nas_cleanup=True):
+    message = f"{phase} failed: {phase_detail(result)}"
+    if keep_on_fail:
+        print(f"{message}; preserved Service-layer acceptance resources for inspection", file=sys.stderr)
+        return 1
+    if generated:
+        progress("cleaning up generated Acceptance resources after failure")
+        cleanup = cleanup_resources(repo_root, intent, provisioned, require_nas_cleanup=require_nas_cleanup)
+        if cleanup.returncode != 0:
+            print(f"{message}; cleanup also failed: {phase_detail(cleanup)}", file=sys.stderr)
+            return 1
+    print(message, file=sys.stderr)
+    return 1
+
+
+def cleanup_resources(repo_root, intent, provisioned=None, require_nas_cleanup=True):
+    provisioned = set(provisioned or [])
+    stderr = []
+    delete_generated_service_artifacts(repo_root, stderr)
+    for vm in intent["vms"]:
+        if vm["name"] in provisioned:
+            result = run([str(repo_root / "scripts" / "vm-destroy"), vm["name"], "--delete-vm-yaml"])
+            if result.returncode != 0:
+                stderr.append(phase_detail(result))
+        else:
+            delete_generated_artifacts(repo_root, vm["name"], stderr)
+    reconcile = run_reconcile(repo_root, intent, destroy=True)
+    if reconcile.returncode != 0:
+        stderr.append(phase_detail(reconcile))
+    elif require_nas_cleanup:
+        assertion = assert_cleanup_removes_nas_resources(reconcile.stdout, intent)
+        if assertion:
+            stderr.append(phase_detail(assertion))
+    if stderr:
+        return subprocess.CompletedProcess([], 1, "", "; ".join(stderr))
+    return subprocess.CompletedProcess([], 0, "", "")
+
+
+def assert_cleanup_removes_nas_resources(stdout, intent):
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError as error:
+        return subprocess.CompletedProcess([], 1, "", f"cleanup output was not JSON: {error}")
+    expected_dataset = intent["dataset"]["name"]
+    expected_share = f"fortress-nfs-{expected_dataset}-{intent['policy']['mount']['access'].replace('_', '-')}"
+    operations = (payload.get("api_operations") or []) + (payload.get("write_actions") or [])
+    deleted_dataset = any(
+        operation.get("method") == "delete_dataset"
+        and operation.get("dataset") == expected_dataset
+        for operation in operations
+    ) or any(
+        operation.get("action") == "delete_dataset"
+        and operation.get("dataset") == expected_dataset
+        for operation in operations
+    )
+    deleted_share = any(
+        operation.get("method") == "delete_nfs_share"
+        and operation.get("share") == expected_share
+        for operation in operations
+    ) or any(
+        operation.get("action") == "delete_nfs_share"
+        and operation.get("share") == expected_share
+        for operation in operations
+    )
+    errors = []
+    if not deleted_dataset:
+        errors.append(f"expected cleanup to delete Ephemeral Dataset {expected_dataset}")
+    if not deleted_share:
+        errors.append(f"expected cleanup to delete Derived NFS Share {expected_share}")
+    if errors:
+        return subprocess.CompletedProcess([], 1, "", "; ".join(errors))
+    return None
+
+
+def delete_generated_artifacts(repo_root, vm_name, stderr):
+    for suffix in (".sops.yaml", ".yaml"):
+        path = repo_root / "inventory" / "vms" / f"{vm_name}{suffix}"
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            stderr.append(f"failed to delete generated artifact {path}: {error}")
+
+
+def delete_generated_service_artifacts(repo_root, stderr):
+    for path in [
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml",
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml",
+    ]:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            stderr.append(f"failed to delete generated artifact {path}: {error}")
+    fragment_dir = repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d"
+    try:
+        for child in fragment_dir.iterdir():
+            child.unlink()
+        fragment_dir.rmdir()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        stderr.append(f"failed to delete generated artifact {fragment_dir}: {error}")
+
+
+def run(command, input_text=None):
+    try:
+        return subprocess.run(
+            command,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        return subprocess.CompletedProcess(command, 1, "", str(error))
+
+
+def phase_detail(result):
+    return "\n".join(
+        stream.strip()
+        for stream in (result.stdout, result.stderr)
+        if stream and stream.strip()
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -32,6 +32,7 @@
       ansible.builtin.command:
         cmd: "podman secret create {{ item.podman_name }} -"
         stdin: "{{ lookup('pipe', 'sops --decrypt --extract ' ~ item.sops_extract | quote ~ ' ' ~ fortress_service_sops_file | quote) }}"
+        stdin_add_newline: false
       loop: "{{ fortress_service_secrets | default([]) }}"
       no_log: true
 

@@ -51,7 +51,19 @@ VM placement is the Service security boundary. Put Services that should not shar
 
 Service deletion/destruction is not automated in issue 07. Removing a Service yaml does not remove containers, Quadlet units, Podman secrets, Service Data Directories, Published Ports, DNS, or Ingress routing. Plan deletion as an explicit operator change.
 
-## Live Acceptance Demo
+## Service-layer Acceptance Test
+
+Run the first-class Acceptance Test when you need to prove the Service deployment path against live infrastructure:
+
+```sh
+just acceptance-service-layer host=<host> template=<template> endpoint=<nas-endpoint>
+```
+
+The workflow generates `tmp-service-primary` as the Primary Acceptance VM and `tmp-service-peer` as the Peer Acceptance VM, reconciles the dedicated `acceptance-service-layer` Ephemeral Dataset, provisions both generated Operational VMs, writes a marker file to the Primary Acceptance VM Mount, deploys the generated `tmp-service-layer` Quadlet Service through `service-deploy`, and curls the Primary Acceptance VM Backend Published Port from the Peer Acceptance VM.
+
+The generated Service intentionally uses `bind: 0.0.0.0` on its Backend Published Port, a Share-backed Volume for the marker content, multiple containers with Container Dependencies, Container Alias checks, a Service-owned volume, and a Service Secret verification that compares a hash without printing the plaintext secret. Use `keep_on_fail=true` to preserve the generated VMs, Service inventory, Sibling SOPS Files, Quadlet Fragment directory, and NAS resources for inspection.
+
+## Live Demo Fixture
 
 The live acceptance shape is captured in `inventory/acceptance/service-demo.yaml`. Before running it live, copy that file to `inventory/services/fortress-service-demo.yaml`, create an encrypted `inventory/services/fortress-service-demo.sops.yaml` from `inventory/acceptance/service-demo.sops.yaml.example`, and copy `inventory/acceptance/services/fortress-service-demo.quadlet.d/` to `inventory/services/fortress-service-demo.quadlet.d/`.
 

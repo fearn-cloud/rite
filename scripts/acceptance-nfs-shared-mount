@@ -59,7 +59,16 @@ def main():
         generated = True
         reconcile = run_reconcile(repo_root, intent, destroy=False)
         if reconcile.returncode != 0:
-            return failed_after_generation(repo_root, intent, "NAS Reconcile", reconcile, args["keep_on_fail"], generated, provisioned)
+            return failed_after_generation(
+                repo_root,
+                intent,
+                "NAS Reconcile",
+                reconcile,
+                args["keep_on_fail"],
+                generated,
+                provisioned,
+                require_nas_cleanup=False,
+            )
         assertion = assert_reconcile_share(reconcile.stdout, intent)
         if assertion:
             return failed_after_generation(repo_root, intent, "NAS Reconcile assertion", assertion, args["keep_on_fail"], generated, provisioned)
@@ -417,13 +426,13 @@ def _ansible_value(value):
     return value
 
 
-def failed_after_generation(repo_root, intent, phase, result, keep_on_fail, generated, provisioned):
+def failed_after_generation(repo_root, intent, phase, result, keep_on_fail, generated, provisioned, require_nas_cleanup=True):
     message = f"{phase} failed: {phase_detail(result)}"
     if keep_on_fail:
         print(f"{message}; preserved NFS shared-mount acceptance resources for inspection", file=sys.stderr)
         return 1
     if generated:
-        cleanup = cleanup_resources(repo_root, intent, provisioned)
+        cleanup = cleanup_resources(repo_root, intent, provisioned, require_nas_cleanup=require_nas_cleanup)
         if cleanup.returncode != 0:
             print(f"{message}; cleanup also failed: {phase_detail(cleanup)}", file=sys.stderr)
             return 1
@@ -431,7 +440,7 @@ def failed_after_generation(repo_root, intent, phase, result, keep_on_fail, gene
     return 1
 
 
-def cleanup_resources(repo_root, intent, provisioned=None):
+def cleanup_resources(repo_root, intent, provisioned=None, require_nas_cleanup=True):
     provisioned = set(provisioned or [])
     stderr = []
     for vm in intent["vms"]:
@@ -444,9 +453,49 @@ def cleanup_resources(repo_root, intent, provisioned=None):
     reconcile = run_reconcile(repo_root, intent, destroy=True)
     if reconcile.returncode != 0:
         stderr.append(phase_detail(reconcile))
+    elif require_nas_cleanup:
+        assertion = assert_cleanup_removes_nas_resources(reconcile.stdout, intent)
+        if assertion:
+            stderr.append(phase_detail(assertion))
     if stderr:
         return subprocess.CompletedProcess([], 1, "", "; ".join(stderr))
     return subprocess.CompletedProcess([], 0, "", "")
+
+
+def assert_cleanup_removes_nas_resources(stdout, intent):
+    try:
+        payload = json.loads(stdout or "{}")
+    except json.JSONDecodeError as error:
+        return subprocess.CompletedProcess([], 1, "", f"cleanup output was not JSON: {error}")
+    expected_dataset = intent["dataset"]["name"]
+    expected_share = f"fortress-nfs-{expected_dataset}-{intent['policy']['mount']['access'].replace('_', '-')}"
+    operations = (payload.get("api_operations") or []) + (payload.get("write_actions") or [])
+    deleted_dataset = any(
+        operation.get("method") == "delete_dataset"
+        and operation.get("dataset") == expected_dataset
+        for operation in operations
+    ) or any(
+        operation.get("action") == "delete_dataset"
+        and operation.get("dataset") == expected_dataset
+        for operation in operations
+    )
+    deleted_share = any(
+        operation.get("method") == "delete_nfs_share"
+        and operation.get("share") == expected_share
+        for operation in operations
+    ) or any(
+        operation.get("action") == "delete_nfs_share"
+        and operation.get("share") == expected_share
+        for operation in operations
+    )
+    errors = []
+    if not deleted_dataset:
+        errors.append(f"expected cleanup to delete Ephemeral Dataset {expected_dataset}")
+    if not deleted_share:
+        errors.append(f"expected cleanup to delete Derived NFS Share {expected_share}")
+    if errors:
+        return subprocess.CompletedProcess([], 1, "", "; ".join(errors))
+    return None
 
 
 def delete_generated_artifacts(repo_root, vm_name, stderr):

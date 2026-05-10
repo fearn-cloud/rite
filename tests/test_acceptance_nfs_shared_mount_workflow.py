@@ -180,6 +180,35 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             self.assertFalse((root / "inventory" / "vms" / "tmp-nfs-primary.yaml").exists())
             self.assertFalse((root / "inventory" / "vms" / "tmp-nfs-peer.yaml").exists())
 
+    def test_cleanup_fails_when_nas_plan_does_not_remove_acceptance_dataset_and_share(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            env = self._workflow_env(root, calls_log)
+            env["FORTRESS_CLEANUP_EMPTY_PLAN"] = "true"
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "acceptance-nfs-shared-mount"),
+                    "host=wintermute",
+                    "template=debian-12-base",
+                    "endpoint=truenas",
+                    "auto_confirm=true",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cleanup failed", result.stderr)
+            self.assertIn("expected cleanup to delete Ephemeral Dataset acceptance-nfs-demo", result.stderr)
+            self.assertIn(
+                "expected cleanup to delete Derived NFS Share fortress-nfs-acceptance-nfs-demo-read-write",
+                result.stderr,
+            )
+
     def test_just_recipe_and_runbook_document_workflow(self):
         justfile = (REPO_ROOT / "justfile").read_text()
         runbook = (REPO_ROOT / "runbooks" / "nas-truenas.md").read_text()
@@ -271,6 +300,18 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             "printf 'nas-reconcile-plan %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
             "if [ \"$FORTRESS_FAIL_PHASE\" = nas-reconcile-plan ]; then echo 'nas reconcile failed intentionally' >&2; exit 42; fi\n"
+            "if [[ \"$*\" == *--destroy-ephemeral-datasets* && \"$FORTRESS_CLEANUP_EMPTY_PLAN\" = true ]]; then python3 - <<'PY'\n"
+            "import json\n"
+            "print(json.dumps({'write_actions': [], 'api_operations': []}))\n"
+            "PY\n"
+            "exit 0\n"
+            "fi\n"
+            "if [[ \"$*\" == *--destroy-ephemeral-datasets* ]]; then python3 - <<'PY'\n"
+            "import json\n"
+            "print(json.dumps({'write_actions': [{'action': 'delete_nfs_share', 'share': 'fortress-nfs-acceptance-nfs-demo-read-write'}, {'action': 'delete_dataset', 'dataset': 'acceptance-nfs-demo', 'path': '/mnt/tank/fortress-acceptance/nfs-demo'}], 'api_operations': [{'method': 'delete_nfs_share', 'share': 'fortress-nfs-acceptance-nfs-demo-read-write'}, {'method': 'delete_dataset', 'dataset': 'acceptance-nfs-demo', 'path': '/mnt/tank/fortress-acceptance/nfs-demo'}]}))\n"
+            "PY\n"
+            "exit 0\n"
+            "fi\n"
             "python3 - <<'PY'\n"
             "import json\n"
             "print(json.dumps({'desired_nfs_shares': [{'name': 'fortress-nfs-acceptance-nfs-demo-read-write', 'dataset': 'acceptance-nfs-demo', 'path': '/mnt/tank/fortress-acceptance/nfs-demo', 'protocol': 'nfs', 'access': 'read_write', 'clients': ['10.10.0.201', '10.10.0.231', '10.10.0.232']}]}))\n"

@@ -2024,6 +2024,67 @@ class NasReconcilePlanTests(unittest.TestCase):
                 output["share_findings"],
             )
 
+    def test_acceptance_cleanup_preserves_unrelated_fortress_owned_share(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "datasets" / "media.yaml").write_text(
+                "name: acceptance-media\n"
+                "nas: truenas\n"
+                "path: /mnt/pool/fortress-acceptance/media\n"
+                "lifecycle: ephemeral\n"
+            )
+            reality_path = root / "truenas-reality.json"
+            reality_path.write_text(
+                json.dumps(
+                    {
+                        "datasets": [
+                            {
+                                "path": "/mnt/pool/fortress-acceptance/media",
+                                "fortress_marker": "fortress:ephemeral-dataset:acceptance-media",
+                            }
+                        ],
+                        "nfs_shares": [
+                            {
+                                "name": "fortress-nfs-acceptance-media-read-write",
+                                "path": "/mnt/pool/fortress-acceptance/media",
+                                "fortress_marker": "fortress:nfs-share:fortress-nfs-acceptance-media-read-write",
+                            },
+                            {
+                                "name": "fortress-nfs-unrelated-read-write",
+                                "path": "/mnt/pool/unrelated",
+                                "fortress_marker": "fortress:nfs-share:fortress-nfs-unrelated-read-write",
+                            },
+                        ],
+                    }
+                )
+            )
+
+            result = self._run_reconcile(
+                root,
+                reality_path,
+                "--apply",
+                "--acceptance-ephemeral-datasets",
+                "--destroy-ephemeral-datasets",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = json.loads(result.stdout)
+            self.assertIn(
+                {
+                    "method": "delete_nfs_share",
+                    "share": "fortress-nfs-acceptance-media-read-write",
+                },
+                output["api_operations"],
+            )
+            self.assertNotIn(
+                {
+                    "method": "delete_nfs_share",
+                    "share": "fortress-nfs-unrelated-read-write",
+                },
+                output["api_operations"],
+            )
+
     def test_acceptance_cleanup_reports_unmarked_ephemeral_dataset_without_deleting(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

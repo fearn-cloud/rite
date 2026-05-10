@@ -34,6 +34,14 @@ _Avoid_: per-host test file, fixture inventory.
 A fleet-level declaration of the reusable VMIDs, hardware, storage, and IP allocations used when an Acceptance Test creates disposable Operational VMs.
 _Avoid_: hard-coded test constants, fixture inventory.
 
+**Primary Acceptance VM**:
+The generated temporary Operational VM that hosts the resource being proven by a multi-VM Acceptance Test.
+_Avoid_: service VM, test host, first VM.
+
+**Peer Acceptance VM**:
+The generated temporary Operational VM that verifies a multi-VM Acceptance Test from outside the Primary Acceptance VM.
+_Avoid_: secondary VM, client VM, second VM.
+
 **Template**:
 A stopped Proxmox VM marked `template: 1` with a cloud-init drive, declared in `inventory/templates/<name>.yaml`. Used as the clone source for new VMs. Lives on a specific Host.
 _Avoid_: image (reserve for the upstream Cloud Image).
@@ -378,13 +386,26 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Template Verification Policy** defines the reusable slot from which each **Template Verification VM** is generated.
 - An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
 - A multi-VM **Acceptance Test** uses generated temporary **Operational VMs** rather than checked-in ordinary **VMs**.
+- A multi-VM **Acceptance Test** may designate one generated temporary **Operational VM** as the **Primary Acceptance VM** and another as the **Peer Acceptance VM**.
 - Each workflow that needs reserved live-infrastructure slots owns its own **Acceptance Policy**.
+- The Service-layer **Acceptance Test** owns a dedicated **Acceptance Policy** rather than reusing the NFS shared-mount policy.
+- The Service-layer **Acceptance Test** generates and cleans up temporary Service inventory rather than requiring a checked-in ordinary **Service**.
+- The Service-layer **Acceptance Test** includes **Service Secrets** so it proves the end-to-end Service deployment ceremony.
+- The Service-layer **Acceptance Test** generates a temporary Service **Sibling SOPS File** through the ordinary SOPS encryption ceremony before running Service deployment.
+- A failed Service-layer **Acceptance Test** with `keep_on_fail=true` preserves all generated inventory and live resources owned by that run for inspection.
 - A **Service** has one **Backend** **VM** (a list when HA is needed).
 - A **Service** may belong to at most one **Service Group**.
 - A Quadlet **Service**'s **Backend** port must match exactly one **Published Port**.
 - A **Published Port** may use TCP, UDP, or both; only TCP-capable Published Ports may satisfy a **Backend**.
 - **Ingress** is HTTP-family routing only; non-HTTP Published Ports are exposed directly on the **Backend** VM rather than through Caddy.
 - A **Published Port** must opt into **Ingress** routing explicitly; direct VM exposure is deliberate through its bind address.
+- A **Published Port** bound to `0.0.0.0` is an explicit direct VM exposure to all VM interfaces.
+- A Service-layer **Acceptance Test** must prove direct **Published Port** reachability from the **Peer Acceptance VM** to the **Primary Acceptance VM**.
+- A Service-layer **Acceptance Test** proves direct reachability through the tested **Service**'s **Backend** port, not through a separate test-only Published Port.
+- A Service-layer **Acceptance Test** may additionally prove **Ingress** hostname reachability when the tested **Service** declares **Ingress**.
+- A Service-layer **Acceptance Test** with multiple containers proves systemd unit activation, declared **Container Dependency** ordering, **Container Alias** resolution, and **Share-backed Volume** consumption.
+- A Service-layer **Acceptance Test** proves **Share-backed Volume** consumption by serving a pre-written marker file from the **Primary Acceptance VM**'s **Mount** through the tested **Service**.
+- A Service-layer **Acceptance Test** proves **Service Secret** consumption by comparing a deterministic hash from inside the container without printing the secret value.
 - User-facing HTTP Services on the **Media VM** and **Download VM** are exposed through the **Ingress** for DNS and TLS.
 - Direct client access to media and download backend ports is reserved for explicit Trusted-only emergency or administration paths.
 - A **Service Data Directory** belongs to exactly one **Service** and is the default root for Service-owned bind mounts.

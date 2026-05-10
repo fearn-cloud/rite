@@ -115,9 +115,10 @@ def build_nas_reconcile_plan(
         inventory,
         include_ephemeral_datasets=acceptance_ephemeral_datasets and not destroy_ephemeral_datasets,
     )
-    share_findings = _share_findings(desired_nfs_shares, reality.nfs_shares)
     if acceptance_ephemeral_datasets and destroy_ephemeral_datasets:
-        share_findings.extend(_ephemeral_cleanup_share_findings(inventory, reality.nfs_shares))
+        share_findings = _ephemeral_cleanup_share_findings(inventory, reality.nfs_shares)
+    else:
+        share_findings = _share_findings(desired_nfs_shares, reality.nfs_shares)
     preflight_findings = _mount_preflight_findings(inventory, reality.previous_mounts)
     blocking_codes = {"unmanaged_share_overlap"}
 
@@ -128,10 +129,11 @@ def build_nas_reconcile_plan(
     blocked = blocked or confirmation_required
     write_actions = []
     if apply and not blocked:
-        share_write_actions = _write_actions(desired_nfs_shares, reality.nfs_shares)
         if destroy_ephemeral_datasets:
+            share_write_actions = _ephemeral_cleanup_share_write_actions(inventory, reality.nfs_shares)
             write_actions = share_write_actions + dataset_write_actions
         else:
+            share_write_actions = _write_actions(desired_nfs_shares, reality.nfs_shares)
             write_actions = dataset_write_actions + share_write_actions
         if client:
             _apply_write_actions(client, write_actions)
@@ -484,6 +486,27 @@ def _ephemeral_cleanup_share_findings(inventory, existing_nfs_shares):
                     }
                 )
     return findings
+
+
+def _ephemeral_cleanup_share_write_actions(inventory, existing_nfs_shares):
+    ephemeral_paths = [
+        dataset["path"]
+        for dataset in inventory.datasets.values()
+        if dataset.get("lifecycle") == "ephemeral" and dataset.get("path")
+    ]
+    actions = []
+    for share in sorted(existing_nfs_shares, key=lambda item: item.get("name", "")):
+        if not _is_fortress_owned_share(share):
+            continue
+        if any(_paths_overlap(share.get("path"), path) for path in ephemeral_paths):
+            actions.append(
+                {
+                    "action": "delete_nfs_share",
+                    "share": share.get("name"),
+                    "path": share.get("path"),
+                }
+            )
+    return actions
 
 
 def _is_fortress_owned_share(share):

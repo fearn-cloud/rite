@@ -1,0 +1,136 @@
+# Pi-hole + Unbound DNS architecture
+
+`dns-primary` is the primary LAN resolver Service. It runs on `dns-primary-vm`
+at `10.40.0.11` in `VLAN 40` and is declared by:
+
+- `inventory/vms/dns-primary-vm.yaml`
+- `inventory/services/dns-primary.yaml`
+
+The VM is provisioned through the standard VM lifecycle path:
+
+```bash
+scripts/vm-up dns-primary-vm
+```
+
+The resolver Service is deployed through the standard Service deploy path:
+
+```bash
+scripts/service-deploy dns-primary
+```
+
+That deploy renders the shared network and container artifacts:
+
+- `fortress-group-dns-primary.network`
+- `fortress-dns-primary-pihole.container`
+- `fortress-dns-primary-unbound.container`
+
+The corresponding systemd services are:
+
+- `fortress-dns-primary-pihole.service`
+- `fortress-dns-primary-unbound.service`
+
+## Container split
+
+The chosen architecture is a two-container Quadlet Service:
+
+- `pihole` binds the resolver address and exposes TCP and UDP port 53 to LAN
+  clients.
+- `unbound` runs as the recursive upstream resolver on the shared Quadlet
+  network.
+
+Pi-hole depends on Unbound and forwards recursive lookups to the container alias
+declared in service inventory:
+
+```yaml
+FTLCONF_dns_upstreams: unbound#5335
+```
+
+This keeps LAN-facing filtering and recursive resolution separate while still
+deploying them as one Service unit group. The Service has `ingress.enabled:
+false`; DNS traffic reaches the VM directly through firewall rule
+`DNS-001-ALLOW-INTERNAL-RESOLUTION`, not through Caddy.
+
+## Addressing and ports
+
+`dns-primary-vm` is the Infrastructure VLAN resolver:
+
+- Address: `10.40.0.11/24`
+- Gateway: `10.40.0.1`
+- Host: `straylight`
+- VLAN: `VLAN 40`
+
+Pi-hole must listen on `10.40.0.11` for TCP and UDP port 53. The Pi-hole admin
+HTTP port is a direct administration surface during bootstrap and incident work,
+not a user-facing ingress route.
+
+The firewall model comes from `docs/firewall-matrix.md`:
+
+- `DNS-001-ALLOW-INTERNAL-RESOLUTION`: Trusted, Known, IoT, Apps,
+  Infrastructure, and DMZ clients may query the DNS VMs on TCP/UDP 53.
+- `DNS-003-ALLOW-DNS-UPSTREAM`: DNS VMs may reach their chosen upstream path.
+- Guest must not use internal DNS and must not resolve internal `*.fearn.cloud`
+  records.
+
+## Persistent data
+
+The Quadlet renderer maps Service-owned volumes under the standard Service Data
+Directory layout:
+
+- `/srv/services/dns-primary/pihole/etc-pihole` stores Pi-hole configuration and
+  persistent application state.
+- `/srv/services/dns-primary/unbound` stores Unbound configuration mounted at
+  `/opt/unbound/etc/unbound`.
+
+Service Data Directory cleanup and migration are explicit operator actions.
+Redeploying `dns-primary` must not be treated as permission to prune these
+paths.
+
+## Operator validation
+
+After provisioning the VM and deploying the Service, validate the resolver from
+a LAN client whose firewall policy is allowed by `DNS-001-ALLOW-INTERNAL-RESOLUTION`.
+
+Confirm external recursive resolution:
+
+```bash
+dig @10.40.0.11 example.com A
+```
+
+Confirm the current-stage internal DNS path with an expected internal name:
+
+```bash
+dig @10.40.0.11 internal-ingress.fearn.cloud A
+```
+
+At this stage, wildcard `*.fearn.cloud` record generation belongs to the
+ingress regeneration slice. If the internal record has not been generated yet,
+record that as the expected blocker instead of changing this DNS Service issue
+to include ingress record generation.
+
+From an admin workstation, confirm the VM is reachable and the deployed units
+are active:
+
+```bash
+scripts/vm-shell dns-primary-vm -- systemctl --no-pager status fortress-dns-primary-pihole.service
+scripts/vm-shell dns-primary-vm -- systemctl --no-pager status fortress-dns-primary-unbound.service
+```
+
+Confirm both DNS protocols are listening on the declared resolver address:
+
+```bash
+scripts/vm-shell dns-primary-vm -- ss -lntup 'sport = :53'
+```
+
+Expected result: listeners exist for both TCP and UDP port 53 on `10.40.0.11`.
+
+## Failure checks
+
+If clients cannot resolve through the VM, check in this order:
+
+1. `scripts/vm-up dns-primary-vm` completed and the VM has `10.40.0.11`.
+2. `scripts/service-deploy dns-primary` completed and both systemd units are
+   active.
+3. Pi-hole is configured with `FTLCONF_dns_upstreams: unbound#5335`.
+4. Firewall rules include `DNS-001-ALLOW-INTERNAL-RESOLUTION` for the client
+   VLAN and `DNS-003-ALLOW-DNS-UPSTREAM` for resolver egress.
+5. The test client is not on Guest, because Guest must not use internal DNS.

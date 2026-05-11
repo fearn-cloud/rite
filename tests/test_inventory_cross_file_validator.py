@@ -29,6 +29,13 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
         self.assertEqual(model.datasets["media"]["path"], "/mnt/pool/media")
 
+    def test_repo_inventory_does_not_commit_acceptance_ephemeral_datasets(self):
+        model = load_inventory_tree(REPO_ROOT)
+
+        self.assertNotIn("acceptance-nfs-demo", model.datasets)
+        self.assertNotIn("acceptance-service-layer", model.datasets)
+        self.assertNotIn("ordinary_ephemeral_dataset", {error.code for error in validate_inventory_tree(REPO_ROOT)})
+
     def test_dataset_names_must_be_unique(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

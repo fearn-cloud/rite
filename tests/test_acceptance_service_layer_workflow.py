@@ -128,9 +128,11 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer.quadlet.d").exists())
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer-native.yaml").exists())
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer-native.native.d").exists())
+            self.assertFalse((root / "inventory" / "datasets" / "acceptance-service-layer.yaml").exists())
 
     def test_refuses_to_overwrite_generated_artifacts_before_reconcile(self):
         generated_paths = [
+            ("inventory/datasets/acceptance-service-layer.yaml", "existing\n"),
             ("inventory/vms/tmp-service-primary.yaml", "existing\n"),
             ("inventory/vms/tmp-service-primary.sops.yaml", "existing\n"),
             ("inventory/vms/tmp-service-peer.yaml", "existing\n"),
@@ -213,6 +215,11 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                     self.assertIn("purpose: service-layer-acceptance", primary_yaml)
                     self.assertIn("dataset: acceptance-service-layer", primary_yaml)
                     self.assertIn("mount_point: /mnt/service-layer", primary_yaml)
+                    dataset_yaml = (root / "inventory" / "datasets" / "acceptance-service-layer.yaml").read_text()
+                    self.assertIn("name: acceptance-service-layer", dataset_yaml)
+                    self.assertIn("nas: truenas", dataset_yaml)
+                    self.assertIn("path: /mnt/tank/fortress-acceptance/service-layer", dataset_yaml)
+                    self.assertIn("lifecycle: ephemeral", dataset_yaml)
 
     def test_reload_failure_reports_reload_phase_and_obeys_keep_on_fail(self):
         scenarios = {
@@ -290,14 +297,13 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
 
     def test_static_policy_dataset_recipe_and_runbook_document_workflow(self):
         policy = (REPO_ROOT / "inventory" / "acceptance" / "service-layer.yaml").read_text()
-        dataset = (REPO_ROOT / "inventory" / "datasets" / "acceptance-service-layer.yaml").read_text()
         justfile = (REPO_ROOT / "justfile").read_text()
         runbook = (REPO_ROOT / "runbooks" / "new-service.md").read_text()
 
         self.assertIn("dataset: acceptance-service-layer", policy)
         self.assertIn("tmp-service-primary", policy)
         self.assertIn("tmp-service-peer", policy)
-        self.assertIn("lifecycle: ephemeral", dataset)
+        self.assertFalse((REPO_ROOT / "inventory" / "datasets" / "acceptance-service-layer.yaml").exists())
         self.assertIn('acceptance-service-layer host template endpoint auto_confirm="false" keep_on_fail="false":', justfile)
         self.assertIn("./scripts/acceptance-service-layer", justfile)
         self.assertIn("just acceptance-service-layer host=<host> template=<template> endpoint=<nas-endpoint>", runbook)
@@ -347,9 +353,6 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             "      gateway: 10.10.0.1\n"
         )
         (inventory / "templates" / "debian-12-base.yaml").write_text("name: debian-12-base\nvmid: 9001\n")
-        (inventory / "datasets" / "acceptance-service-layer.yaml").write_text(
-            "name: acceptance-service-layer\nnas: truenas\npath: /mnt/tank/fortress-acceptance/service-layer\nlifecycle: ephemeral\n"
-        )
         (inventory / "nas" / "truenas.yaml").write_text("name: truenas\nmanagement_address: 10.10.0.15\nshare_address: 10.40.0.15\n")
         (inventory / "nas" / "truenas.sops.yaml").write_text("api_credentials:\n  acceptance:\n    value: acceptance-secret-token\n")
         calls_log = root / "calls.log"
@@ -378,6 +381,18 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             "printf 'nas-reconcile-plan %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
             "if [ \"$FORTRESS_FAIL_PHASE\" = nas-reconcile-plan ]; then echo 'nas reconcile failed intentionally' >&2; exit 42; fi\n"
+            "if [[ \"$*\" != *--destroy-ephemeral-datasets* ]]; then python3 - <<'PY'\n"
+            "import os, pathlib, sys\n"
+            "dataset = pathlib.Path(os.environ['FORTRESS_ROOT']) / 'inventory' / 'datasets' / 'acceptance-service-layer.yaml'\n"
+            "expected = '# Generated Service-layer Acceptance Dataset. Do not edit by hand.\\nname: acceptance-service-layer\\nnas: truenas\\npath: /mnt/tank/fortress-acceptance/service-layer\\nlifecycle: ephemeral\\n'\n"
+            "if not dataset.is_file():\n"
+            "    print(f'missing generated dataset {dataset}', file=sys.stderr)\n"
+            "    sys.exit(42)\n"
+            "if dataset.read_text() != expected:\n"
+            "    print(f'unexpected generated dataset contents: {dataset.read_text()!r}', file=sys.stderr)\n"
+            "    sys.exit(42)\n"
+            "PY\n"
+            "fi\n"
             "if [[ \"$*\" == *--destroy-ephemeral-datasets* ]]; then python3 - <<'PY'\n"
             "import json\n"
             "print(json.dumps({'write_actions': [{'action': 'delete_nfs_share', 'share': 'fortress-nfs-acceptance-service-layer-read-write'}, {'action': 'delete_dataset', 'dataset': 'acceptance-service-layer'}], 'api_operations': [], 'destroy_postcondition_findings': []}))\n"

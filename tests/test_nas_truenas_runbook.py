@@ -15,17 +15,8 @@ class NASTrueNASRunbookTests(unittest.TestCase):
         self.assertIn("chown", runbook)
         self.assertIn("TrueNAS", runbook)
 
-    def test_demo_vm_declares_systemd_managed_nfs_mount(self):
-        demo = (REPO_ROOT / "inventory" / "vms" / "wintermute-demo.yaml").read_text()
-        dataset = (REPO_ROOT / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").read_text()
-
-        self.assertIn("mounts:", demo)
-        self.assertIn("dataset: acceptance-nfs-demo", demo)
-        self.assertIn("protocol: nfs", demo)
-        self.assertIn("mount_point: /mnt/nfs-demo", demo)
-        self.assertNotIn("dataset: test", demo)
-        self.assertIn("name: acceptance-nfs-demo", dataset)
-        self.assertIn("lifecycle: ephemeral", dataset)
+    def test_acceptance_dataset_inventory_is_generated_not_committed(self):
+        self.assertFalse((REPO_ROOT / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").exists())
 
     def test_runbook_documents_nas_credential_ceremony(self):
         runbook = (REPO_ROOT / "runbooks" / "nas-truenas.md").read_text()

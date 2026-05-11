@@ -86,6 +86,7 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             self.assertIn("vmid: 8912", peer_yaml)
             self.assertIn("hostname: tmp-nfs-peer", peer_yaml)
             self.assertIn("address: 10.10.0.232/24", peer_yaml)
+            self.assertFalse((root / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").exists())
 
     def test_refuses_to_overwrite_generated_artifacts_before_reconcile(self):
         for path_name in [
@@ -117,6 +118,31 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1)
                 self.assertIn("refusing to overwrite", result.stderr)
                 self.assertFalse(calls_log.exists())
+
+    def test_refuses_to_overwrite_generated_dataset_before_reconcile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            (root / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").write_text("existing\n")
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "acceptance-nfs-shared-mount"),
+                    "host=wintermute",
+                    "template=debian-12-base",
+                    "endpoint=truenas",
+                    "auto_confirm=true",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("refusing to overwrite", result.stderr)
+            self.assertFalse(calls_log.exists())
 
     def test_keep_on_fail_preserves_resources_and_cleanup_failure_reports_both_failures(self):
         scenarios = {
@@ -152,6 +178,11 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 if scenario == "keep":
                     self.assertNotIn("vm-destroy", calls_log.read_text())
+                    dataset_yaml = (root / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").read_text()
+                    self.assertIn("name: acceptance-nfs-demo", dataset_yaml)
+                    self.assertIn("nas: truenas", dataset_yaml)
+                    self.assertIn("path: /mnt/tank/fortress-acceptance/nfs-demo", dataset_yaml)
+                    self.assertIn("lifecycle: ephemeral", dataset_yaml)
 
     def test_reconcile_failure_removes_unprovisioned_generated_inventory_without_vm_destroy(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -179,6 +210,7 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             self.assertNotIn("vm-destroy", calls_log.read_text())
             self.assertFalse((root / "inventory" / "vms" / "tmp-nfs-primary.yaml").exists())
             self.assertFalse((root / "inventory" / "vms" / "tmp-nfs-peer.yaml").exists())
+            self.assertFalse((root / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").exists())
 
     def test_cleanup_fails_when_nas_plan_does_not_remove_acceptance_dataset_and_share(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -302,9 +334,6 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             "      gateway: 10.10.0.1\n"
         )
         (inventory / "templates" / "debian-12-base.yaml").write_text("name: debian-12-base\nvmid: 9001\n")
-        (inventory / "datasets" / "acceptance-nfs-demo.yaml").write_text(
-            "name: acceptance-nfs-demo\nnas: truenas\npath: /mnt/tank/fortress-acceptance/nfs-demo\nlifecycle: ephemeral\n"
-        )
         (inventory / "nas" / "truenas.yaml").write_text("name: truenas\nmanagement_address: 10.10.0.15\nshare_address: 10.40.0.15\n")
         calls_log = root / "calls.log"
         self._write_fake_tools(root, calls_log)
@@ -332,6 +361,18 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             "printf 'nas-reconcile-plan %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
             "if [ \"$FORTRESS_FAIL_PHASE\" = nas-reconcile-plan ]; then echo 'nas reconcile failed intentionally' >&2; exit 42; fi\n"
+            "if [[ \"$*\" != *--destroy-ephemeral-datasets* ]]; then python3 - <<'PY'\n"
+            "import os, pathlib, sys\n"
+            "dataset = pathlib.Path(os.environ['FORTRESS_ROOT']) / 'inventory' / 'datasets' / 'acceptance-nfs-demo.yaml'\n"
+            "expected = '# Generated NFS shared-mount Acceptance Dataset. Do not edit by hand.\\nname: acceptance-nfs-demo\\nnas: truenas\\npath: /mnt/tank/fortress-acceptance/nfs-demo\\nlifecycle: ephemeral\\n'\n"
+            "if not dataset.is_file():\n"
+            "    print(f'missing generated dataset {dataset}', file=sys.stderr)\n"
+            "    sys.exit(42)\n"
+            "if dataset.read_text() != expected:\n"
+            "    print(f'unexpected generated dataset contents: {dataset.read_text()!r}', file=sys.stderr)\n"
+            "    sys.exit(42)\n"
+            "PY\n"
+            "fi\n"
             "if [[ \"$*\" == *--destroy-ephemeral-datasets* && \"$FORTRESS_CLEANUP_EMPTY_PLAN\" = true ]]; then python3 - <<'PY'\n"
             "import json\n"
             "print(json.dumps({'write_actions': [], 'api_operations': []}))\n"

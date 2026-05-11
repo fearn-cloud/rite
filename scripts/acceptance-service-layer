@@ -15,6 +15,7 @@ RELOAD_CREDENTIAL_ENV = "FORTRESS_SERVICE_LAYER_ACCEPTANCE_NAS_TOKEN"
 sys.path.insert(0, str(REPO_ROOT))
 
 from fortress_inventory.model import load_inventory_tree  # noqa: E402
+from fortress_inventory.simple_yaml import load_yaml  # noqa: E402
 
 
 POLICY_NAME = "service-layer"
@@ -46,6 +47,9 @@ def main():
     )
     if early_overwrite_check != 0:
         return early_overwrite_check
+    early_dataset_overwrite_check = refuse_existing_policy_dataset_artifact(repo_root)
+    if early_dataset_overwrite_check != 0:
+        return early_dataset_overwrite_check
 
     inventory = load_inventory_tree(repo_root)
     resolved = resolve_intent(repo_root, inventory, args)
@@ -56,6 +60,9 @@ def main():
     overwrite_check = refuse_existing_artifacts(repo_root, intent["vms"])
     if overwrite_check != 0:
         return overwrite_check
+    dataset_overwrite_check = refuse_existing_dataset_artifact(repo_root, intent)
+    if dataset_overwrite_check != 0:
+        return dataset_overwrite_check
 
     print_intent(intent)
     if not args["auto_confirm"] and not confirm():
@@ -179,16 +186,7 @@ def resolve_intent(repo_root, inventory, args):
     if not policy:
         print(f"Acceptance Policy {POLICY_NAME!r} is not declared at {repo_root / 'inventory' / 'acceptance' / f'{POLICY_NAME}.yaml'}", file=sys.stderr)
         return 1
-    dataset = inventory.datasets.get(policy.get("dataset"))
-    if not dataset:
-        print(f"Acceptance Policy {POLICY_NAME} references missing Dataset {policy.get('dataset')!r}", file=sys.stderr)
-        return 1
-    if dataset.get("lifecycle") != "ephemeral":
-        print(f"Dataset {dataset.get('name')} must be lifecycle: ephemeral for Acceptance Test mutation", file=sys.stderr)
-        return 1
-    if dataset.get("nas") != endpoint_name:
-        print(f"Dataset {dataset.get('name')} belongs to NAS Endpoint {dataset.get('nas')}, not {endpoint_name}", file=sys.stderr)
-        return 1
+    dataset = acceptance_dataset(policy, endpoint_name)
     if host_name not in (policy.get("storage_by_host", {}) or {}):
         print(f"Acceptance Policy {POLICY_NAME} has no storage_by_host entry for Host {host_name}", file=sys.stderr)
         return 1
@@ -267,6 +265,29 @@ def refuse_existing_artifacts(repo_root, vms):
     return 0
 
 
+def refuse_existing_dataset_artifact(repo_root, intent):
+    path = dataset_artifact_path(repo_root, intent)
+    if path.exists():
+        print(f"{path} already exists; refusing to overwrite generated Service-layer Acceptance artifact", file=sys.stderr)
+        return 1
+    return 0
+
+
+def refuse_existing_policy_dataset_artifact(repo_root):
+    policy_path = repo_root / "inventory" / "acceptance" / f"{POLICY_NAME}.yaml"
+    if not policy_path.is_file():
+        return 0
+    policy = load_yaml(policy_path)
+    dataset_name = policy.get("dataset")
+    if not dataset_name:
+        return 0
+    path = repo_root / "inventory" / "datasets" / f"{dataset_name}.yaml"
+    if path.exists():
+        print(f"{path} already exists; refusing to overwrite generated Service-layer Acceptance artifact", file=sys.stderr)
+        return 1
+    return 0
+
+
 def print_intent(intent):
     print("Service-layer Acceptance Test intent")
     print(f"Host: {intent['host']}")
@@ -287,6 +308,7 @@ def confirm():
 
 
 def write_generated_inventory(repo_root, intent):
+    write_generated_dataset(repo_root, intent)
     for vm in intent["vms"]:
         write_vm_yaml(repo_root / "inventory" / "vms" / f"{vm['name']}.yaml", intent, vm)
     write_service_yaml(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml", intent)
@@ -294,6 +316,32 @@ def write_generated_inventory(repo_root, intent):
     write_service_quadlet_fragment(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d")
     write_native_service_yaml(repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.yaml", intent)
     write_native_service_templates(repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.native.d")
+
+
+def write_generated_dataset(repo_root, intent):
+    dataset = intent["dataset"]
+    dataset_artifact_path(repo_root, intent).write_text(
+        "# Generated Service-layer Acceptance Dataset. Do not edit by hand.\n"
+        f"name: {dataset['name']}\n"
+        f"nas: {dataset['nas']}\n"
+        f"path: {dataset['path']}\n"
+        "lifecycle: ephemeral\n"
+    )
+
+
+def acceptance_dataset(policy, endpoint_name):
+    dataset_name = policy.get("dataset")
+    mount = policy.get("mount", {}) or {}
+    return {
+        "name": dataset_name,
+        "nas": endpoint_name,
+        "path": f"/mnt/tank/fortress-acceptance/{mount.get('name')}",
+        "lifecycle": "ephemeral",
+    }
+
+
+def dataset_artifact_path(repo_root, intent):
+    return repo_root / "inventory" / "datasets" / f"{intent['dataset']['name']}.yaml"
 
 
 def write_vm_yaml(path, intent, vm):
@@ -812,6 +860,7 @@ def cleanup_resources(repo_root, intent, provisioned=None, require_nas_cleanup=T
         assertion = assert_cleanup_removes_nas_resources(reconcile.stdout, intent)
         if assertion:
             stderr.append(phase_detail(assertion))
+    delete_generated_dataset_artifact(repo_root, intent, stderr)
     if stderr:
         return subprocess.CompletedProcess([], 1, "", "; ".join(stderr))
     return subprocess.CompletedProcess([], 0, "", "")
@@ -867,6 +916,16 @@ def delete_generated_artifacts(repo_root, vm_name, stderr):
             continue
         except OSError as error:
             stderr.append(f"failed to delete generated artifact {path}: {error}")
+
+
+def delete_generated_dataset_artifact(repo_root, intent, stderr):
+    path = dataset_artifact_path(repo_root, intent)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        stderr.append(f"failed to delete generated artifact {path}: {error}")
 
 
 def delete_generated_service_artifacts(repo_root, stderr):

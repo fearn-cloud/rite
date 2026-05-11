@@ -70,7 +70,7 @@ Use this checklist to prove endpoint-explicit live NAS Reconcile can read TrueNA
 Use the first-class NFS shared-mount Acceptance Test to prove the path from Ephemeral Dataset creation through two VM systemd Mounts, bidirectional filesystem behavior, and cleanup:
 
 1. Confirm `inventory/acceptance/nfs-shared-mount.yaml` reserves `tmp-nfs-primary`, `tmp-nfs-peer`, Host-specific static IPs, `acceptance-nfs-demo`, and the `/mnt/nfs-demo` read-write Mount.
-2. Confirm `inventory/datasets/acceptance-nfs-demo.yaml` declares `lifecycle: ephemeral`.
+2. Confirm ordinary `inventory/datasets/` does not contain `acceptance-nfs-demo.yaml`; the workflow generates that Ephemeral Dataset declaration during the Acceptance Test.
 3. Run `just acceptance-nfs-shared-mount host=<host> template=<template> endpoint=<nas-endpoint>`.
 4. Confirm the workflow prints the full intent and asks for one workflow-level confirmation. Use `auto_confirm=true` only when the generated VMs and NAS resources are expected.
 5. Confirm the workflow runs live NAS Reconcile with `scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --apply` before provisioning either VM.
@@ -79,6 +79,8 @@ Use the first-class NFS shared-mount Acceptance Test to prove the path from Ephe
 8. Confirm default cleanup destroys `tmp-nfs-primary` and `tmp-nfs-peer` with `--delete-vm-yaml`, then runs `scripts/nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --destroy-ephemeral-datasets --apply` to destroy the fortress-owned NFS Share and fortress-marked Ephemeral Dataset.
 
 Use `keep_on_fail=true` when preserving generated VMs, generated Inventory/SOPS artifacts, and NAS acceptance resources would make debugging easier.
+
+After a preserved or interrupted NFS shared-mount Acceptance Test, clean generated repository artifacts with `just acceptance-clean-generated-artifacts workflow=nfs-shared-mount` instead of deleting temporary VM, Sibling SOPS File, or generated Ephemeral Dataset files by hand. Use `just acceptance-clean-generated-artifacts workflow=all` when cleaning generated artifacts for every known Acceptance Test. Add `auto_confirm=true` only when the printed deletion plan is expected.
 
 Expected failure modes:
 

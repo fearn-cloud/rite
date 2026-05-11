@@ -1,6 +1,6 @@
 # fortress
 
-Homelab infrastructure automation for a fleet of standalone Proxmox 9 machines. The operator declares desired state in flat per-entity YAML files; tooling reconciles reality to match.
+Homelab infrastructure automation for a fleet of standalone Proxmox 9 machines. The operator declares desired state in flat per-entity YAML files; tooling converges live infrastructure toward that declared state through workflow-specific ceremonies.
 
 ## Language
 
@@ -155,6 +155,14 @@ _Avoid_: setup.
 **Configure**:
 An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
 _Avoid_: provision (reserve for tofu).
+
+**VM Lifecycle Convergence**:
+The VM workflow that uses Prepare, OpenTofu-managed VM resources, and Configure to move a declared VM toward its desired state.
+_Avoid_: VM Reconcile, VM sync.
+
+**Service Deploy**:
+The Service workflow that converges one declared Service's VM-local runtime artifacts and running units.
+_Avoid_: Service Reconcile, app deploy.
 
 **NAS Reconcile**:
 An operator workflow that validates declared Datasets and converges derived Shares without deleting ordinary Dataset contents.

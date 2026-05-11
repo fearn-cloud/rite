@@ -16,7 +16,7 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
             env = self._fake_tools(root, calls_log)
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-verify-generate"), "wintermute", "debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-verify-generate"), "wintermute", "debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -38,7 +38,7 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
             self.assertIn("purpose: template-verification", vm_yaml)
             self.assertIn("generated: true", vm_yaml)
             self.assertIn("host: wintermute", vm_yaml)
-            self.assertIn("template: debian-12-base", vm_yaml)
+            self.assertIn("template: debian-13-base", vm_yaml)
             self.assertIn("cores: 1", vm_yaml)
             self.assertIn("memory: 1024", vm_yaml)
             self.assertIn("storage: fast", vm_yaml)
@@ -79,9 +79,9 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
 
     def test_missing_host_template_and_host_template_declaration_fail_before_preflight(self):
         scenarios = {
-            "missing-host": ("ghost", "debian-12-base", "Host 'ghost' is not declared"),
+            "missing-host": ("ghost", "debian-13-base", "Host 'ghost' is not declared"),
             "missing-template": ("wintermute", "ubuntu-24-base", "Template 'ubuntu-24-base' is not declared"),
-            "not-declared-on-host": ("wintermute", "debian-12-base", "does not declare Template debian-12-base"),
+            "not-declared-on-host": ("wintermute", "debian-13-base", "does not declare Template debian-13-base"),
         }
 
         for scenario, (host, template, message) in scenarios.items():
@@ -91,7 +91,7 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
                     (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
                         (root / "inventory" / "hosts" / "wintermute.yaml")
                         .read_text()
-                        .replace("templates: [debian-12-base]", "templates: []")
+                        .replace("templates: [debian-13-base]", "templates: []")
                     )
                 env = self._fake_tools(root, calls_log)
 
@@ -191,7 +191,7 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
 
     def _run_generate(self, root, env):
         return subprocess.run(
-            [str(REPO_ROOT / "scripts" / "template-verify-generate"), "wintermute", "debian-12-base"],
+            [str(REPO_ROOT / "scripts" / "template-verify-generate"), "wintermute", "debian-13-base"],
             cwd=REPO_ROOT,
             env=env,
             text=True,
@@ -220,7 +220,7 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
         (inventory / "hosts" / "wintermute.yaml").write_text(
             "proxmox:\n"
             "  pve_node_name: wintermute\n"
-            "  templates: [debian-12-base]\n"
+            "  templates: [debian-13-base]\n"
             "hardware:\n"
             "  storage:\n"
             "    - name: fast\n"
@@ -236,8 +236,8 @@ class TemplateVerifyGenerationWorkflowTests(unittest.TestCase):
             "  bootstrap:\n"
             "    private_key: ENC[AES256_GCM,data:key,iv:iv,tag:tag,type:str]\n"
         )
-        (inventory / "templates" / "debian-12-base.yaml").write_text(
-            "name: debian-12-base\n"
+        (inventory / "templates" / "debian-13-base.yaml").write_text(
+            "name: debian-13-base\n"
             "vmid: 9001\n"
             "source:\n"
             "  url: https://example.invalid/debian.qcow2\n"

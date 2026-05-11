@@ -34,7 +34,7 @@ Example:
 ```yaml
 proxmox:
   templates:
-    - debian-12-base
+    - debian-13-base
 ```
 
 ## Build

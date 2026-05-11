@@ -83,7 +83,7 @@ class VMPrepareWorkflowTests(unittest.TestCase):
             "placement:\n"
             "  host: wintermute\n"
             "source:\n"
-            "  template: debian-12-base\n"
+            "  template: debian-13-base\n"
             "hardware:\n"
             "  cores: 1\n"
             "  memory: 1024\n"

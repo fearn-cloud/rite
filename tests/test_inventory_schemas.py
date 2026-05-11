@@ -98,7 +98,7 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_host_schema_rejects_contradictory_gpu_passthrough(self):
+    def test_host_schema_ignores_gpu_passthrough_details_when_disabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             host_yaml = Path(tmp) / "wintermute.yaml"
             host_yaml.write_text(
@@ -114,14 +114,13 @@ class InventorySchemaTests(unittest.TestCase):
 
             result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
 
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("gpu_passthrough", result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_template_schema_accepts_builder_defaults_and_supported_customize_ops(self):
         with tempfile.TemporaryDirectory() as tmp:
-            template_yaml = Path(tmp) / "debian-12-base.yaml"
+            template_yaml = Path(tmp) / "debian-13-base.yaml"
             template_yaml.write_text(
-                "name: debian-12-base\n"
+                "name: debian-13-base\n"
                 "vmid: 9001\n"
                 "source:\n"
                 "  url: https://example.invalid/debian.qcow2\n"
@@ -147,9 +146,9 @@ class InventorySchemaTests(unittest.TestCase):
 
     def test_template_schema_rejects_unsupported_customize_ops(self):
         with tempfile.TemporaryDirectory() as tmp:
-            template_yaml = Path(tmp) / "debian-12-base.yaml"
+            template_yaml = Path(tmp) / "debian-13-base.yaml"
             template_yaml.write_text(
-                "name: debian-12-base\n"
+                "name: debian-13-base\n"
                 "vmid: 9001\n"
                 "source:\n"
                 "  url: https://example.invalid/debian.qcow2\n"
@@ -181,7 +180,7 @@ class InventorySchemaTests(unittest.TestCase):
                 "placement:\n"
                 "  host: wintermute\n"
                 "source:\n"
-                "  template: debian-12-base\n"
+                "  template: debian-13-base\n"
                 "hardware:\n"
                 "  cores: 1\n"
                 "  memory: 1024\n"
@@ -201,7 +200,7 @@ class InventorySchemaTests(unittest.TestCase):
                 "placement:\n"
                 "  host: wintermute\n"
                 "source:\n"
-                "  template: debian-12-base\n"
+                "  template: debian-13-base\n"
                 "hardware:\n"
                 "  cores: 2\n"
                 "  memory: 4096\n"
@@ -231,7 +230,7 @@ class InventorySchemaTests(unittest.TestCase):
                 "placement:\n"
                 "  host: wintermute\n"
                 "source:\n"
-                "  template: debian-12-base\n"
+                "  template: debian-13-base\n"
                 "hardware:\n"
                 "  cores: 2\n"
                 "  memory: 4096\n"

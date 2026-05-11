@@ -3,7 +3,7 @@ description: web frontend
 placement:
   host: wintermute
 source:
-  template: debian-12-base
+  template: debian-13-base
 hardware:
   cores: 2
   memory: 4096

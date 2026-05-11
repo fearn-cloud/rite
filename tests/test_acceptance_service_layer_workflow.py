@@ -17,7 +17,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             [
                 str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                 "host=wintermute",
-                "template=debian-12-base",
+                "template=debian-13-base",
             ],
             cwd=REPO_ROOT,
             text=True,
@@ -38,7 +38,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                 [
                     str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                     "host=wintermute",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                     "endpoint=truenas",
                     "auto_confirm=true",
                 ],
@@ -151,7 +151,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                     [
                         str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                         "host=wintermute",
-                        "template=debian-12-base",
+                        "template=debian-13-base",
                         "endpoint=truenas",
                         "auto_confirm=true",
                     ],
@@ -179,7 +179,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                 args = [
                     str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                     "host=wintermute",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                     "endpoint=truenas",
                     "auto_confirm=true",
                 ]
@@ -236,7 +236,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                     [
                         str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                         "host=wintermute",
-                        "template=debian-12-base",
+                        "template=debian-13-base",
                         "endpoint=truenas",
                         "auto_confirm=true",
                         *extra_args,
@@ -276,7 +276,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                 [
                     str(REPO_ROOT / "scripts" / "acceptance-service-layer"),
                     "host=wintermute",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                     "endpoint=truenas",
                     "auto_confirm=true",
                 ],
@@ -345,14 +345,14 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
         )
         (inventory / "hosts" / "wintermute.yaml").write_text(
             "proxmox:\n"
-            "  templates: [debian-12-base]\n"
+            "  templates: [debian-13-base]\n"
             "network:\n"
             "  bridges:\n"
             "    - name: vmbr0\n"
             "      cidr: 10.10.0.11/24\n"
             "      gateway: 10.10.0.1\n"
         )
-        (inventory / "templates" / "debian-12-base.yaml").write_text("name: debian-12-base\nvmid: 9001\n")
+        (inventory / "templates" / "debian-13-base.yaml").write_text("name: debian-13-base\nvmid: 9001\n")
         (inventory / "nas" / "truenas.yaml").write_text("name: truenas\nmanagement_address: 10.10.0.15\nshare_address: 10.40.0.15\n")
         (inventory / "nas" / "truenas.sops.yaml").write_text("api_credentials:\n  acceptance:\n    value: acceptance-secret-token\n")
         calls_log = root / "calls.log"

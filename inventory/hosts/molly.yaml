@@ -2,8 +2,8 @@ proxmox:
   pve_node_name: molly
   endpoint: http://10.10.0.14:8006
   # endpoint: https://molly.fearn.cloud:8006
-  templates: []
-    # - debian-12-base
+  templates:
+    - debian-13-base
   users:
     - name: tofu@pve
       roles: [PVEVMAdmin, PVEDatastoreUser]
@@ -19,6 +19,8 @@ hardware:
       kind: lvmthin
     - name: local
       kind: directory
+    - name: fast
+      kind: zfs
 network:
   management_address: 10.10.0.14
   bridges:

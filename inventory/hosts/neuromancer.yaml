@@ -19,6 +19,8 @@ hardware:
       kind: lvmthin
     - name: local
       kind: directory
+    - name: fast
+      kind: zfs
 network:
   management_address: 10.10.0.13
   bridges:

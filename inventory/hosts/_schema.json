@@ -67,21 +67,21 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
+              "if": {
                 "properties": {
-                  "vendor": { "const": "none" },
-                  "mode": { "const": "none" },
-                  "iommu": { "const": "none" },
-                  "sriov_vfs": { "const": 0 },
-                  "blacklist_host_driver": { "const": false }
-                }
-              }
-            },
-            {
-              "if": { "properties": { "mode": { "const": "sriov" } }, "required": ["mode"] },
+                  "enabled": { "const": true },
+                  "mode": { "const": "sriov" }
+                },
+                "required": ["enabled", "mode"]
+              },
               "then": { "required": ["sriov_vfs"] },
-              "else": { "not": { "required": ["sriov_vfs"] } }
+              "else": {
+                "if": {
+                  "properties": { "enabled": { "const": true } },
+                  "required": ["enabled"]
+                },
+                "then": { "not": { "required": ["sriov_vfs"] } }
+              }
             }
           ]
         }

@@ -2,8 +2,8 @@ proxmox:
   pve_node_name: straylight
   endpoint: http://10.10.0.12:8006
   # endpoint: https://straylight.fearn.cloud:8006
-  templates: []
-    # - debian-12-base
+  templates:
+    - debian-13-base
   users:
     - name: tofu@pve
       roles: [PVEVMAdmin, PVEDatastoreUser]
@@ -19,6 +19,8 @@ hardware:
       kind: lvmthin
     - name: local
       kind: directory
+    - name: fast
+      kind: zfs
 network:
   management_address: 10.10.0.12
   bridges:
@@ -28,7 +30,7 @@ network:
       cidr: 10.10.0.12/24
       gateway: 10.10.0.1
 gpu_passthrough:
-  enabled: true
+  enabled: false
   vendor: intel
   mode: full
   iommu: intel

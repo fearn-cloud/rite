@@ -33,7 +33,7 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
     def test_checksum_mismatch_fails_before_customization_or_qm_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._template_fixture(tmp)
-            template_yaml = root / "inventory" / "templates" / "debian-12-base.yaml"
+            template_yaml = root / "inventory" / "templates" / "debian-13-base.yaml"
             lines = template_yaml.read_text().splitlines()
             template_yaml.write_text(
                 "\n".join(
@@ -102,7 +102,7 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
             self.assertIn("--install qemu-guest-agent,sudo", calls)
             self.assertIn("--run-command systemctl enable qemu-guest-agent", calls)
             self.assertNotIn(str(root / "cache"), self._virt_customize_line(calls))
-            self.assertIn("qm create 9001 --name debian-12-base --memory 2048 --cores 2", calls)
+            self.assertIn("qm create 9001 --name debian-13-base --memory 2048 --cores 2", calls)
             self.assertIn("qm importdisk 9001 ", calls)
             self.assertIn(" fast", calls)
             self.assertIn("qm set 9001 --scsi1 local-lvm:cloudinit", calls)
@@ -199,7 +199,7 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
             self.assertIn("sops --decrypt --extract", calls)
             self.assertIn("ssh -i ", calls)
             self.assertIn("root@10.10.0.11 python3 -c", calls)
-            self.assertIn("debian-12-base", (root / "remote-payload.json").read_text())
+            self.assertIn("debian-13-base", (root / "remote-payload.json").read_text())
             payload = json.loads((root / "remote-payload.json").read_text())
             self.assertEqual(payload["templates"][0]["vmid"], 9001)
 
@@ -235,7 +235,7 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
             "proxmox:\n"
             "  pve_node_name: wintermute\n"
             "  endpoint: https://wintermute.fearn.cloud:8006\n"
-            "  templates: [debian-12-base]\n"
+            "  templates: [debian-13-base]\n"
             "network:\n"
             "  management_address: 10.10.0.11\n"
         )
@@ -245,8 +245,8 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
                 "  bootstrap:\n"
                 "    private_key: ENC[AES256_GCM,data:key,iv:iv,tag:tag,type:str]\n"
             )
-        (inventory / "templates" / "debian-12-base.yaml").write_text(
-            "name: debian-12-base\n"
+        (inventory / "templates" / "debian-13-base.yaml").write_text(
+            "name: debian-13-base\n"
             "vmid: 9001\n"
             "source:\n"
             f"  url: file://{root / 'source.qcow2'}\n"

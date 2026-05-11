@@ -1,61 +1,85 @@
 set positional-arguments
 
+# Show the operator command surface.
 default:
     @just --list
 
+# Run the full local test and pre-commit suite.
 test:
     pre-commit run --all-files
 
+# Bootstrap a physical Host and mint its initial secrets.
 host-bootstrap host:
     @./scripts/host-bootstrap {{host}}
 
+# Converge Host configuration; optional tags limits Ansible execution.
 host-configure host tags="":
     @./scripts/host-configure {{host}} "{{tags}}"
 
+# Open an SSH shell to a Host.
+host-shell host:
+    @./scripts/host-shell {{host}}
+
+# Provision one VM through prepare, selected-VM Tofu apply, and configure.
 vm-up vm auto_confirm="false":
     @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/vm-up {{vm}} --auto-confirm; else ./scripts/vm-up {{vm}}; fi
 
+# Configure an already-provisioned VM with Ansible.
 vm-configure vm:
     @./scripts/vm-configure {{vm}}
 
+# Open an SSH shell to a VM.
 vm-shell vm:
     @./scripts/vm-shell {{vm}}
 
+# Destroy one VM; delete_vm_yaml=true also removes its Inventory file.
 vm-destroy vm delete_vm_yaml="false":
     @if [ "{{delete_vm_yaml}}" = "true" ] || [ "{{delete_vm_yaml}}" = "delete_vm_yaml=true" ]; then ./scripts/vm-destroy {{vm}} --delete-vm-yaml; else ./scripts/vm-destroy {{vm}}; fi
 
+# Deploy a Service from Inventory to its target VM.
 service-deploy service:
     @./scripts/service-deploy {{service}}
 
+# Plan NAS Dataset and Share changes against a captured reality JSON file.
 nas-reconcile-plan reality_json:
     @./scripts/nas-reconcile-plan --reality-json {{reality_json}}
 
+# Apply NAS Dataset and Share changes against a captured reality JSON file.
 nas-reconcile reality_json confirm_disruptive_mount_changes="false":
     @if [ "{{confirm_disruptive_mount_changes}}" = "true" ] || [ "{{confirm_disruptive_mount_changes}}" = "confirm_disruptive_mount_changes=true" ]; then ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply --confirm-disruptive-mount-changes; else ./scripts/nas-reconcile-plan --reality-json {{reality_json}} --apply; fi
 
+# Plan live NAS changes against a NAS endpoint such as endpoint=truenas.
 nas-reconcile-live-plan endpoint:
     @./scripts/nas-reconcile-plan --live {{endpoint}}
 
+# Apply live NAS changes against a NAS endpoint such as endpoint=truenas.
 nas-reconcile-live endpoint confirm_disruptive_mount_changes="false":
     @if [ "{{confirm_disruptive_mount_changes}}" = "true" ] || [ "{{confirm_disruptive_mount_changes}}" = "confirm_disruptive_mount_changes=true" ]; then ./scripts/nas-reconcile-plan --live {{endpoint}} --apply --confirm-disruptive-mount-changes; else ./scripts/nas-reconcile-plan --live {{endpoint}} --apply; fi
 
+# Build all Templates declared for a Host.
 templates-build host:
     @./scripts/templates-build {{host}}
 
+# Verify a Template on a Host; keep_on_fail=true preserves generated artifacts.
 template-verify host template keep_on_fail="false":
     @./scripts/template-verify host={{host}} template={{template}} keep_on_fail={{keep_on_fail}}
 
+# Run NFS shared-mount acceptance against a NAS endpoint such as endpoint=truenas.
 acceptance-nfs-shared-mount host template endpoint auto_confirm="false" keep_on_fail="false":
     @host="{{host}}"; template="{{template}}"; endpoint="{{endpoint}}"; auto_confirm="{{auto_confirm}}"; keep_on_fail="{{keep_on_fail}}"; ./scripts/acceptance-nfs-shared-mount host="${host#host=}" template="${template#template=}" endpoint="${endpoint#endpoint=}" auto_confirm="${auto_confirm#auto_confirm=}" keep_on_fail="${keep_on_fail#keep_on_fail=}"
 
+# Run service-layer acceptance against a NAS endpoint such as endpoint=truenas.
 acceptance-service-layer host template endpoint auto_confirm="false" keep_on_fail="false":
     @host="{{host}}"; template="{{template}}"; endpoint="{{endpoint}}"; auto_confirm="{{auto_confirm}}"; keep_on_fail="{{keep_on_fail}}"; ./scripts/acceptance-service-layer host="${host#host=}" template="${template#template=}" endpoint="${endpoint#endpoint=}" auto_confirm="${auto_confirm#auto_confirm=}" keep_on_fail="${keep_on_fail#keep_on_fail=}"
 
+# Remove generated artifacts for an acceptance workflow.
 acceptance-clean-generated-artifacts workflow auto_confirm="false":
     @workflow="{{workflow}}"; auto_confirm="{{auto_confirm}}"; ./scripts/acceptance-clean-generated-artifacts workflow=${workflow#workflow=} auto_confirm=${auto_confirm#auto_confirm=}
 
+# Destroy a Template on a Host; delete_template_yaml=true removes its Inventory file.
 template-destroy host template delete_template_yaml="false":
     @if [ "{{delete_template_yaml}}" = "true" ] || [ "{{delete_template_yaml}}" = "delete_template_yaml=true" ]; then ./scripts/template-destroy {{host}} {{template}} --delete-template-yaml; else ./scripts/template-destroy {{host}} {{template}}; fi
 
+# Placeholder for regenerating Caddy and local DNS ingress config.
 ingress-regenerate:
     @echo "TODO: regenerate Ingress configuration"

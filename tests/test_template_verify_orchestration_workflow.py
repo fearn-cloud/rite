@@ -19,7 +19,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
                 [
                     str(REPO_ROOT / "scripts" / "template-verify"),
                     "host=wintermute",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                     'keep_on_fail="false"',
                 ],
                 cwd=REPO_ROOT,
@@ -32,7 +32,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(
                 [
-                    "template-verify-generate wintermute debian-12-base",
+                    "template-verify-generate wintermute debian-13-base",
                     "vm-up tmp-template-verify",
                     "decrypt-keys inventory/vms/tmp-template-verify.sops.yaml -- ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
                     "ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
@@ -70,7 +70,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             root, calls_log = self._fixture(tmp)
             (root / "inventory" / "hosts" / "straylight.yaml").write_text(
                 "proxmox:\n"
-                "  templates: [debian-12-base]\n"
+                "  templates: [debian-13-base]\n"
             )
             (root / "inventory" / "hosts" / "molly.yaml").write_text(
                 "proxmox:\n"
@@ -83,7 +83,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
                 [
                     str(REPO_ROOT / "scripts" / "template-verify"),
                     "host=all",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                 ],
                 cwd=REPO_ROOT,
                 env=env,
@@ -100,12 +100,12 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             self.assertLess(result.stdout.index("straylight: failed"), result.stdout.index("wintermute: passed"))
             self.assertEqual(
                 [
-                    "template-verify-generate straylight debian-12-base",
+                    "template-verify-generate straylight debian-13-base",
                     "vm-up tmp-template-verify",
                     "decrypt-keys inventory/vms/tmp-template-verify.sops.yaml -- ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
                     "ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
                     "vm-destroy tmp-template-verify --delete-vm-yaml",
-                    "template-verify-generate wintermute debian-12-base",
+                    "template-verify-generate wintermute debian-13-base",
                     "vm-up tmp-template-verify",
                     "decrypt-keys inventory/vms/tmp-template-verify.sops.yaml -- ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
                     "ansible-playbook ansible/playbooks/template-verify.yml -i inventory/fortress.yaml --limit tmp-template-verify",
@@ -121,7 +121,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             env["FORTRESS_VERIFY_FAIL_ON_HOST"] = "wintermute"
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -144,7 +144,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
                 [
                     str(REPO_ROOT / "scripts" / "template-verify"),
                     "host=wintermute",
-                    "template=debian-12-base",
+                    "template=debian-13-base",
                     "keep_on_fail=true",
                 ],
                 cwd=REPO_ROOT,
@@ -171,7 +171,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
                 env["FORTRESS_FAIL_PHASE"] = failed_phase
 
                 result = subprocess.run(
-                    [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-12-base"],
+                    [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-13-base"],
                     cwd=REPO_ROOT,
                     env=env,
                     text=True,
@@ -192,7 +192,7 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             env["FORTRESS_FAIL_PHASE"] = "vm-destroy"
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -216,9 +216,9 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
         scripts.mkdir()
         (inventory / "hosts" / "wintermute.yaml").write_text(
             "proxmox:\n"
-            "  templates: [debian-12-base]\n"
+            "  templates: [debian-13-base]\n"
         )
-        (inventory / "templates" / "debian-12-base.yaml").write_text("name: debian-12-base\nvmid: 9001\n")
+        (inventory / "templates" / "debian-13-base.yaml").write_text("name: debian-13-base\nvmid: 9001\n")
         calls_log = root / "calls.log"
         tools = {
             "template-verify-generate": "",

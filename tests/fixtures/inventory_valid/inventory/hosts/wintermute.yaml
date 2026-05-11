@@ -1,6 +1,6 @@
 proxmox:
   pve_node_name: wintermute
-  templates: [debian-12-base]
+  templates: [debian-13-base]
 network:
   management_address: 10.0.0.10
   bridges:

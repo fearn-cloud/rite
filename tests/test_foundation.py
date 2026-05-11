@@ -7,6 +7,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FoundationTests(unittest.TestCase):
+    def files_containing(self, needle):
+        matches = []
+        for path in REPO_ROOT.rglob("*"):
+            if not path.is_file():
+                continue
+            if ".git" in path.parts or ".scratch" in path.parts or "__pycache__" in path.parts:
+                continue
+            if path.suffix in {".pyc", ".pyo"}:
+                continue
+            if needle in path.read_text(errors="ignore"):
+                matches.append(path.relative_to(REPO_ROOT))
+        return matches
+
     def test_repository_layout_exists(self):
         expected_directories = [
             "inventory/hosts",
@@ -23,11 +36,18 @@ class FoundationTests(unittest.TestCase):
             with self.subTest(directory=directory):
                 self.assertTrue((REPO_ROOT / directory).is_dir())
 
+    def test_debian_13_base_is_the_canonical_debian_base_template(self):
+        retired_template = "debian-" + "12-base"
+        matches = self.files_containing(retired_template)
+
+        self.assertEqual(matches, [])
+
     def test_just_lists_operator_command_stubs(self):
         expected_recipes = [
             "test",
             "host-bootstrap",
             "host-configure",
+            "host-shell",
             "vm-up",
             "vm-shell",
             "vm-destroy",

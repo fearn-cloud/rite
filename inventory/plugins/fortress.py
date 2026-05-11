@@ -66,7 +66,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.set_variable(
                 host_name,
                 "ansible_ssh_common_args",
-                "-o StrictHostKeyChecking=accept-new",
+                _ssh_common_args(),
             )
             self._set_sibling_ssh_key_var(host_name, root / "inventory" / "hosts" / f"{host_name}.sops.yaml")
 
@@ -81,7 +81,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.set_variable(
                 vm_name,
                 "ansible_ssh_common_args",
-                "-o StrictHostKeyChecking=accept-new",
+                _ssh_common_args(),
             )
             self._set_sibling_ssh_key_var(vm_name, root / "inventory" / "vms" / f"{vm_name}.sops.yaml")
             placement_host = vm.get("placement", {}).get("host")
@@ -110,11 +110,11 @@ class InventoryModule(BaseInventoryPlugin):
         if key_path.is_file():
             self.inventory.set_variable(entity_name, "ansible_ssh_private_key_file", str(key_path))
             return
-        key_path.write_text(self._decrypt_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["private_key"]'))
+        key_path.write_text(self._decrypt_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["private_key"]', strip=False))
         key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         self.inventory.set_variable(entity_name, "ansible_ssh_private_key_file", str(key_path))
 
-    def _decrypt_sops_value(self, sops_path, extract):
+    def _decrypt_sops_value(self, sops_path, extract, strip=True):
         result = subprocess.run(
             ["sops", "--decrypt", "--extract", extract, str(sops_path)],
             stdout=subprocess.PIPE,
@@ -123,7 +123,9 @@ class InventoryModule(BaseInventoryPlugin):
         )
         if result.returncode != 0:
             raise AnsibleParserError(f"failed to decrypt {sops_path}: {result.stderr.strip()}")
-        return result.stdout.strip()
+        if strip:
+            return result.stdout.strip()
+        return result.stdout
 
 
 def _first_vm_address(vm):
@@ -134,3 +136,10 @@ def _first_vm_address(vm):
     if not address:
         return None
     return address.split("/", 1)[0]
+
+
+def _ssh_common_args():
+    key_dir = Path(os.environ.get("FORTRESS_KEY_DIR", "/dev/shm/fortress"))
+    key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    known_hosts = key_dir / "known_hosts"
+    return f"-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={known_hosts}"

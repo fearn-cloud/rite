@@ -333,14 +333,14 @@ Hard-cutover policy. SSH key rotation mirrors bootstrap but uses the current per
 
 VM templates are stopped Proxmox VMs marked `template: 1` with a cloud-init drive attached. Templates are conceptually distinct from inventory (recipes vs instances), so they live at top-level `vm-templates/<name>.yaml`.
 
-### 8.1. Schema (`vm-templates/debian-12-base.yaml`)
+### 8.1. Schema (`vm-templates/debian-13-base.yaml`)
 
 ```yaml
-name: debian-12-base
+name: debian-13-base
 vmid: 9001                                    # explicit, in 9000-9999 template range
 
 source:
-  url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
+  url: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
   checksum:
     algorithm: sha512
     value: <hex>                              # required; ansible refuses without
@@ -368,7 +368,7 @@ Host yaml lists templates it should hold:
 ```yaml
 proxmox:
   pve_node_name: raptor
-  templates: [debian-12-base, ubuntu-24.04-base]
+  templates: [debian-13-base, ubuntu-24.04-base]
 ```
 
 Host-centric (matches the rest of the pattern; easy to grep "what's on this host"). Defining a new template means editing every host yaml that should have it — explicit and intentional.
@@ -395,7 +395,7 @@ placement:
   host: wintermute                           # which proxmox host runs this VM
 
 source:
-  template: debian-12-base                   # must be present on placement.host
+  template: debian-13-base                   # must be present on placement.host
 
 hardware:
   cores: 2

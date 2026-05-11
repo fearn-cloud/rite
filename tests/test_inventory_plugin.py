@@ -111,6 +111,48 @@ class FortressInventoryPluginTests(unittest.TestCase):
             self.assertEqual((key_dir / "wintermute.key").read_text(), "OPENSSH PRIVATE KEY")
             self.assertIn('["ssh_keys"]["bootstrap"]["private_key"]', (root / "sops.log").read_text())
 
+    def test_inventory_plugin_preserves_private_key_trailing_newline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            host_dir = root / "inventory" / "hosts"
+            host_dir.mkdir(parents=True)
+            (root / "inventory" / "vms").mkdir()
+            (root / "inventory" / "services").mkdir()
+            (root / "inventory" / "templates").mkdir()
+            (root / "inventory" / "group_vars").mkdir()
+            (root / "fortress.yaml").write_text("plugin: fortress\nroot: .\n")
+            (host_dir / "wintermute.yaml").write_text("proxmox:\n  pve_node_name: wintermute\n")
+            (host_dir / "wintermute.sops.yaml").write_text("encrypted: value\n")
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            fake_sops.write_text(
+                "#!/usr/bin/env bash\n"
+                "case \"$*\" in\n"
+                "  *'public_key'* ) printf '%s\\n' 'ssh-ed25519 public-key' ;;\n"
+                "  *'private_key'* ) printf '%s\\n' 'OPENSSH PRIVATE KEY' ;;\n"
+                "esac\n"
+            )
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+            key_dir = root / "tmpfs"
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["FORTRESS_KEY_DIR"] = str(key_dir)
+
+            subprocess.run(
+                ["ansible-inventory", "-i", str(root / "fortress.yaml"), "--list"],
+                cwd=REPO_ROOT,
+                env=env,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual((key_dir / "wintermute.key").read_text(), "OPENSSH PRIVATE KEY\n")
+
     def test_inventory_plugin_exposes_sibling_sops_bootstrap_public_key_as_hostvar(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -126,7 +168,7 @@ class FortressInventoryPluginTests(unittest.TestCase):
                 "placement:\n"
                 "  host: wintermute\n"
                 "source:\n"
-                "  template: debian-12-base\n"
+                "  template: debian-13-base\n"
                 "hardware:\n"
                 "  cores: 1\n"
                 "  memory: 1024\n"
@@ -228,6 +270,7 @@ class FortressInventoryPluginTests(unittest.TestCase):
         self.assertEqual(wintermute["ansible_host"], "10.0.0.10")
         self.assertEqual(wintermute["ansible_user"], "root")
         self.assertIn("StrictHostKeyChecking=accept-new", wintermute["ansible_ssh_common_args"])
+        self.assertIn("UserKnownHostsFile=/dev/shm/fortress/known_hosts", wintermute["ansible_ssh_common_args"])
 
     def test_inventory_plugin_sets_vm_connection_from_inventory(self):
         inventory = self.load_inventory()
@@ -236,3 +279,4 @@ class FortressInventoryPluginTests(unittest.TestCase):
         self.assertEqual(media01["ansible_host"], "10.0.10.101")
         self.assertEqual(media01["ansible_user"], "admin")
         self.assertIn("StrictHostKeyChecking=accept-new", media01["ansible_ssh_common_args"])
+        self.assertIn("UserKnownHostsFile=/dev/shm/fortress/known_hosts", media01["ansible_ssh_common_args"])

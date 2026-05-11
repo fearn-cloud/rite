@@ -1,6 +1,6 @@
 vmid: 101
 source:
-  template: debian-12-base
+  template: debian-13-base
 hardware:
   cores: 2
   memory: 4096

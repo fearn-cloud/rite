@@ -3,7 +3,6 @@ proxmox:
   endpoint: http://10.10.0.11:8006
   # endpoint: https://wintermute.fearn.cloud:8006
   templates:
-    - debian-12-base
     - debian-13-base
   users:
     - name: tofu@pve

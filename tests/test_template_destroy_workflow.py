@@ -34,7 +34,7 @@ class TemplateDestroyWorkflowTests(unittest.TestCase):
             env = self._workflow_env(root, calls_log)
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-destroy"), "wintermute", "debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-destroy"), "wintermute", "debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -48,12 +48,12 @@ class TemplateDestroyWorkflowTests(unittest.TestCase):
     def test_preserves_template_yaml_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._workflow_fixture(tmp)
-            template_yaml = root / "inventory" / "templates" / "debian-12-base.yaml"
+            template_yaml = root / "inventory" / "templates" / "debian-13-base.yaml"
             original = template_yaml.read_text()
             env = self._workflow_env(root, calls_log)
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-destroy"), "wintermute", "debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-destroy"), "wintermute", "debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -67,13 +67,13 @@ class TemplateDestroyWorkflowTests(unittest.TestCase):
     def test_delete_template_yaml_flag_removes_yaml_after_destroy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._workflow_fixture(tmp)
-            template_yaml = root / "inventory" / "templates" / "debian-12-base.yaml"
+            template_yaml = root / "inventory" / "templates" / "debian-13-base.yaml"
             env = self._workflow_env(root, calls_log)
 
             result = subprocess.run(
                 [
                     str(REPO_ROOT / "scripts" / "template-destroy"),
-                    "wintermute", "debian-12-base", "--delete-template-yaml",
+                    "wintermute", "debian-13-base", "--delete-template-yaml",
                 ],
                 cwd=REPO_ROOT,
                 env=env,
@@ -99,7 +99,7 @@ class TemplateDestroyWorkflowTests(unittest.TestCase):
             env = self._workflow_env(root, calls_log)
 
             result = subprocess.run(
-                [str(REPO_ROOT / "scripts" / "template-destroy"), "phantom", "debian-12-base"],
+                [str(REPO_ROOT / "scripts" / "template-destroy"), "phantom", "debian-13-base"],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -124,12 +124,12 @@ class TemplateDestroyWorkflowTests(unittest.TestCase):
             "proxmox:\n"
             "  pve_node_name: wintermute\n"
             "  templates:\n"
-            "    - debian-12-base\n"
+            "    - debian-13-base\n"
             "network:\n"
             "  management_address: 10.10.0.11\n"
         )
-        (templates_dir / "debian-12-base.yaml").write_text(
-            "name: debian-12-base\n"
+        (templates_dir / "debian-13-base.yaml").write_text(
+            "name: debian-13-base\n"
             "vmid: 9001\n"
         )
 

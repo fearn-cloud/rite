@@ -18,3 +18,4 @@ nas:
 apt_repos:
   caddy_official:
     url: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+    repo: deb [trusted=yes] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main

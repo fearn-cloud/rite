@@ -1,0 +1,25 @@
+name: fortress-native-demo
+hostname: fortress-native-demo.fearn.cloud
+backend:
+  vm: wintermute-demo
+  port: 2080
+ingress:
+  enabled: true
+  exposure: lan_only
+  tls: letsencrypt_dns
+  auth:
+    type: none
+deploy:
+  type: native
+  package: caddy
+  apt_repo: caddy_official
+  service_name: caddy
+  config_files:
+    - template: Caddyfile.j2
+      dest: /etc/caddy/Caddyfile
+      mode: "0644"
+      reload_on_change: true
+    - template: caddy.env.j2
+      dest: /etc/default/caddy
+      mode: "0644"
+      restart_on_change: true

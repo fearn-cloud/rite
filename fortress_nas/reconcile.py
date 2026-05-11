@@ -29,6 +29,9 @@ class RecordingNasClient:
     def delete_nfs_share(self, share):
         self.operations.append({"method": "delete_nfs_share", "share": share})
 
+    def reload_nfs_service(self):
+        self.operations.append({"method": "reload_nfs_service"})
+
 
 class NasApplyError(Exception):
     def __init__(self, action, target, cause):
@@ -238,6 +241,7 @@ def _write_actions(desired_nfs_shares, existing_nfs_shares):
 
 
 def _apply_write_actions(client, write_actions):
+    nfs_shares_changed = False
     for action in write_actions:
         try:
             if action["action"] == "create_dataset":
@@ -246,12 +250,20 @@ def _apply_write_actions(client, write_actions):
                 client.delete_dataset(action["dataset"], action["path"])
             elif action["action"] == "create_nfs_share":
                 client.create_nfs_share(action["share"])
+                nfs_shares_changed = True
             elif action["action"] == "update_nfs_share":
                 client.update_nfs_share(action["share"], action["desired"])
+                nfs_shares_changed = True
             elif action["action"] == "delete_nfs_share":
                 client.delete_nfs_share(action["share"])
+                nfs_shares_changed = True
         except Exception as error:
             raise NasApplyError(action["action"], _write_action_target(action), error) from error
+    if nfs_shares_changed:
+        try:
+            client.reload_nfs_service()
+        except Exception as error:
+            raise NasApplyError("reload_nfs_service", "NFS service", error) from error
 
 
 def _write_action_target(action):

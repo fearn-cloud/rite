@@ -446,7 +446,8 @@ class NasReconcilePlanTests(unittest.TestCase):
                             "fortress_owned": True,
                             "fortress_marker": "fortress:nfs-share:fortress-nfs-media-read-write",
                         },
-                    }
+                    },
+                    {"method": "reload_nfs_service"},
                 ],
             )
 
@@ -582,6 +583,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                             "fortress_marker": "fortress:nfs-share:fortress-nfs-acceptance-media-read-write",
                         },
                     },
+                    {"method": "reload_nfs_service"},
                 ],
             )
 
@@ -655,6 +657,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                         "method": "delete_nfs_share",
                         "share": "fortress-nfs-archive-read-only",
                     },
+                    {"method": "reload_nfs_service"},
                 ],
             )
 
@@ -1060,6 +1063,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                 "sharing.nfs.create": {"id": 9},
                 "sharing.nfs.update": {"id": 7},
                 "sharing.nfs.delete": True,
+                "service.reload": True,
             }
         )
         desired = {
@@ -1080,6 +1084,7 @@ class NasReconcilePlanTests(unittest.TestCase):
             client.create_nfs_share(desired)
             client.update_nfs_share("fortress-nfs-media-read-write", desired)
             client.delete_nfs_share("fortress-nfs-archive-read-only")
+            client.reload_nfs_service()
 
         self.assertEqual(
             raw_client.operations[4:],
@@ -1114,6 +1119,7 @@ class NasReconcilePlanTests(unittest.TestCase):
                 ),
                 ("call", "sharing.nfs.query", ()),
                 ("call", "sharing.nfs.delete", (8,)),
+                ("call", "service.reload", ("nfs",)),
                 ("exit", None, ()),
             ],
         )
@@ -1444,6 +1450,31 @@ class NasReconcilePlanTests(unittest.TestCase):
                     },
                 },
                 output["api_operations"],
+            )
+
+    def test_apply_reloads_nfs_service_after_nfs_share_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            reality_path = root / "truenas-reality.json"
+            reality_path.write_text(
+                json.dumps(
+                    {
+                        "datasets": [
+                            {"path": "/mnt/pool/media", "owner": {"uid": 1000, "gid": 1000}},
+                        ],
+                        "nfs_shares": [],
+                    }
+                )
+            )
+
+            result = self._run_reconcile(root, reality_path, "--apply")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = json.loads(result.stdout)
+            self.assertEqual(
+                {"method": "reload_nfs_service"},
+                output["api_operations"][-1],
             )
 
     def test_apply_updates_drifted_fortress_owned_nfs_share(self):

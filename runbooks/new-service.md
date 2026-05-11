@@ -59,7 +59,7 @@ Run the first-class Acceptance Test when you need to prove the Service deploymen
 just acceptance-service-layer host=<host> template=<template> endpoint=<nas-endpoint>
 ```
 
-The workflow generates `tmp-service-primary` as the Primary Acceptance VM and `tmp-service-peer` as the Peer Acceptance VM, reconciles the dedicated `acceptance-service-layer` Ephemeral Dataset, provisions both generated Operational VMs, writes a marker file to the Primary Acceptance VM Mount, deploys the generated `tmp-service-layer` Quadlet Service through `service-deploy`, and curls the Primary Acceptance VM Backend Published Port from the Peer Acceptance VM.
+The workflow generates `tmp-service-primary` as the Primary Acceptance VM and `tmp-service-peer` as the Peer Acceptance VM, reconciles the dedicated `acceptance-service-layer` Ephemeral Dataset, provisions both generated Operational VMs, writes a marker file to the Primary Acceptance VM Mount, deploys the generated `tmp-service-layer` Quadlet Service and `tmp-service-layer-native` Native Service through `service-deploy`, and curls both Primary Acceptance VM Backend ports from the Peer Acceptance VM.
 
 The generated Service intentionally uses `bind: 0.0.0.0` on its Backend Published Port, a Share-backed Volume for the marker content, multiple containers with Container Dependencies, Container Alias checks, a Service-owned volume, and a Service Secret verification that compares a hash without printing the plaintext secret. Use `keep_on_fail=true` to preserve the generated VMs, Service inventory, Sibling SOPS Files, Quadlet Fragment directory, and NAS resources for inspection.
 

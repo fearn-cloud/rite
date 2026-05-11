@@ -211,6 +211,10 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 extra_vars["fortress_service_start_units"],
             )
             self.assertEqual(
+                ["ghcr.io/immich-app/immich-server:v1.120.0", "postgres:16"],
+                extra_vars["fortress_service_container_images"],
+            )
+            self.assertEqual(
                 ["fortress-immich-server.service", "fortress-immich-postgres.service"],
                 extra_vars["fortress_service_stop_units"],
             )
@@ -219,6 +223,92 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 extra_vars["fortress_owned_quadlet_prune_paths"],
             )
             self.assertEqual("fortress_immich_", extra_vars["fortress_service_secret_prefix"])
+
+    def test_service_deploy_passes_native_package_repo_unit_and_config_files_to_playbook(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["cp", "-R", str(FIXTURES / "inventory_valid") + "/.", str(root)], check=True)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            calls_log = root / "calls.log"
+            self._fake_decrypt_keys(scripts_dir / "decrypt-keys", calls_log)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "apt_repos:\n"
+                "  caddy_official:\n"
+                "    url: https://dl.cloudsmith.io/public/caddy/stable/deb/debian\n"
+            )
+            (root / "inventory" / "vms" / "media01.sops.yaml").write_text("encrypted vm material\n")
+            template_dir = root / "inventory" / "services" / "caddy.native.d"
+            template_dir.mkdir()
+            (template_dir / "Caddyfile.j2").write_text(":80 { respond \"ok\" }\n")
+            (template_dir / "caddy.env.j2").write_text("CADDY_ADMIN=localhost:2019\n")
+            (root / "inventory" / "services" / "caddy.yaml").write_text(
+                "name: caddy\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 80\n"
+                "deploy:\n"
+                "  type: native\n"
+                "  package: caddy\n"
+                "  apt_repo: caddy_official\n"
+                "  service_name: caddy\n"
+                "  config_files:\n"
+                "    - template: Caddyfile.j2\n"
+                "      dest: /etc/caddy/Caddyfile\n"
+                "      mode: '0644'\n"
+                "      reload_on_change: true\n"
+                "    - template: caddy.env.j2\n"
+                "      dest: /etc/default/caddy\n"
+                "      mode: '0600'\n"
+                "      restart_on_change: true\n"
+            )
+            env = os.environ.copy()
+            env["FORTRESS_ROOT"] = str(root)
+            env["CALLS_LOG"] = str(calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-deploy"), "caddy"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            extra_vars = json.loads(calls_log.read_text().split("--extra-vars ", 1)[1])
+            self.assertEqual("native", extra_vars["fortress_service_deploy_type"])
+            self.assertEqual("caddy", extra_vars["fortress_native_package"])
+            self.assertEqual("caddy", extra_vars["fortress_native_systemd_unit"])
+            self.assertEqual(
+                {
+                    "name": "caddy_official",
+                    "url": "https://dl.cloudsmith.io/public/caddy/stable/deb/debian",
+                },
+                extra_vars["fortress_native_apt_repo"],
+            )
+            self.assertEqual(
+                [
+                    {
+                        "src": str(template_dir / "Caddyfile.j2"),
+                        "dest": "/etc/caddy/Caddyfile",
+                        "mode": "0644",
+                        "action": "reload",
+                    },
+                    {
+                        "src": str(template_dir / "caddy.env.j2"),
+                        "dest": "/etc/default/caddy",
+                        "mode": "0600",
+                        "action": "restart",
+                    },
+                ],
+                extra_vars["fortress_native_config_files"],
+            )
+            self.assertNotIn("fortress_quadlet_artifacts", extra_vars)
 
     def test_service_deploy_playbook_prunes_restarts_and_reports_start_failures(self):
         playbook = (REPO_ROOT / "ansible" / "playbooks" / "service-deploy.yml").read_text()
@@ -238,10 +328,43 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
             playbook.index("name: Start Service networks before containers"),
             playbook.index("name: Start Service containers in dependency order"),
         )
+        self.assertLess(
+            playbook.index("name: Pull Service container images before systemd starts units"),
+            playbook.index("name: Stop Service containers in reverse dependency order"),
+        )
+        self.assertLess(
+            playbook.index("name: Pull Service container images before systemd starts units"),
+            playbook.index("name: Start Service containers in dependency order"),
+        )
+        self.assertIn("podman image pull {{ item }}", playbook)
         self.assertIn("systemctl start {{ item }}", deploy_workflow)
         self.assertIn("Failed to start {{ item }}", deploy_workflow)
         self.assertIn("journalctl -u {{ item }}", deploy_workflow)
         self.assertNotIn("/srv/services/{{ deploy_service }}", deploy_workflow)
+
+    def test_service_deploy_playbook_installs_native_packages_templates_configs_and_reloads_or_restarts(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "service-deploy.yml").read_text()
+
+        self.assertIn("name: Configure Native Service apt repository", playbook)
+        self.assertIn("fortress_native_apt_repo", playbook)
+        self.assertIn("name: Install Native Service package", playbook)
+        self.assertIn("name: Render Native Service config files", playbook)
+        self.assertIn("loop: \"{{ fortress_native_config_files | default([]) }}\"", playbook)
+        self.assertIn("src: \"{{ item.src }}\"", playbook)
+        self.assertIn("dest: \"{{ item.dest }}\"", playbook)
+        self.assertIn("mode: \"{{ item.mode }}\"", playbook)
+        self.assertIn("name: Restart Native Service after restart-marked config changes", playbook)
+        self.assertIn("name: Reload Native Service after reload-only config changes", playbook)
+        self.assertIn("systemctl restart {{ fortress_native_systemd_unit }}", playbook)
+        self.assertIn("systemctl reload {{ fortress_native_systemd_unit }}", playbook)
+        self.assertIn("selectattr('item.action', 'equalto', 'restart')", playbook)
+        self.assertIn("selectattr('item.action', 'equalto', 'reload')", playbook)
+        self.assertLess(
+            playbook.index("name: Restart Native Service after restart-marked config changes"),
+            playbook.index("name: Reload Native Service after reload-only config changes"),
+        )
+        self.assertIn("fortress_native_restart_needed | default(false) | bool", playbook)
+        self.assertIn("not (fortress_native_restart_needed | default(false) | bool)", playbook)
 
     def _fake_decrypt_keys(self, path, calls_log):
         path.write_text(

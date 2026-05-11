@@ -20,6 +20,7 @@
         name: podman
         state: present
         update_cache: true
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Remove Service Secrets before replacement
       ansible.builtin.command:
@@ -27,6 +28,7 @@
       loop: "{{ fortress_service_secrets | default([]) }}"
       failed_when: false
       no_log: true
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Install Service Secrets as Podman secrets
       ansible.builtin.command:
@@ -35,6 +37,7 @@
         stdin_add_newline: false
       loop: "{{ fortress_service_secrets | default([]) }}"
       no_log: true
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Ensure Service Data Directories exist
       ansible.builtin.file:
@@ -44,6 +47,7 @@
         group: "{{ item.gid | default(omit) }}"
         mode: "0750"
       loop: "{{ fortress_service_data_directories | default([]) }}"
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Ensure Quadlet system directory exists
       ansible.builtin.file:
@@ -52,6 +56,7 @@
         owner: root
         group: root
         mode: "0755"
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Render selected Service Quadlet artifacts
       ansible.builtin.copy:
@@ -62,6 +67,7 @@
         mode: "0644"
       loop: "{{ fortress_quadlet_artifacts }}"
       register: fortress_rendered_quadlets
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Find obsolete fortress-rendered container Quadlets for selected Service
       ansible.builtin.find:
@@ -69,14 +75,17 @@
         patterns: "fortress-{{ deploy_service }}-*.container"
         file_type: file
       register: fortress_service_container_quadlets
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Prune obsolete fortress-rendered Quadlet units for selected Service
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent
       loop: "{{ fortress_service_container_quadlets.files | default([]) }}"
-      when: item.path not in fortress_owned_quadlet_prune_paths
       register: fortress_pruned_quadlets
+      when:
+        - fortress_service_deploy_type == "quadlet"
+        - item.path not in fortress_owned_quadlet_prune_paths
 
     - name: List fortress-owned Podman secrets for selected Service
       ansible.builtin.shell: |
@@ -86,17 +95,28 @@
         executable: /bin/bash
       register: fortress_existing_service_secrets
       changed_when: false
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Prune obsolete service-scoped Podman secrets
       ansible.builtin.command:
         cmd: "podman secret rm {{ item }}"
       loop: "{{ fortress_existing_service_secrets.stdout_lines | default([]) }}"
-      when: item not in (fortress_service_secrets | default([]) | map(attribute='podman_name') | list)
+      when:
+        - fortress_service_deploy_type == "quadlet"
+        - item not in (fortress_service_secrets | default([]) | map(attribute='podman_name') | list)
 
     - name: Reload systemd after Quadlet changes
       ansible.builtin.systemd:
         daemon_reload: true
-      when: fortress_rendered_quadlets.changed or fortress_pruned_quadlets.changed
+      when:
+        - fortress_service_deploy_type == "quadlet"
+        - fortress_rendered_quadlets.changed or fortress_pruned_quadlets.changed
+
+    - name: Pull Service container images before systemd starts units
+      ansible.builtin.command:
+        cmd: "podman image pull {{ item }}"
+      loop: "{{ fortress_service_container_images | default([]) }}"
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Stop Service containers in reverse dependency order
       ansible.builtin.command:
@@ -104,12 +124,95 @@
       loop: "{{ fortress_service_stop_units }}"
       failed_when: false
       changed_when: true
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Start Service networks before containers
       ansible.builtin.command:
         cmd: "systemctl start {{ item }}"
       loop: "{{ fortress_service_network_units | default([]) }}"
+      when: fortress_service_deploy_type == "quadlet"
 
     - name: Start Service containers in dependency order
       ansible.builtin.include_tasks: ../tasks/service-start-unit.yml
       loop: "{{ fortress_service_start_units }}"
+      when: fortress_service_deploy_type == "quadlet"
+
+    - name: Configure Native Service apt repository
+      ansible.builtin.apt_repository:
+        repo: "{{ fortress_native_apt_repo.repo | default('deb ' ~ fortress_native_apt_repo.url ~ ' any-version main') }}"
+        filename: "{{ fortress_native_apt_repo.name }}"
+        state: present
+        update_cache: true
+      when:
+        - fortress_service_deploy_type == "native"
+        - fortress_native_apt_repo | default(none) is not none
+
+    - name: Install Native Service package
+      ansible.builtin.apt:
+        name: "{{ fortress_native_package }}"
+        state: present
+        update_cache: "{{ fortress_native_apt_repo | default(none) is none }}"
+      when: fortress_service_deploy_type == "native"
+
+    - name: Render Native Service config files
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop: "{{ fortress_native_config_files | default([]) }}"
+      register: fortress_native_rendered_config_files
+      when: fortress_service_deploy_type == "native"
+
+    - name: Record Native Service restart need
+      ansible.builtin.set_fact:
+        fortress_native_restart_needed: >-
+          {{
+            (
+              fortress_native_rendered_config_files.results
+              | default([])
+              | selectattr('changed')
+              | selectattr('item.action', 'equalto', 'restart')
+              | list
+              | length
+            ) > 0
+          }}
+      when: fortress_service_deploy_type == "native"
+
+    - name: Record Native Service reload need
+      ansible.builtin.set_fact:
+        fortress_native_reload_needed: >-
+          {{
+            (
+              fortress_native_rendered_config_files.results
+              | default([])
+              | selectattr('changed')
+              | selectattr('item.action', 'equalto', 'reload')
+              | list
+              | length
+            ) > 0
+          }}
+      when: fortress_service_deploy_type == "native"
+
+    - name: Restart Native Service after restart-marked config changes
+      ansible.builtin.command:
+        cmd: "systemctl restart {{ fortress_native_systemd_unit }}"
+      when:
+        - fortress_service_deploy_type == "native"
+        - fortress_native_restart_needed | default(false) | bool
+
+    - name: Reload Native Service after reload-only config changes
+      ansible.builtin.command:
+        cmd: "systemctl reload {{ fortress_native_systemd_unit }}"
+      when:
+        - fortress_service_deploy_type == "native"
+        - fortress_native_reload_needed | default(false) | bool
+        - not (fortress_native_restart_needed | default(false) | bool)
+
+    - name: Ensure Native Service systemd unit is enabled and running
+      ansible.builtin.systemd:
+        name: "{{ fortress_native_systemd_unit }}"
+        enabled: true
+        state: started
+      when: fortress_service_deploy_type == "native"

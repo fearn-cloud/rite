@@ -149,14 +149,42 @@
         },
         {
           "type": "object",
-          "required": ["type", "package", "service_name"],
+          "required": ["type", "package", "service_name", "config_files"],
           "properties": {
             "type": { "const": "native" },
             "package": { "type": "string", "minLength": 1 },
-            "apt_repo": { "type": "string" },
+            "apt_repo": { "type": "string", "minLength": 1 },
             "service_name": { "type": "string", "minLength": 1 },
-            "config_files": { "type": "array", "items": { "type": "object" } },
-            "env_files": { "type": "array", "items": { "type": "object" } }
+            "config_files": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["template", "dest", "mode"],
+                "properties": {
+                  "template": {
+                    "type": "string",
+                    "minLength": 1,
+                    "not": { "pattern": "(^/|(^|/)\\.\\.($|/))" }
+                  },
+                  "dest": { "type": "string", "pattern": "^/" },
+                  "mode": { "type": "string", "pattern": "^[0-7]{4}$" },
+                  "reload_on_change": { "const": true },
+                  "restart_on_change": { "const": true }
+                },
+                "oneOf": [
+                  {
+                    "required": ["reload_on_change"],
+                    "not": { "required": ["restart_on_change"] }
+                  },
+                  {
+                    "required": ["restart_on_change"],
+                    "not": { "required": ["reload_on_change"] }
+                  }
+                ]
+              }
+            }
           },
           "additionalProperties": false
         }

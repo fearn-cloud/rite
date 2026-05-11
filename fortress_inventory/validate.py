@@ -22,6 +22,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(_validate_service_backends(model))
     errors.extend(_validate_service_hostnames(model))
     errors.extend(_validate_quadlet_services(model))
+    errors.extend(_validate_native_services(model))
     errors.extend(_validate_service_share_backed_volumes(model))
     errors.extend(_validate_vm_inventory_policy(model))
     errors.extend(_validate_vm_refs(model))
@@ -127,6 +128,25 @@ def _validate_quadlet_services(model):
     errors.extend(_validate_service_groups(model))
     errors.extend(_validate_container_dependencies(model))
     errors.extend(_validate_service_secrets(model))
+    return errors
+
+
+def _validate_native_services(model):
+    errors = []
+    apt_repos = model.globals.get("apt_repos") or {}
+    for service_name, service in model.services.items():
+        deploy = service.get("deploy", {})
+        if deploy.get("type") != "native":
+            continue
+        apt_repo = deploy.get("apt_repo")
+        if apt_repo and apt_repo not in apt_repos:
+            errors.append(
+                ValidationError(
+                    "missing_native_service_apt_repo",
+                    f"inventory/services/{service_name}.yaml.deploy.apt_repo",
+                    f"Service {service_name} references missing apt repository {apt_repo}",
+                )
+            )
     return errors
 
 

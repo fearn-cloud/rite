@@ -56,7 +56,9 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             self.assertIn("service-layer acceptance: provisioning primary Acceptance VM tmp-service-primary", result.stdout)
             self.assertIn("service-layer acceptance: provisioning peer Acceptance VM tmp-service-peer", result.stdout)
             self.assertIn("service-layer acceptance: deploying generated Service tmp-service-layer to tmp-service-primary", result.stdout)
+            self.assertIn("service-layer acceptance: deploying generated Native Service tmp-service-layer-native to tmp-service-primary", result.stdout)
             self.assertIn("service-layer acceptance: verifying Service-layer contract", result.stdout)
+            self.assertIn("service-layer acceptance: checking Native Service systemd unit caddy", result.stdout)
             self.assertIn("service-layer acceptance: checking Service Secret bytes inside web container", result.stdout)
             self.assertIn("service-layer acceptance: cleaning up generated Acceptance resources", result.stdout)
             calls = calls_log.read_text().splitlines()
@@ -67,6 +69,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                     "vm-up tmp-service-primary --auto-confirm",
                     "vm-up tmp-service-peer --auto-confirm",
                     "service-deploy tmp-service-layer",
+                    "service-deploy tmp-service-layer-native",
                     f"ansible-inventory -i {root / 'inventory' / 'fortress.yaml'} --list",
                     *self._ssh_calls("tmp-service-primary", "10.10.0.233", "systemctl", "is-active", "mnt-service\\x2dlayer.mount"),
                     *self._ssh_calls("tmp-service-primary", "10.10.0.233", "findmnt", "/mnt/service-layer"),
@@ -87,6 +90,8 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                         "sha256sum \"$ACCEPTANCE_TOKEN_FILE\" | awk '{print $1}'",
                     ),
                     *self._ssh_calls("tmp-service-peer", "10.10.0.234", "curl", "-fsS", "http://10.10.0.233:8080/"),
+                    *self._ssh_calls("tmp-service-primary", "10.10.0.233", "systemctl", "is-active", "caddy"),
+                    *self._ssh_calls("tmp-service-peer", "10.10.0.234", "curl", "-fsS", "http://10.10.0.233:18080/"),
                     "vm-destroy tmp-service-primary --delete-vm-yaml",
                     "vm-destroy tmp-service-peer --delete-vm-yaml",
                     "nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --destroy-ephemeral-datasets --apply",
@@ -96,6 +101,8 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer.yaml").exists())
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer.sops.yaml").exists())
             self.assertFalse((root / "inventory" / "services" / "tmp-service-layer.quadlet.d").exists())
+            self.assertFalse((root / "inventory" / "services" / "tmp-service-layer-native.yaml").exists())
+            self.assertFalse((root / "inventory" / "services" / "tmp-service-layer-native.native.d").exists())
 
     def test_refuses_to_overwrite_generated_artifacts_before_reconcile(self):
         generated_paths = [
@@ -105,6 +112,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             ("inventory/vms/tmp-service-peer.sops.yaml", "existing\n"),
             ("inventory/services/tmp-service-layer.yaml", "existing\n"),
             ("inventory/services/tmp-service-layer.sops.yaml", "existing\n"),
+            ("inventory/services/tmp-service-layer-native.yaml", "existing\n"),
         ]
         for relative_path, content in generated_paths:
             with self.subTest(relative_path=relative_path), tempfile.TemporaryDirectory() as tmp:
@@ -172,6 +180,10 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
                     self.assertIn("mount: service-layer", service_yaml)
                     self.assertIn("service_path: web", service_yaml)
                     self.assertIn("secret: secrets.acceptance_token", service_yaml)
+                    native_service_yaml = (root / "inventory" / "services" / "tmp-service-layer-native.yaml").read_text()
+                    self.assertIn("type: native", native_service_yaml)
+                    self.assertIn("package: caddy", native_service_yaml)
+                    self.assertIn("port: 18080", native_service_yaml)
                     primary_yaml = (root / "inventory" / "vms" / "tmp-service-primary.yaml").read_text()
                     self.assertIn("purpose: service-layer-acceptance", primary_yaml)
                     self.assertIn("dataset: acceptance-service-layer", primary_yaml)
@@ -192,6 +204,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
         self.assertIn("just acceptance-service-layer host=<host> template=<template> endpoint=<nas-endpoint>", runbook)
         self.assertIn("Primary Acceptance VM", runbook)
         self.assertIn("Peer Acceptance VM", runbook)
+        self.assertIn("Native Service", runbook)
         self.assertIn("keep_on_fail=true", runbook)
 
     def _fixture(self, tmp):
@@ -299,6 +312,7 @@ class AcceptanceServiceLayerWorkflowTests(unittest.TestCase):
             "case \"$*\" in\n"
             "  *'sha256sum'*) echo '" + hashlib.sha256(b"generated-service-layer-acceptance-token").hexdigest() + "' ;;\n"
             "  *'curl -fsS http://10.10.0.233:8080/'*) echo service-layer-marker ;;\n"
+            "  *'curl -fsS http://10.10.0.233:18080/'*) echo native-service-layer-marker ;;\n"
             "esac\n"
         )
         (bin_dir / "ssh").chmod((bin_dir / "ssh").stat().st_mode | stat.S_IXUSR)

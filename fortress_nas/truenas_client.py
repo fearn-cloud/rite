@@ -114,6 +114,9 @@ class LiveTrueNasClient:
         existing = self._find_nfs_share(share)
         return self._call(NFS_SHARE_WRITE, "sharing.nfs.delete", existing["id"])
 
+    def reload_nfs_service(self):
+        return self._call(NFS_SHARE_WRITE, "service.reload", "nfs")
+
     def _find_nfs_share(self, share_name):
         shares = self._call(NFS_SHARE_READ, "sharing.nfs.query")
         expected_marker = f"fortress:nfs-share:{share_name}"

@@ -192,6 +192,29 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertIn("service_backend_not_singular", {error.code for error in validate_inventory_tree(root)})
 
+    def test_native_service_apt_repo_reference_must_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "services" / "caddy.yaml").write_text(
+                "name: caddy\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "  port: 80\n"
+                "deploy:\n"
+                "  type: native\n"
+                "  package: caddy\n"
+                "  apt_repo: missing_repo\n"
+                "  service_name: caddy\n"
+                "  config_files:\n"
+                "    - template: Caddyfile.j2\n"
+                "      dest: /etc/caddy/Caddyfile\n"
+                "      mode: '0644'\n"
+                "      reload_on_change: true\n"
+            )
+
+            self.assertIn("missing_native_service_apt_repo", {error.code for error in validate_inventory_tree(root)})
+
     def test_published_ports_require_ingress_marker_and_do_not_collide_on_backend_vm(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -315,3 +315,40 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("deploy", result.stdout + result.stderr)
+
+    def test_service_schema_accepts_native_config_files_and_requires_reload_or_restart_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "caddy.yaml"
+            service_yaml.write_text(
+                "name: caddy\n"
+                "backend:\n"
+                "  vm: ingress01\n"
+                "  port: 80\n"
+                "deploy:\n"
+                "  type: native\n"
+                "  package: caddy\n"
+                "  apt_repo: caddy_official\n"
+                "  service_name: caddy\n"
+                "  config_files:\n"
+                "    - template: Caddyfile.j2\n"
+                "      dest: /etc/caddy/Caddyfile\n"
+                "      mode: '0644'\n"
+                "      reload_on_change: true\n"
+                "    - template: caddy.env.j2\n"
+                "      dest: /etc/default/caddy\n"
+                "      mode: '0600'\n"
+                "      restart_on_change: true\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+            service_yaml.write_text(
+                service_yaml.read_text().replace("      restart_on_change: true\n", "")
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("config_files", result.stdout + result.stderr)

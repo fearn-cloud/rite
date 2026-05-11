@@ -1,4 +1,5 @@
 from pathlib import PurePosixPath
+from pathlib import Path
 
 from fortress_services.quadlet import render_quadlet_service
 
@@ -55,6 +56,10 @@ def quadlet_deploy_vars(service, vm, inventory_root=None):
         "fortress_service_network_units": network_units,
         "fortress_service_start_units": start_units,
         "fortress_service_stop_units": list(reversed(start_units)),
+        "fortress_service_container_images": [
+            container["image"]
+            for container in service.get("deploy", {}).get("containers", []) or []
+        ],
         "fortress_owned_quadlet_prune_paths": [
             artifact.path
             for artifact in rendered.artifacts
@@ -62,6 +67,37 @@ def quadlet_deploy_vars(service, vm, inventory_root=None):
         ],
         "fortress_service_secret_prefix": f"fortress_{service['name']}_",
     }
+
+
+def native_deploy_vars(service, globals_, inventory_root=None):
+    deploy = service["deploy"]
+    template_root = Path(inventory_root) / "services" / f"{service['name']}.native.d"
+    apt_repo_name = deploy.get("apt_repo")
+    apt_repo = None
+    if apt_repo_name:
+        apt_repo = dict((globals_.get("apt_repos") or {})[apt_repo_name])
+        apt_repo["name"] = apt_repo_name
+    return {
+        "fortress_service_deploy_type": "native",
+        "fortress_native_package": deploy["package"],
+        "fortress_native_apt_repo": apt_repo,
+        "fortress_native_systemd_unit": deploy["service_name"],
+        "fortress_native_config_files": [
+            {
+                "src": str(template_root / config_file["template"]),
+                "dest": config_file["dest"],
+                "mode": config_file.get("mode", "0644"),
+                "action": _native_config_change_action(config_file),
+            }
+            for config_file in deploy.get("config_files", []) or []
+        ],
+    }
+
+
+def _native_config_change_action(config_file):
+    if config_file.get("restart_on_change") is True:
+        return "restart"
+    return "reload"
 
 
 def service_start_units(service):

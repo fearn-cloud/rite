@@ -17,6 +17,9 @@ from fortress_inventory.model import load_inventory_tree  # noqa: E402
 
 POLICY_NAME = "service-layer"
 SERVICE_NAME = "tmp-service-layer"
+NATIVE_SERVICE_NAME = "tmp-service-layer-native"
+NATIVE_SERVICE_UNIT = "caddy"
+NATIVE_SERVICE_MARKER = "native-service-layer-marker"
 ROLES = ("primary", "peer")
 
 
@@ -97,6 +100,11 @@ def main():
         service_deploy = run_service_deploy(repo_root, intent)
         if service_deploy.returncode != 0:
             return failed_after_generation(repo_root, intent, "service-deploy", service_deploy, args["keep_on_fail"], generated, provisioned)
+
+        progress(f"deploying generated Native Service {NATIVE_SERVICE_NAME} to {intent['vms'][0]['name']}")
+        native_service_deploy = run_native_service_deploy(repo_root, intent)
+        if native_service_deploy.returncode != 0:
+            return failed_after_generation(repo_root, intent, "native service-deploy", native_service_deploy, args["keep_on_fail"], generated, provisioned)
 
         progress("verifying Service-layer contract")
         verification = verify_service_layer(repo_root, intent)
@@ -233,6 +241,8 @@ def refuse_existing_artifacts(repo_root, vms):
         repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml",
         repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml",
         repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d",
+        repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.yaml",
+        repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.native.d",
     ]:
         if path.exists():
             print(f"{path} already exists; refusing to overwrite generated Service-layer Acceptance artifact", file=sys.stderr)
@@ -265,6 +275,8 @@ def write_generated_inventory(repo_root, intent):
     write_service_yaml(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml", intent)
     write_service_sops(repo_root, repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml")
     write_service_quadlet_fragment(repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d")
+    write_native_service_yaml(repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.yaml", intent)
+    write_native_service_templates(repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.native.d")
 
 
 def write_vm_yaml(path, intent, vm):
@@ -356,6 +368,28 @@ def write_service_yaml(path, intent):
     )
 
 
+def write_native_service_yaml(path, intent):
+    primary = next(vm for vm in intent["vms"] if vm["role"] == "primary")
+    path.write_text(
+        f"name: {NATIVE_SERVICE_NAME}\n"
+        "backend:\n"
+        f"  vm: {primary['name']}\n"
+        "  port: 18080\n"
+        "ingress:\n"
+        "  enabled: false\n"
+        "deploy:\n"
+        "  type: native\n"
+        "  package: caddy\n"
+        "  apt_repo: caddy_official\n"
+        f"  service_name: {NATIVE_SERVICE_UNIT}\n"
+        "  config_files:\n"
+        "    - template: Caddyfile.j2\n"
+        "      dest: /etc/caddy/Caddyfile\n"
+        "      mode: \"0644\"\n"
+        "      reload_on_change: true\n"
+    )
+
+
 def write_service_sops(repo_root, path):
     secret = service_secret_value(repo_root)
     path.write_text(
@@ -380,6 +414,15 @@ def write_service_quadlet_fragment(path):
         "\n"
         "[Service]\n"
         "RestartSec=5\n"
+    )
+
+
+def write_native_service_templates(path):
+    path.mkdir()
+    (path / "Caddyfile.j2").write_text(
+        ":18080 {\n"
+        f"\trespond \"{NATIVE_SERVICE_MARKER}\"\n"
+        "}\n"
     )
 
 
@@ -423,6 +466,10 @@ def run_service_deploy(repo_root, intent):
     return run([str(repo_root / "scripts" / "service-deploy"), SERVICE_NAME])
 
 
+def run_native_service_deploy(repo_root, intent):
+    return run([str(repo_root / "scripts" / "service-deploy"), NATIVE_SERVICE_NAME])
+
+
 def verify_service_layer(repo_root, intent):
     hostvars = load_hostvars(repo_root)
     mount_point = intent["policy"]["mount"]["mount_point"]
@@ -462,6 +509,8 @@ def verify_service_layer(repo_root, intent):
                 expected_secret_hash,
             ),
             ("checking peer-to-primary Published Port reachability", peer, ["curl", "-fsS", f"http://{primary['client']}:8080/"], marker),
+            ("checking Native Service systemd unit caddy", primary, ["systemctl", "is-active", NATIVE_SERVICE_UNIT], None),
+            ("checking peer-to-primary Native Service reachability", peer, ["curl", "-fsS", f"http://{primary['client']}:18080/"], NATIVE_SERVICE_MARKER),
         ]
     )
     for description, vm, remote_command, expected_stdout in checks:
@@ -645,6 +694,7 @@ def delete_generated_service_artifacts(repo_root, stderr):
     for path in [
         repo_root / "inventory" / "services" / f"{SERVICE_NAME}.sops.yaml",
         repo_root / "inventory" / "services" / f"{SERVICE_NAME}.yaml",
+        repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.yaml",
     ]:
         try:
             path.unlink()
@@ -652,15 +702,18 @@ def delete_generated_service_artifacts(repo_root, stderr):
             continue
         except OSError as error:
             stderr.append(f"failed to delete generated artifact {path}: {error}")
-    fragment_dir = repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d"
-    try:
-        for child in fragment_dir.iterdir():
-            child.unlink()
-        fragment_dir.rmdir()
-    except FileNotFoundError:
-        return
-    except OSError as error:
-        stderr.append(f"failed to delete generated artifact {fragment_dir}: {error}")
+    for generated_dir in [
+        repo_root / "inventory" / "services" / f"{SERVICE_NAME}.quadlet.d",
+        repo_root / "inventory" / "services" / f"{NATIVE_SERVICE_NAME}.native.d",
+    ]:
+        try:
+            for child in generated_dir.iterdir():
+                child.unlink()
+            generated_dir.rmdir()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            stderr.append(f"failed to delete generated artifact {generated_dir}: {error}")
 
 
 def run(command, input_text=None):

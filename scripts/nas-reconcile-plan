@@ -227,6 +227,10 @@ class _FakeLiveTrueNasApplyClient:
         self._fail_if_requested("delete_nfs_share", share)
         self._append({"method": "delete_nfs_share", "share": share})
 
+    def reload_nfs_service(self):
+        self._fail_if_requested("reload_nfs_service", "nfs")
+        self._append({"method": "reload_nfs_service"})
+
     def _fail_if_requested(self, method, target):
         if os.environ.get("FORTRESS_FAKE_TRUENAS_FAIL_METHOD") == method:
             raise RuntimeError(f"fake TrueNAS write failure for {method} {target}")

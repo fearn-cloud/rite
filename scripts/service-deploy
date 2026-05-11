@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.validate import validate_inventory_model
 from fortress_services.deploy import (
+    native_deploy_vars,
     quadlet_deploy_vars,
     service_secret_installations,
     share_backed_volume_subpaths,
@@ -60,10 +61,14 @@ def main():
         "deploy_service": service_name,
         "deploy_service_backend_vm": backend_vm_name,
         "fortress_service": service,
+        "fortress_service_deploy_type": service.get("deploy", {}).get("type"),
         "fortress_share_backed_volume_subpaths": share_backed_volume_subpaths(service, backend_vm),
         "fortress_service_secrets": service_secrets,
     }
-    extra_vars.update(quadlet_deploy_vars(service, backend_vm, inventory_root=repo_root / "inventory"))
+    if service.get("deploy", {}).get("type") == "native":
+        extra_vars.update(native_deploy_vars(service, model.globals, inventory_root=repo_root / "inventory"))
+    else:
+        extra_vars.update(quadlet_deploy_vars(service, backend_vm, inventory_root=repo_root / "inventory"))
     if service_secrets:
         extra_vars["fortress_service_sops_file"] = str(service_sops)
     try:

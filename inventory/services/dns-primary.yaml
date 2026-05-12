@@ -24,7 +24,8 @@ deploy:
           container: 80
       env:
         TZ: UTC
-        FTLCONF_dns_upstreams: unbound#5335
+        FTLCONF_dns_upstreams: unbound
+        FTLCONF_dns_listeningMode: all
       volumes:
         - service_path: pihole/etc-pihole
           container: /etc/pihole

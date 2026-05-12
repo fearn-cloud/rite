@@ -42,13 +42,18 @@ Pi-hole depends on Unbound and forwards recursive lookups to the container alias
 declared in service inventory:
 
 ```yaml
-FTLCONF_dns_upstreams: unbound#5335
+FTLCONF_dns_upstreams: unbound
+FTLCONF_dns_listeningMode: all
 ```
 
 This keeps LAN-facing filtering and recursive resolution separate while still
 deploying them as one Service unit group. The Service has `ingress.enabled:
 false`; DNS traffic reaches the VM directly through firewall rule
 `DNS-001-ALLOW-INTERNAL-RESOLUTION`, not through Caddy.
+
+`FTLCONF_dns_listeningMode: all` is required for Pi-hole v6 in this container
+topology so queries from routed LAN clients are accepted instead of being
+treated as non-local Docker-network traffic.
 
 ## Addressing and ports
 
@@ -90,6 +95,21 @@ paths.
 After provisioning the VM and deploying the Service, validate the resolver from
 a LAN client whose firewall policy is allowed by `DNS-001-ALLOW-INTERNAL-RESOLUTION`.
 
+The first-class live acceptance workflow assumes the durable primary DNS VM
+already exists, deploys the Service, checks the resolver units and port binding
+on the VM, then performs an external DNS lookup from the operator workstation:
+
+```bash
+just acceptance-dns-primary
+```
+
+If the VM lifecycle proof itself needs to be rerun, opt into that phase
+explicitly:
+
+```bash
+just acceptance-dns-primary provision=true auto_confirm=true
+```
+
 Confirm external recursive resolution:
 
 ```bash
@@ -99,7 +119,7 @@ dig @10.40.0.11 example.com A
 Confirm the current-stage internal DNS path with an expected internal name:
 
 ```bash
-dig @10.40.0.11 internal-ingress.fearn.cloud A
+just acceptance-dns-primary internal=internal-ingress.fearn.cloud
 ```
 
 At this stage, wildcard `*.fearn.cloud` record generation belongs to the
@@ -130,7 +150,8 @@ If clients cannot resolve through the VM, check in this order:
 1. `scripts/vm-up dns-primary-vm` completed and the VM has `10.40.0.11`.
 2. `scripts/service-deploy dns-primary` completed and both systemd units are
    active.
-3. Pi-hole is configured with `FTLCONF_dns_upstreams: unbound#5335`.
-4. Firewall rules include `DNS-001-ALLOW-INTERNAL-RESOLUTION` for the client
+3. Pi-hole is configured with `FTLCONF_dns_upstreams: unbound`.
+4. Pi-hole is configured with `FTLCONF_dns_listeningMode: all`.
+5. Firewall rules include `DNS-001-ALLOW-INTERNAL-RESOLUTION` for the client
    VLAN and `DNS-003-ALLOW-DNS-UPSTREAM` for resolver egress.
-5. The test client is not on Guest, because Guest must not use internal DNS.
+6. The test client is not on Guest, because Guest must not use internal DNS.

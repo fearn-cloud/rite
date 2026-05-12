@@ -17,7 +17,7 @@ class VMShellWorkflowTests(unittest.TestCase):
         self.assertIn("vm-shell vm:", justfile)
         self.assertIn("./scripts/vm-shell {{vm}}", justfile)
 
-    def test_vm_shell_rejects_extra_arguments(self):
+    def test_vm_shell_rejects_extra_arguments_without_separator(self):
         result = subprocess.run(
             [str(REPO_ROOT / "scripts" / "vm-shell"), "media01", "hostname"],
             cwd=REPO_ROOT,
@@ -27,7 +27,7 @@ class VMShellWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 2)
-        self.assertIn("usage: scripts/vm-shell <vm>", result.stderr)
+        self.assertIn("usage: scripts/vm-shell <vm> [-- <command>...]", result.stderr)
 
     def test_vm_shell_rejects_undeclared_vms(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,6 +114,72 @@ class VMShellWorkflowTests(unittest.TestCase):
             self.assertIn("inventory/vms/media01.sops.yaml -- ssh", calls_log.read_text())
             self.assertIn(
                 "ssh -t -o StrictHostKeyChecking=accept-new -i /dev/shm/fortress/media01.key admin@10.0.10.101",
+                calls_log.read_text(),
+            )
+
+    def test_vm_shell_runs_command_after_separator(self):
+        hostvars = {
+            "ansible_host": "10.0.10.101",
+            "ansible_user": "admin",
+            "ansible_ssh_private_key_file": "/dev/shm/fortress/media01.key",
+            "ansible_ssh_common_args": "-o StrictHostKeyChecking=accept-new",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._shell_fixture(tmp, hostvars)
+            env = self._shell_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "vm-shell"),
+                    "media01",
+                    "--",
+                    "systemctl",
+                    "is-active",
+                    "fortress-dns-primary-pihole.service",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                "ssh -o StrictHostKeyChecking=accept-new -i /dev/shm/fortress/media01.key "
+                "admin@10.0.10.101 systemctl is-active fortress-dns-primary-pihole.service",
+                calls_log.read_text(),
+            )
+
+    def test_vm_shell_shell_quotes_remote_command_arguments(self):
+        hostvars = {
+            "ansible_host": "10.0.10.101",
+            "ansible_user": "admin",
+            "ansible_ssh_private_key_file": "/dev/shm/fortress/media01.key",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._shell_fixture(tmp, hostvars)
+            env = self._shell_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "vm-shell"),
+                    "media01",
+                    "--",
+                    "sh",
+                    "-lc",
+                    "printf '%s\\n' \"$tcp\" | awk '{print $4}'",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(
+                """ssh -i /dev/shm/fortress/media01.key admin@10.0.10.101 sh -lc 'printf '"'"'%s\\n'"'"' "$tcp" | awk '"'"'{print $4}'"'"''""",
                 calls_log.read_text(),
             )
 

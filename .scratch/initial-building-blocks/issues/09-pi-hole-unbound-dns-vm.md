@@ -159,3 +159,36 @@ The remaining work is operator-controlled:
 - defer generated `*.fearn.cloud` local records to issue 10, because ADR-0014 assigns local DNS record generation to `just ingress-regenerate`.
 
 Issue 10 should no longer treat the whole DNS implementation as unstarted. Its dependency is now only the live DNS endpoint and Pi-hole record-push target.
+
+### 2026-05-11 live acceptance workflow slice
+
+Added a first-class operator workflow for the remaining live proof:
+
+- `scripts/acceptance-dns-primary`
+- `just acceptance-dns-primary`
+
+The workflow now assumes `dns-primary-vm` already exists by default, deploys `dns-primary`, checks the Pi-hole and Unbound systemd units through `vm-shell`, verifies both TCP and UDP listeners on `10.40.0.11:53`, verifies Pi-hole is configured with `FTLCONF_dns_upstreams=unbound`, then runs an external DNS check against `10.40.0.11`. The later `*.fearn.cloud` internal lookup remains available as an explicit `internal=<hostname>` argument once issue 10 has generated Pi-hole local DNS records.
+
+Use `just acceptance-dns-primary provision=true auto_confirm=true` only when the VM Lifecycle Convergence proof itself needs to be rerun.
+
+Also updated `scripts/vm-shell` to support `scripts/vm-shell <vm> -- <command>...`, matching the DNS runbook's documented validation commands.
+
+Verification run:
+
+- `python3 -m unittest tests.test_acceptance_dns_primary_workflow tests.test_vm_shell_workflow tests.test_dns_architecture_runbook`
+- `python3 -m unittest` passed with 302 tests.
+
+The issue should remain `ready-for-human`: completing the acceptance criteria still requires running the workflow from the operator's live LAN/Proxmox environment and recording the result.
+
+### 2026-05-11 acceptance-dns-primary bug pass
+
+Fixed the live acceptance default so `just acceptance-dns-primary` proves the DNS endpoint that exists in this slice instead of failing on `internal-ingress.fearn.cloud`, which belongs to the ingress regenerator slice.
+
+Verification run:
+
+- `just acceptance-dns-primary` passed against `dns-primary-vm`
+- `python3 -m unittest tests.test_acceptance_dns_primary_workflow tests.test_dns_architecture_runbook`
+
+The internal lookup remains opt-in:
+
+- `just acceptance-dns-primary internal=internal-ingress.fearn.cloud`

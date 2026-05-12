@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+import os
+import random
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+
+VM_NAME = "dns-primary-vm"
+SERVICE_NAME = "dns-primary"
+RESOLVER = "10.40.0.11"
+DEFAULT_EXTERNAL = "example.com"
+DEFAULT_INTERNAL = ""
+PIHOLE_UNIT = "fortress-dns-primary-pihole.service"
+UNBOUND_UNIT = "fortress-dns-primary-unbound.service"
+PIHOLE_CONTAINER = "fortress-dns-primary-pihole"
+LISTENER_ADDRESS_PATTERN = r"^(10\.40\.0\.11|\*|0\.0\.0\.0|\[::\]):53$"
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    if args is None:
+        print(
+            "usage: scripts/acceptance-dns-primary "
+            "[provision=<true|false>] [auto_confirm=<true|false>] "
+            "[external=<hostname>] [internal=<hostname>]",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+
+    steps = []
+    if args["provision"]:
+        vm_up = [str(repo_root / "scripts" / "vm-up"), VM_NAME]
+        if args["auto_confirm"]:
+            vm_up.append("--auto-confirm")
+        steps.append(("provisioning DNS VM through VM Lifecycle Convergence", vm_up))
+    else:
+        progress(f"expecting existing DNS VM {VM_NAME}")
+
+    steps.extend([
+        ("deploying DNS Service through Service Deploy", [str(repo_root / "scripts" / "service-deploy"), SERVICE_NAME]),
+        (
+            "checking Unbound systemd unit",
+            [str(repo_root / "scripts" / "vm-shell"), VM_NAME, "--", "systemctl", "is-active", UNBOUND_UNIT],
+        ),
+        (
+            "checking Pi-hole systemd unit",
+            [str(repo_root / "scripts" / "vm-shell"), VM_NAME, "--", "systemctl", "is-active", PIHOLE_UNIT],
+        ),
+        (
+            "checking TCP and UDP listeners on resolver address",
+            [
+                str(repo_root / "scripts" / "vm-shell"),
+                VM_NAME,
+                "--",
+                "sh",
+                "-lc",
+                listener_check_command(),
+            ],
+        ),
+        (
+            "checking Pi-hole upstream points at Unbound",
+            [
+                str(repo_root / "scripts" / "vm-shell"),
+                VM_NAME,
+                "--",
+                "sudo",
+                "podman",
+                "exec",
+                PIHOLE_CONTAINER,
+                "sh",
+                "-lc",
+                'test "$FTLCONF_dns_upstreams" = "unbound"',
+            ],
+        ),
+        (
+            f"resolving external hostname {args['external']}",
+            lambda: verify_dns_a(args["external"]),
+        )
+    ])
+    if args["internal"]:
+        steps.append(
+            (
+                f"resolving internal hostname {args['internal']}",
+                lambda: verify_dns_a(args["internal"]),
+            )
+        )
+    else:
+        progress("skipping internal hostname lookup; pass internal=<hostname> after local DNS records exist")
+
+    for message, command in steps:
+        progress(message)
+        result = command() if callable(command) else subprocess.run(command)
+        if result.returncode != 0:
+            print(f"dns-primary acceptance: failed while {message}", file=sys.stderr)
+            return result.returncode
+
+    print("dns-primary acceptance: passed")
+    return 0
+
+
+def parse_args(argv):
+    values = {
+        "provision": "false",
+        "auto_confirm": "false",
+        "external": DEFAULT_EXTERNAL,
+        "internal": DEFAULT_INTERNAL,
+    }
+    for arg in argv:
+        if "=" not in arg:
+            return None
+        key, value = arg.split("=", 1)
+        if key not in values:
+            return None
+        values[key] = value.strip('"')
+    for key in ("provision", "auto_confirm"):
+        if values[key].lower() not in ("true", "false"):
+            return None
+        values[key] = values[key].lower() == "true"
+    if not values["external"]:
+        return None
+    return values
+
+
+def progress(message):
+    print(f"dns-primary acceptance: {message}", flush=True)
+
+
+def listener_check_command():
+    return (
+        "tcp=\"$(ss -H -ltn 'sport = :53' || true)\"; "
+        "udp=\"$(ss -H -lun 'sport = :53' || true)\"; "
+        "printf 'TCP port 53 listeners:\\n%s\\n' \"$tcp\"; "
+        "printf 'UDP port 53 listeners:\\n%s\\n' \"$udp\"; "
+        f"printf '%s\\n' \"$tcp\" | awk '{{print $4}}' | grep -Eq '{LISTENER_ADDRESS_PATTERN}' && "
+        f"printf '%s\\n' \"$udp\" | awk '{{print $4}}' | grep -Eq '{LISTENER_ADDRESS_PATTERN}'"
+    )
+
+
+def verify_dns_a(hostname):
+    fake_log = os.environ.get("CALLS_LOG")
+    if fake_log:
+        with open(fake_log, "a") as log:
+            log.write(f"dns-query @{RESOLVER} {hostname} A\n")
+        return subprocess.CompletedProcess([], 0)
+
+    try:
+        response = dns_a_query(RESOLVER, hostname)
+    except OSError as error:
+        print(f"DNS query to {RESOLVER} for {hostname} failed: {error}", file=sys.stderr)
+        return subprocess.CompletedProcess([], 1)
+
+    rcode = response[3] & 0x0F
+    answers = int.from_bytes(response[6:8], "big") if len(response) >= 8 else 0
+    if rcode != 0:
+        print(f"DNS query to {RESOLVER} for {hostname} returned rcode {rcode}", file=sys.stderr)
+        return subprocess.CompletedProcess([], 1)
+    if answers < 1:
+        print(f"DNS query to {RESOLVER} for {hostname} returned no A answers", file=sys.stderr)
+        return subprocess.CompletedProcess([], 1)
+
+    print(f"{hostname} resolved through {RESOLVER}")
+    return subprocess.CompletedProcess([], 0)
+
+
+def dns_a_query(resolver, hostname):
+    query_id = random.randrange(0, 65536).to_bytes(2, "big")
+    header = query_id + b"\x01\x00" + b"\x00\x01" + b"\x00\x00" + b"\x00\x00" + b"\x00\x00"
+    question = encode_dns_name(hostname) + b"\x00\x01" + b"\x00\x01"
+    payload = header + question
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+        client.settimeout(5)
+        client.sendto(payload, (resolver, 53))
+        response, _ = client.recvfrom(512)
+    if response[:2] != query_id:
+        raise OSError("response query id did not match request")
+    return response
+
+
+def encode_dns_name(hostname):
+    labels = hostname.rstrip(".").split(".")
+    if not labels or any(not label or len(label.encode()) > 63 for label in labels):
+        raise OSError(f"invalid hostname {hostname!r}")
+    return b"".join(len(label.encode()).to_bytes(1, "big") + label.encode() for label in labels) + b"\x00"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

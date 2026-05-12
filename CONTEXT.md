@@ -144,6 +144,14 @@ _Avoid_: router config, firewall export.
 The single human running fortress. The only intended persona; "future-self on a new workstation" is the only second viewer.
 _Avoid_: user, admin.
 
+**Remote Operator Workstation**:
+A trusted workstation-like environment outside the local admin network that can run full fortress Operator workflows through tailnet reachability.
+_Avoid_: dev VM, remote editor, jump box.
+
+**Remote Operator Session**:
+A deliberately unlocked period during which a Remote Operator Workstation has the credentials needed to run fortress Operator workflows.
+_Avoid_: permanent remote access, always-on dev credentials.
+
 **Bootstrap**:
 The one-shot transition of a freshly-installed Host from the shared bootstrap SSH key to a unique per-host SSH key stored encrypted in the repo. Refuses to re-run.
 _Avoid_: init; provision (reserve for the tofu step on VMs).
@@ -356,6 +364,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 
 - A **Host** runs zero or more **VMs** and holds zero or more **Templates**.
 - A **VM** is provisioned from one **Template** and runs zero or more **Services**.
+- A **Remote Operator Workstation** is trusted to run the same Operator workflows as the local workstation.
+- A **Remote Operator Workstation** gains workflow authority only during a **Remote Operator Session**.
 - The **Firewall Matrix** supersedes earlier service placement and NAS mount layout notes.
 - The **Ingress** VM is attached to the **Infrastructure VLAN** at `10.40.0.16/24`.
 - The primary **DNS VM** is `dns-primary-vm` at `10.40.0.11/24` on the `straylight` Host.

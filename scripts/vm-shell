@@ -8,11 +8,12 @@ from pathlib import Path
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("usage: scripts/vm-shell <vm>", file=sys.stderr)
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/vm-shell <vm> [-- <command>...]", file=sys.stderr)
         return 2
+    vm, remote_command = parsed
 
-    vm = sys.argv[1].removeprefix("vm=")
     repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
     vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
     vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
@@ -41,11 +42,14 @@ def main():
         print(f"VM {vm!r} has no ansible_ssh_private_key_file in Ansible Inventory", file=sys.stderr)
         return 1
 
-    ssh_args = ["ssh", "-t"]
+    ssh_args = ["ssh"]
+    if not remote_command:
+        ssh_args.append("-t")
     common_args = vm_vars.get("ansible_ssh_common_args")
     if common_args:
         ssh_args.extend(shlex.split(common_args))
     ssh_args.extend(["-i", key_file, f"{ansible_user}@{ansible_host}"])
+    ssh_args.extend(shlex.quote(arg) for arg in remote_command)
     return subprocess.run(
         [
             str(repo_root / "scripts" / "decrypt-keys"),
@@ -54,6 +58,14 @@ def main():
             *ssh_args,
         ]
     ).returncode
+
+
+def parse_args(argv):
+    if len(argv) == 1:
+        return argv[0].removeprefix("vm="), []
+    if len(argv) >= 3 and argv[1] == "--":
+        return argv[0].removeprefix("vm="), argv[2:]
+    return None
 
 
 def _load_hostvars(repo_root):

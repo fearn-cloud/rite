@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_ingress.generate import render_caddyfile
+from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.validate import validate_inventory_model
+
+
+def main():
+    if len(sys.argv) != 1:
+        print("usage: scripts/ingress-regenerate", file=sys.stderr)
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    errors = validate_inventory_model(model)
+    if errors:
+        for error in errors:
+            print(f"{error.code}: {error.path}: {error.message}", file=sys.stderr)
+        return 1
+
+    print(render_caddyfile(model), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

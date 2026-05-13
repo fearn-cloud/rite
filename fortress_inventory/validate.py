@@ -21,6 +21,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors = []
     errors.extend(_validate_service_backends(model))
     errors.extend(_validate_service_hostnames(model))
+    errors.extend(_validate_host_ingress_routes(model))
     errors.extend(_validate_quadlet_services(model))
     errors.extend(_validate_native_services(model))
     errors.extend(_validate_service_share_backed_volumes(model))
@@ -447,6 +448,58 @@ def _validate_service_hostnames(model):
             )
         else:
             seen[hostname] = service_name
+    return errors
+
+
+def _validate_host_ingress_routes(model):
+    errors = []
+    domain = model.globals.get("domain")
+    trusted_source_ranges = (model.globals.get("ingress") or {}).get("trusted_source_ranges") or []
+    seen_hostnames = {
+        service.get("hostname"): f"Service {service_name}"
+        for service_name, service in model.services.items()
+        if service.get("ingress", {}).get("enabled") and service.get("hostname")
+    }
+    for host_name, host in model.hosts.items():
+        route = host.get("ingress", {}).get("proxmox_web_ui", {})
+        if not route.get("enabled"):
+            continue
+        hostname = route.get("hostname")
+        if not host.get("network", {}).get("management_address"):
+            errors.append(
+                ValidationError(
+                    "missing_host_ingress_management_address",
+                    f"inventory/hosts/{host_name}.yaml.network.management_address",
+                    f"Host Ingress Route for {host_name} must target the Host management address",
+                )
+            )
+        if hostname in seen_hostnames:
+            errors.append(
+                ValidationError(
+                    "duplicate_ingress_hostname",
+                    f"inventory/hosts/{host_name}.yaml.ingress.proxmox_web_ui.hostname",
+                    f"{seen_hostnames[hostname]} and Host Ingress Route {host_name} both publish hostname {hostname}",
+                )
+            )
+        elif hostname:
+            seen_hostnames[hostname] = f"Host Ingress Route {host_name}"
+        expected_hostname = f"{host_name}.{domain}" if domain else None
+        if hostname and expected_hostname and hostname != expected_hostname:
+            errors.append(
+                ValidationError(
+                    "host_ingress_hostname_mismatch",
+                    f"inventory/hosts/{host_name}.yaml.ingress.proxmox_web_ui.hostname",
+                    f"Host Ingress Route for {host_name} must use hostname {expected_hostname}",
+                )
+            )
+        if not trusted_source_ranges:
+            errors.append(
+                ValidationError(
+                    "missing_host_ingress_trusted_source_ranges",
+                    "inventory/group_vars/all.yaml.ingress.trusted_source_ranges",
+                    f"Host Ingress Route for {host_name} is Trusted-only but no Trusted source ranges are declared",
+                )
+            )
     return errors
 
 

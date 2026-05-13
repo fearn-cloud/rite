@@ -5,6 +5,9 @@ ntp_servers:
 dns_resolvers:
   - 1.1.1.1
   - 1.0.0.1
+ingress:
+  trusted_source_ranges:
+    - 10.20.0.0/24
 vm_admin_user: admin
 nas:
   default_options:

@@ -116,6 +116,24 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_host_schema_accepts_proxmox_web_ui_host_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            host_yaml = Path(tmp) / "wintermute.yaml"
+            host_yaml.write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "network:\n"
+                "  management_address: 10.10.0.11\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: wintermute.fearn.cloud\n"
+            )
+
+            result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_template_schema_accepts_builder_defaults_and_supported_customize_ops(self):
         with tempfile.TemporaryDirectory() as tmp:
             template_yaml = Path(tmp) / "debian-13-base.yaml"

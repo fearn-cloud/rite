@@ -29,6 +29,10 @@ network:
       vlan: 10
       cidr: 10.10.0.11/24
       gateway: 10.10.0.1
+ingress:
+  proxmox_web_ui:
+    enabled: true
+    hostname: wintermute.fearn.cloud
 gpu_passthrough:
   enabled: true
   vendor: intel

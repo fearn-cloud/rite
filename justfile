@@ -84,6 +84,6 @@ acceptance-clean-generated-artifacts workflow auto_confirm="false":
 template-destroy host template delete_template_yaml="false":
     @if [ "{{delete_template_yaml}}" = "true" ] || [ "{{delete_template_yaml}}" = "delete_template_yaml=true" ]; then ./scripts/template-destroy {{host}} {{template}} --delete-template-yaml; else ./scripts/template-destroy {{host}} {{template}}; fi
 
-# Placeholder for regenerating Caddy and local DNS ingress config.
+# Generate the Caddy ingress config from Inventory.
 ingress-regenerate:
-    @echo "TODO: regenerate Ingress configuration"
+    @./scripts/ingress-regenerate

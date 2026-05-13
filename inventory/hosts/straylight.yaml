@@ -29,6 +29,10 @@ network:
       vlan: 10
       cidr: 10.10.0.12/24
       gateway: 10.10.0.1
+ingress:
+  proxmox_web_ui:
+    enabled: true
+    hostname: straylight.fearn.cloud
 gpu_passthrough:
   enabled: false
   vendor: intel

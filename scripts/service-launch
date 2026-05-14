@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/service-launch <service> [--auto-confirm]", file=sys.stderr)
+        return 2
+
+    service_name, auto_confirm = parsed
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    service = model.services.get(service_name)
+    if not service:
+        print(
+            f"Service {service_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'services' / f'{service_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    backend_vm_name = service.get("backend", {}).get("vm")
+    if not backend_vm_name:
+        print(f"Service {service_name!r} has no backend.vm", file=sys.stderr)
+        return 1
+    if backend_vm_name not in model.vms:
+        print(
+            f"Backend VM {backend_vm_name!r} for Service {service_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'vms' / f'{backend_vm_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return 1
+
+    vm_up = [str(repo_root / "scripts" / "vm-up"), backend_vm_name]
+    if auto_confirm:
+        vm_up.append("--auto-confirm")
+    phases = [
+        ("VM Lifecycle Convergence", vm_up),
+        ("Service Deploy", [str(repo_root / "scripts" / "service-deploy"), service_name]),
+    ]
+    if service.get("ingress", {}).get("enabled") is True:
+        phases.append(("Ingress Regeneration", [str(repo_root / "scripts" / "ingress-regenerate")]))
+
+    for phase, command in phases:
+        returncode = run_phase(phase, command, service_name)
+        if returncode != 0:
+            return returncode
+    return 0
+
+
+def parse_args(args):
+    if not (1 <= len(args) <= 2):
+        return None
+
+    service_name = args[0].removeprefix("service=")
+    auto_confirm = False
+    if len(args) == 2:
+        if args[1] != "--auto-confirm":
+            return None
+        auto_confirm = True
+
+    return service_name, auto_confirm
+
+
+def run_phase(phase, command, service_name):
+    try:
+        result = subprocess.run(command)
+    except OSError as error:
+        print(f"{phase} failed for Service {service_name}: {error}", file=sys.stderr)
+        return 1
+    if result.returncode != 0:
+        print(f"{phase} failed for Service {service_name}", file=sys.stderr)
+        return result.returncode or 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

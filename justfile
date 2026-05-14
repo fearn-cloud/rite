@@ -40,6 +40,10 @@ vm-destroy vm delete_vm_yaml="false":
 service-deploy service:
     @./scripts/service-deploy {{service}}
 
+# Launch a Service by converging its Backend VM, deploying it, and refreshing Ingress when declared.
+service-launch service auto_confirm="false":
+    @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/service-launch {{service}} --auto-confirm; else ./scripts/service-launch {{service}}; fi
+
 # Plan NAS Dataset and Share changes against a captured reality JSON file.
 nas-reconcile-plan reality_json:
     @./scripts/nas-reconcile-plan --reality-json {{reality_json}}

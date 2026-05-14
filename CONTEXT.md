@@ -176,6 +176,10 @@ _Avoid_: setup.
 An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
 _Avoid_: provision (reserve for tofu).
 
+**Host Readiness**:
+The resumable Host-level operator workflow that proves a Host has completed all prerequisite ceremonies needed before ordinary VM and Service workflows depend on it.
+_Avoid_: Host Prepare, host setup, first class wrapper.
+
 **VM Lifecycle Convergence**:
 The VM workflow that uses Prepare, OpenTofu-managed VM resources, and Configure to move a declared VM toward its desired state.
 _Avoid_: VM Reconcile, VM sync.
@@ -183,6 +187,10 @@ _Avoid_: VM Reconcile, VM sync.
 **Service Deploy**:
 The Service workflow that converges one declared Service's VM-local runtime artifacts and running units.
 _Avoid_: Service Reconcile, app deploy.
+
+**Service Launch**:
+The Service-level operator workflow that makes a declared Service usable from Inventory, including any required Backend VM readiness and dependent post-deploy workflows.
+_Avoid_: app launch, full deploy.
 
 **Ingress Regeneration**:
 The operator workflow that regenerates and reloads Ingress routing and Ingress DNS Records from current Inventory.
@@ -460,6 +468,13 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Template Verification VM** is provisioned from exactly one **Template** on exactly one **Host** and destroyed after verification.
 - A **Template Verification VM** is an **Operational VM**.
 - A **Template Verification Policy** defines the reusable slot from which each **Template Verification VM** is generated.
+- **Host Readiness** treats an already-completed **Bootstrap** as a satisfied prerequisite while preserving **Bootstrap** itself as a one-shot workflow.
+- **Host Readiness** requires an already-bootstrapped **Host** to prove SSH reachability with its stored per-Host credential before continuing.
+- **Host Readiness** runs the full **Configure** scope for the selected **Host**.
+- **Host Readiness** builds and verifies every **Template** declared for the selected **Host**.
+- **Host Readiness** runs selected **Acceptance Tests** for every declared **Template** and every selected **NAS Endpoint**.
+- **Host Readiness** passes only when the selected **Host** has completed **Bootstrap**, full **Configure**, Template build, Template Verification, and selected Acceptance Tests.
+- A **Host** with no declared **Templates** cannot pass **Host Readiness**.
 - An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
 - A multi-VM **Acceptance Test** uses generated temporary **Operational VMs** rather than checked-in ordinary **VMs**.
 - A multi-VM **Acceptance Test** may designate one generated temporary **Operational VM** as the **Primary Acceptance VM** and another as the **Peer Acceptance VM**.
@@ -585,6 +600,15 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **NAS Reconcile** does not roll back **Shares** after downstream **Configure** or Service deployment failures.
 - Ordinary **NAS Reconcile** must refuse all **Dataset** write actions before contacting a NAS Endpoint.
 - Service deployment validates Share-backed consumption but does not run **NAS Reconcile** implicitly.
+- **Service Launch** composes existing operator workflows rather than replacing **VM Lifecycle Convergence**, **Service Deploy**, or **Ingress Regeneration**.
+- **Service Launch** runs **VM Lifecycle Convergence** for the Service's **Backend** **VM** before **Service Deploy** and relies on that workflow to decide whether the **VM** is already ready.
+- **Service Launch** treats Host readiness as a prerequisite and does not run **Bootstrap** or Host **Configure**.
+- **Service Launch** treats NAS readiness as a prerequisite and does not run **NAS Reconcile**.
+- **Service Launch** treats **Ingress** infrastructure readiness as a prerequisite and does not launch **Ingress** or DNS **Services**.
+- **Service Launch** runs **Ingress Regeneration** after **Service Deploy** only when the **Service** declares **Ingress**.
+- **Service Launch** deploys only the named **Service**, even when other **Services** share its **Backend** **VM** or **Service Group**.
+- **Service Launch** does not roll back or destroy a durable **Backend** **VM** after downstream **Service Deploy** or **Ingress Regeneration** failure.
+- **Service Launch** is invoked for exactly one **Service** and passes operator confirmation policy through to underlying workflows.
 - A **Datastore** uses the same **Dataset**, **Share**, and **Mount** model as other NAS-backed storage.
 - A **Dataset** declaration includes the NAS endpoint it belongs to.
 - A **Dataset** declaration includes an explicit `lifecycle`.

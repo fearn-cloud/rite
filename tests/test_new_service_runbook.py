@@ -183,6 +183,19 @@ class NewServiceRunbookTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, content)
 
+    def test_runbook_documents_service_launch_wrapper_boundaries(self):
+        content = (REPO_ROOT / "runbooks" / "new-service.md").read_text()
+
+        for phrase in [
+            "Service Launch",
+            "just service-launch service=<service>",
+            "wrapper over `vm-up`, `service-deploy`, and conditional `ingress-regenerate`",
+            "Host Configure, NAS Reconcile, and Ingress infrastructure readiness are prerequisites",
+            "does not run `host-bootstrap`, `host-configure`, `nas-reconcile`, `service-deploy internal-ingress`, or Service Deploy for DNS Services",
+        ]:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

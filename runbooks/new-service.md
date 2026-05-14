@@ -110,6 +110,24 @@ VM placement is the Service security boundary. Put Services that should not shar
 
 Service deletion/destruction is not automated in issue 07. Removing a Service yaml does not remove containers, Quadlet units, Podman secrets, Service Data Directories, Published Ports, DNS, or Ingress routing. Plan deletion as an explicit operator change.
 
+## Service Launch
+
+Use Service Launch when the declared Service should be made usable from Inventory and its Backend VM may need VM Lifecycle Convergence first:
+
+```sh
+just service-launch service=<service>
+```
+
+Add `auto_confirm=true` when the selected Backend VM apply should skip the interactive approval prompt:
+
+```sh
+just service-launch service=<service> auto_confirm=true
+```
+
+Service Launch is a wrapper over `vm-up`, `service-deploy`, and conditional `ingress-regenerate`. It resolves the named Service, validates its declared `backend.vm`, runs `vm-up <backend-vm>`, runs `service-deploy <service>`, and runs `ingress-regenerate` only when that Service declares `ingress.enabled: true`.
+
+Host Configure, NAS Reconcile, and Ingress infrastructure readiness are prerequisites. Service Launch does not run `host-bootstrap`, `host-configure`, `nas-reconcile`, `service-deploy internal-ingress`, or Service Deploy for DNS Services. It deploys only the named Service, even when other Services share the same Backend VM or Service Group.
+
 ## Service-layer Acceptance Test
 
 Run the first-class Acceptance Test when you need to prove the Service deployment path against live infrastructure:

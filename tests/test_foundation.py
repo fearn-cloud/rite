@@ -55,6 +55,7 @@ class FoundationTests(unittest.TestCase):
             "vm-shell",
             "vm-destroy",
             "service-deploy",
+            "service-launch",
             "templates-build",
             "ingress-regenerate",
         ]

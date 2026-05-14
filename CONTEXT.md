@@ -230,6 +230,14 @@ _Avoid_: secrets file, encrypted store, vault.
 An encrypted structured entry in a Service's Sibling SOPS File whose `value` is installed as a Podman secret and consumed through the Service application's native `_FILE` environment variable when one exists.
 _Avoid_: environment secret (the secret value is not an environment variable).
 
+**Cloudflare API Token**:
+A least-privilege Cloudflare credential used by the Ingress for DNS-01 certificate issuance for the fortress domain.
+_Avoid_: Cloudflare API key, global API key.
+
+**Native Service Environment Secret**:
+An encrypted structured entry in a Native Service's Sibling SOPS File whose `value` is decrypted during Service Deploy and written directly into a root-owned environment file on the Backend VM.
+_Avoid_: repo-rendered secret, plaintext inventory value.
+
 ### Service substrate
 
 **Quadlet**:
@@ -556,6 +564,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - All **Service Secrets** for a **Service** live in that Service's **Sibling SOPS File**.
 - A **Service Secret** stores its secret bytes under `value` and records `created` and `version` metadata alongside that value.
 - A **Service Secret** name describes its purpose in fortress language, not the Service application's environment variable name.
+- A **Native Service Environment Secret** belongs to exactly one Native **Service** and is written as an environment variable entry in a root-owned Backend VM file during **Service Deploy**.
+- All **Native Service Environment Secrets** for a Native **Service** live in that Service's **Sibling SOPS File**.
 - The Pi-hole web/API password for `dns-primary` is represented as the `web_api_password` **Service Secret**.
 - The `dns-primary.fearn.cloud` hostname reaches the Pi-hole web UI through the **Ingress**; DNS resolver traffic to `dns-primary` remains direct TCP/UDP port 53 access to the **DNS VM**.
 - **Ingress Regeneration** includes `dns-primary.fearn.cloud` in generated **Ingress** routes and **Ingress DNS Records** when `dns-primary` declares **Ingress**.

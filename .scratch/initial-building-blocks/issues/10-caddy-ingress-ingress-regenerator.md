@@ -45,3 +45,20 @@ What still needs to change:
 - Split the agent-grabbable static work from the live proof. The regenerator itself can be an agent issue: iterate ingress-enabled Services, render/push Caddy config, render/push Pi-hole local DNS records, expose `just ingress-regenerate`, and add tests/runbook coverage.
 - Keep the live Caddy/Cloudflare certificate issuance and LAN demo as human work because it requires the Cloudflare token, real DNS-01 issuance, live VMs, and LAN validation.
 - Treat issue 09 as a live endpoint dependency only. The Pi-hole/Unbound architecture and service declaration are already present; issue 10 needs the DNS VM reachable so the regenerator can push local records and reload Pi-hole.
+
+## Split implementation reconciliation
+
+AFK implementation slices under `.scratch/ingress-regeneration/issues/` cover the static and locally testable parts of this parent issue:
+
+- Inventory contracts for Service Ingress, Host Ingress Routes, and Ingress DNS Targets.
+- Generated Caddy route rendering for Service Ingress and Host Ingress Routes.
+- Generated Ingress DNS Records rendered to the fortress-owned dnsmasq file.
+- `just ingress-regenerate`, push ordering, target reloads, and failure behavior.
+- Operator documentation for declaring a new Ingress-enabled Service, generated DNS ownership, and current architecture notes.
+
+Live human proof remains in `.scratch/ingress-regeneration/issues/07-document-and-live-proof-ingress-regeneration-path.md` because it requires live credentials and network conditions:
+
+- Cloudflare API token handling inside the deployed Caddy VM.
+- real Let's Encrypt DNS-01 issuance for an Ingress hostname.
+- LAN validation of at least one Service Ingress hostname and expected certificate.
+- Trusted source validation for a Proxmox web UI Host Ingress Route, plus non-Trusted source denial where practical.

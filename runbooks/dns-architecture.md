@@ -93,6 +93,40 @@ record file at `/etc/dnsmasq.d/99-fortress-ingress.conf`. That file is the
 fortress-owned Ingress DNS Record Set: it is authoritatively replaced from
 current Inventory and does not mutate Pi-hole manual records.
 
+## Ingress DNS Records and Targets
+
+Ingress DNS Records are generated local IPv4 A records for declared Ingress
+hostnames. Each generated record points to the Ingress VM, not the Backend VM,
+Host management address, DNS VM, or Service VM that ultimately receives the
+proxied request. The dnsmasq shape is:
+
+```text
+address=/<hostname>/<ingress-vm-ip>
+```
+
+An Ingress DNS Target is a DNS Service that opts into receiving those generated
+records through its Service capability declaration:
+
+```yaml
+# capabilities.ingress_records
+capabilities:
+  ingress_records:
+    provider: pihole_dnsmasq
+    path: /etc/dnsmasq.d/99-fortress-ingress.conf
+```
+
+`just ingress-regenerate` renders the fortress-owned generated file for every
+declared Ingress DNS Target, installs it at
+`/etc/dnsmasq.d/99-fortress-ingress.conf`, and reloads the target DNS Service.
+The file contains generated Ingress DNS Records for Ingress-enabled Services
+and declared Host Ingress Routes. It is replaced from Inventory on every run, so
+stale generated records disappear when the corresponding hostname is removed.
+
+Manual Pi-hole records remain operator-owned. Records created in the Pi-hole UI,
+Pi-hole API, or another local dnsmasq file are outside fortress ownership and
+must not be placed in 99-fortress-ingress.conf, because Ingress Regeneration may
+replace that file at any time.
+
 The firewall model comes from `docs/firewall-matrix.md`:
 
 - `DNS-001-ALLOW-INTERNAL-RESOLUTION`: Trusted, Known, IoT, Apps,

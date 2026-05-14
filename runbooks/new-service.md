@@ -21,6 +21,53 @@ Published Ports live under each Quadlet container. A Published Port defaults to 
 
 Use a Service Group when multiple Services on the same Backend VM intentionally share one VM-local Podman network. Within a Service, containers always share the Service network. Each container name becomes its Container Alias on that network; use that alias for same-network communication rather than the fortress runtime container name.
 
+## Declare Service Ingress
+
+For a new HTTP-family Service that should be reachable through the Ingress, declare an explicit fleet-domain hostname, enable Service Ingress, and mark exactly one TCP-capable Published Port as the Ingress Backend port:
+
+```yaml
+hostname: <service>.fearn.cloud
+backend:
+  vm: <backend-vm>
+  port: 8080
+ingress:
+  enabled: true
+  exposure: lan_only
+  tls: letsencrypt_dns
+  auth:
+    type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: web
+      image: <image>
+      published_ports:
+        - bind: 0.0.0.0
+          host: 8080
+          container: 80
+          ingress: true
+```
+
+Run the Service deployment first so the Backend exists and Caddy has something to reach:
+
+```sh
+just service-deploy <service>
+```
+
+Then run Ingress Regeneration:
+
+```sh
+just ingress-regenerate
+```
+
+Ingress Regeneration validates current Inventory, replaces the generated Caddy routes imported by the stable Caddy scaffolding, replaces the generated Ingress DNS Records on every declared Ingress DNS Target, reloads Caddy, and reloads the DNS Services that received record files. It does not run Service Deploy for the Ingress, the DNS Service, or the newly added Service.
+
+Verify from a LAN client that uses the fortress DNS path:
+
+```sh
+curl -fsS https://<service>.fearn.cloud/
+```
+
 ## Volumes
 
 Service-owned volume entries use `service_path` and mount a path under the Service Data Directory, `/srv/services/<service>/`. Fortress creates declared Service Data Directory paths during `service-deploy`; Service Data Directory cleanup/migration is explicit, and service-deploy never prunes /srv/services/<service>/.

@@ -70,6 +70,26 @@ class DNSArchitectureRunbookTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, content)
 
+    def test_runbook_documents_ingress_dns_records_and_targets(self):
+        content = (REPO_ROOT / "runbooks" / "dns-architecture.md").read_text()
+
+        for phrase in [
+            "Ingress DNS Records",
+            "Ingress DNS Target",
+            "capabilities.ingress_records",
+            "provider: pihole_dnsmasq",
+            "/etc/dnsmasq.d/99-fortress-ingress.conf",
+            "fortress-owned generated file",
+            "address=/<hostname>/<ingress-vm-ip>",
+            "points to the Ingress VM",
+            "not the Backend VM",
+            "Manual Pi-hole records remain operator-owned",
+            "must not be placed in 99-fortress-ingress.conf",
+            "just ingress-regenerate",
+        ]:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

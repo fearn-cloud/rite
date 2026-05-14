@@ -14,6 +14,10 @@ class ServiceSecretPreflightError(ValueError):
     pass
 
 
+class NativeEnvironmentSecretPreflightError(ValueError):
+    pass
+
+
 def share_backed_volume_subpaths(service, vm):
     mount_by_name = {
         mount.get("name"): mount
@@ -57,7 +61,52 @@ def service_secret_keys(service):
     return keys
 
 
+def native_environment_secret_specs(service):
+    specs = []
+    for secret in service.get("deploy", {}).get("environment_secrets", []) or []:
+        secret_key = service_secret_key(secret)
+        specs.append(
+            {
+                "env": secret["env"],
+                "sops_extract": _sops_extract_path("secrets", secret_key, "value"),
+            }
+        )
+    return specs
+
+
+def native_environment_secret_keys(service):
+    keys = []
+    seen = set()
+    for secret in service.get("deploy", {}).get("environment_secrets", []) or []:
+        secret_key = service_secret_key(secret)
+        if secret_key in seen:
+            continue
+        seen.add(secret_key)
+        keys.append(secret_key)
+    return keys
+
+
 def preflight_service_secret_shape(service_name, service_sops_path, secret_keys):
+    _preflight_structured_secret_shape(
+        service_name,
+        service_sops_path,
+        secret_keys,
+        label="Service Secret",
+        error_type=ServiceSecretPreflightError,
+    )
+
+
+def preflight_native_environment_secret_shape(service_name, service_sops_path, secret_keys):
+    _preflight_structured_secret_shape(
+        service_name,
+        service_sops_path,
+        secret_keys,
+        label="Native Service Environment Secret",
+        error_type=NativeEnvironmentSecretPreflightError,
+    )
+
+
+def _preflight_structured_secret_shape(service_name, service_sops_path, secret_keys, label, error_type):
     result = subprocess.run(
         ["sops", "--decrypt", str(service_sops_path)],
         text=True,
@@ -65,7 +114,7 @@ def preflight_service_secret_shape(service_name, service_sops_path, secret_keys)
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
-        raise ServiceSecretPreflightError(
+        raise error_type(
             f"failed to decrypt Service Sibling SOPS File at {service_sops_path} "
             f"for Service {service_name}"
         )
@@ -74,13 +123,13 @@ def preflight_service_secret_shape(service_name, service_sops_path, secret_keys)
     for secret_key in secret_keys:
         fields = entries.get(secret_key)
         if secret_key not in entries:
-            raise ServiceSecretPreflightError(
-                f"missing Service Secret secrets.{secret_key} in Service Sibling SOPS File "
+            raise error_type(
+                f"missing {label} secrets.{secret_key} in Service Sibling SOPS File "
                 f"{service_sops_path}"
             )
         if fields is None:
-            raise ServiceSecretPreflightError(
-                f"Service Secret secrets.{secret_key} in {service_sops_path} must be a "
+            raise error_type(
+                f"{label} secrets.{secret_key} in {service_sops_path} must be a "
                 "structured entry with created, version, and value fields; scalar legacy "
                 "entries are not supported"
             )
@@ -90,8 +139,8 @@ def preflight_service_secret_shape(service_name, service_sops_path, secret_keys)
             if field not in fields
         ]
         if missing:
-            raise ServiceSecretPreflightError(
-                f"Service Secret secrets.{secret_key} in {service_sops_path} is missing "
+            raise error_type(
+                f"{label} secrets.{secret_key} in {service_sops_path} is missing "
                 f"required field(s): {', '.join(missing)}"
             )
 
@@ -166,6 +215,7 @@ def native_deploy_vars(service, globals_, inventory_root=None):
             }
             for config_file in deploy.get("config_files", []) or []
         ],
+        "fortress_native_environment_secret_specs": native_environment_secret_specs(service),
     }
 
 

@@ -164,6 +164,25 @@ class NewServiceRunbookTests(unittest.TestCase):
         self.assertIn("version: 1\n", content)
         self.assertIn("value:", content)
 
+    def test_runbook_documents_ingress_regeneration_for_new_services(self):
+        content = (REPO_ROOT / "runbooks" / "new-service.md").read_text()
+
+        for phrase in [
+            "Declare Service Ingress",
+            "ingress.enabled: true",
+            "hostname: <service>.fearn.cloud",
+            "published_ports",
+            "ingress: true",
+            "just service-deploy <service>",
+            "just ingress-regenerate",
+            "Ingress Regeneration",
+            "generated Caddy routes",
+            "Ingress DNS Records",
+            "curl -fsS https://<service>.fearn.cloud/",
+        ]:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

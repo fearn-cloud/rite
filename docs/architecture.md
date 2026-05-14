@@ -531,15 +531,23 @@ deploy:
 
 ### 10.5. Ingress
 
-Single Caddy VM. All `*.fearn.cloud` DNS records resolve to this VM's IP (Pi-hole serves the records to LAN clients; see §10.6). Caddy reverse-proxies to backing VMs. One TLS cert store, one place for ingress config to live.
+Single Caddy VM. Caddy terminates TLS for internal HTTP-family routes and reverse-proxies to declared Service Backends and Host Ingress Routes. One TLS cert store, one stable Caddy scaffold, and one generated route import live on the Ingress VM.
 
-`just ingress-rebuild` regenerates the Caddyfile by iterating `inventory/services/*.yaml` where `ingress.enabled: true`, pushes to the Caddy VM, reloads (not restarts — Caddy supports config reload without dropping connections).
+Service Ingress is declared on Service inventory with an explicit hostname, `ingress.enabled: true`, and exactly one TCP-capable Published Port marked `ingress: true`. The generated route proxies that hostname to the Service Backend VM's static address and Backend port.
+
+Host Ingress Routes are declared on Host inventory, not as synthetic Services. They share hostname collision checks, TLS, generated DNS, and Ingress Regeneration with Service Ingress, but they target the Host `network.management_address` for Proxmox web UI access. Caddy enforces Trusted-only source ranges for Host Ingress Routes because Service routes and Host management routes share the same Ingress VM address.
+
+Caddy generated-route ownership is split from Caddy installation. `service-deploy internal-ingress` owns the Native Service, base Caddyfile, Cloudflare environment, and import of the generated route file. `just ingress-regenerate` owns only the generated Caddy routes, installs them on the Ingress VM, and reloads Caddy.
 
 ### 10.6. DNS
 
-Pi-hole + Unbound on a separate VM (DNS appliance — different criticality and lifecycle from ingress). Pi-hole serves LAN DNS; Unbound is the recursive backend so Pi-hole doesn't query upstream.
+Pi-hole + Unbound on a separate VM (DNS appliance, different criticality and lifecycle from ingress). Pi-hole serves LAN DNS; Unbound is the recursive backend so Pi-hole doesn't query upstream.
 
-`just ingress-rebuild` also generates Pi-hole local DNS records (one per service, hostname → ingress VM IP) and pushes to the Pi-hole VM.
+Generated DNS ownership belongs to Ingress Regeneration. Ingress DNS Records are generated per declared Service Ingress hostname and per declared Host Ingress Route hostname. Each record points to the Ingress VM address, not to the Backend VM or Host management address.
+
+Ingress DNS Targets are DNS Services that opt into receiving the generated record set through `capabilities.ingress_records`. The first provider is Pi-hole's dnsmasq compatibility surface, rendered as `99-fortress-ingress.conf` at `/etc/dnsmasq.d/99-fortress-ingress.conf`. Ingress Regeneration authoritatively replaces that generated file and reloads every target DNS Service.
+
+Manual Pi-hole records are outside generated DNS ownership. Operators may keep UI/API/manual dnsmasq records for non-Ingress names, but those records must not be placed in `99-fortress-ingress.conf` because the file is replaced from Inventory.
 
 ### 10.7. TLS
 
@@ -850,12 +858,12 @@ All rotations follow hard-cutover policy (no grace-period overlap; recovery via 
 
 1. Create `inventory/services/<svc>.yaml` (and `<svc>.sops.yaml` if secrets needed). Commit.
 2. `just service-deploy <svc>`.
-3. `just ingress-rebuild` — regenerates Caddyfile and Pi-hole records, pushes to both VMs.
+3. `just ingress-regenerate` — regenerates generated Caddy routes and Ingress DNS Records, pushes them to declared Ingress and DNS targets, and reloads those services.
 4. Service reachable at its hostname.
 
 ### 18.4. Decommission VM
 
-1. Delete service yamls referencing this VM, run `just ingress-rebuild`.
+1. Delete service yamls referencing this VM, run `just ingress-regenerate`.
 2. `just vm-destroy <vm>` (refuses if any service still references the VM).
 3. Commit.
 

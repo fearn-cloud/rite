@@ -170,6 +170,19 @@
         update_cache: "{{ fortress_native_apt_repo | default(none) is none }}"
       when: fortress_service_deploy_type == "native"
 
+    - name: Extract Native Service Environment Secrets
+      ansible.builtin.set_fact:
+        fortress_native_environment_secrets: >-
+          {{
+            (fortress_native_environment_secrets | default({}))
+            | combine({
+                item.env: lookup('pipe', 'sops --decrypt --extract ' ~ item.sops_extract | quote ~ ' ' ~ fortress_service_sops_file | quote)
+              })
+          }}
+      loop: "{{ fortress_native_environment_secret_specs | default([]) }}"
+      no_log: true
+      when: fortress_service_deploy_type == "native"
+
     - name: Render Native Service config files
       ansible.builtin.template:
         src: "{{ item.src }}"
@@ -179,6 +192,7 @@
         mode: "{{ item.mode }}"
       loop: "{{ fortress_native_config_files | default([]) }}"
       register: fortress_native_rendered_config_files
+      no_log: "{{ (fortress_native_environment_secret_specs | default([]) | length) > 0 }}"
       when: fortress_service_deploy_type == "native"
 
     - name: Record Native Service restart need

@@ -51,6 +51,12 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("nfs shared-mount acceptance: passed", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: generating temporary Inventory artifacts", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: reconciling Ephemeral Dataset and Derived NFS Share on NAS Endpoint truenas", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: provisioning primary Acceptance VM tmp-nfs-primary", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: provisioning peer Acceptance VM tmp-nfs-peer", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: verifying shared Mount read/write/delete contract", result.stdout)
+            self.assertIn("nfs shared-mount acceptance: cleaning up generated Acceptance resources", result.stdout)
             self.assertEqual(
                 [
                     "nas-reconcile-plan --live truenas --acceptance-ephemeral-datasets --apply",

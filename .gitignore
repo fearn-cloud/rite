@@ -10,5 +10,6 @@ tofu/generated-vm-partitions.tf
 tofu/.terraform/
 tofu/.terraform.lock.hcl
 tofu/*.tfstate
+tofu/*.tfstate.lock.info
 tofu/*.tfstate.backup
 tofu/*.tfstate.*.backup

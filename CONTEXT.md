@@ -224,6 +224,10 @@ _Avoid_: smoke test contract, guest readiness.
 A non-precommit test that proves an operator-facing resource contract by interacting with a live Host, VM, or disposable Operational VM.
 _Avoid_: smoke test, integration test (when live infrastructure is required).
 
+**Acceptance Test Lifecycle**:
+The common generated-artifact, provisioning, live-verification, failure-preservation, and cleanup path shared by Acceptance Tests that create disposable Operational VMs and Ephemeral Datasets.
+_Avoid_: per-test harness, fixture cleanup helper.
+
 **Destroy**:
 The VM lifecycle workflow that removes a provisioned Proxmox VM and, after successful removal, deletes the VM's Sibling SOPS File; deleting the VM yaml is an explicit opt-in choice.
 _Avoid_: cleanup (too broad).
@@ -494,6 +498,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
 - A multi-VM **Acceptance Test** uses generated temporary **Operational VMs** rather than checked-in ordinary **VMs**.
 - A multi-VM **Acceptance Test** may designate one generated temporary **Operational VM** as the **Primary Acceptance VM** and another as the **Peer Acceptance VM**.
+- The **Acceptance Test Lifecycle** owns common generated **Ephemeral Dataset** and generated **Operational VM** artifact writing, but workflow-specific generated artifacts such as temporary **Services** remain owned by the individual **Acceptance Test**.
+- The **Acceptance Test Lifecycle** owns SSH verification mechanics for generated **Operational VMs**, including Ansible host variable loading, key decryption, retry timing, remote sudo invocation, expected output checks, and failure formatting.
+- Individual **Acceptance Tests** declare the VM checks that prove their operator-facing contract; they do not own the SSH transport mechanics.
+- The **Acceptance Test Lifecycle** owns **NAS Reconcile** create/destroy calls for its **Ephemeral Dataset** and derived **Shares**, including cleanup postcondition assertions.
+- Individual **Acceptance Tests** declare their required **Mount** shape and assume the **Acceptance Test Lifecycle** has made the corresponding **Ephemeral Dataset** and derived **Share** available before verification begins.
+- The **Acceptance Test Lifecycle** does not own workflow-specific generated artifacts such as temporary **Services**, Service **Sibling SOPS Files**, Quadlet Fragments, or Native Service templates.
+- The **Acceptance Test Lifecycle** does not own workflow-specific proof semantics such as NFS read/write/delete assertions, **Service Secret** hash checks, **Container Alias** checks, **Published Port** checks, or Native Service checks.
+- The **Acceptance Test Lifecycle** is an importable Python module used by operator-facing Acceptance Test scripts rather than a script-local helper.
+- The **Acceptance Test Lifecycle** should first be proven through the NFS shared-mount **Acceptance Test** before migrating the Service-layer **Acceptance Test**.
+- The **Acceptance Test Lifecycle** exposes a resolved context to individual **Acceptance Tests**, including the **Primary Acceptance VM**, **Peer Acceptance VM**, selected **Host**, selected **Template**, selected **NAS Endpoint**, generated **Ephemeral Dataset**, **Mount** declaration, and a lifecycle-owned VM check helper.
 - Each workflow that needs reserved live-infrastructure slots owns its own **Acceptance Policy**.
 - The Service-layer **Acceptance Test** owns a dedicated **Acceptance Policy** rather than reusing the NFS shared-mount policy.
 - The Service-layer **Acceptance Test** generates and cleans up temporary Service inventory rather than requiring a checked-in ordinary **Service**.

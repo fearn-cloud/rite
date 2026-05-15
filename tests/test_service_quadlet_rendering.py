@@ -563,6 +563,25 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
         self.assertIn("StartLimitBurst=3\n", container.content)
         self.assertIn("User=1000\n", container.content)
 
+    def test_observability_uses_image_config_and_matching_service_data_user(self):
+        model = load_inventory_tree(REPO_ROOT)
+        rendered = render_quadlet_service(
+            model.services["observability"],
+            model.vms["observability-vm"],
+            inventory_root=REPO_ROOT / "inventory",
+        )
+
+        prometheus = rendered.artifacts_by_filename["fortress-observability-prometheus.container"]
+        self.assertNotIn(":/etc/prometheus:", prometheus.content)
+        self.assertIn("User=1000:1000\n", prometheus.content)
+        for name in ("alertmanager", "grafana", "loki", "blackbox"):
+            artifact = rendered.artifacts_by_filename[f"fortress-observability-{name}.container"]
+            self.assertIn("User=1000:1000\n", artifact.content)
+        self.assertNotIn(
+            "/srv/services/observability/prometheus-config",
+            [directory.path for directory in rendered.service_data_directories],
+        )
+
     def test_quadlet_fragment_rejects_unknown_fragment_filename(self):
         service = {
             "name": "immich",

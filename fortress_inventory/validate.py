@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from .model import load_inventory_tree
 
@@ -23,6 +24,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(_validate_service_ingress_contract(model))
     errors.extend(_validate_ingress_dns_targets(model))
     errors.extend(_validate_service_hostnames(model))
+    errors.extend(_validate_host_proxmox_endpoints(model))
     errors.extend(_validate_host_ingress_routes(model))
     errors.extend(_validate_quadlet_services(model))
     errors.extend(_validate_native_services(model))
@@ -32,8 +34,90 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(_validate_dataset_names(model))
     errors.extend(_validate_dataset_nas_refs(model))
     errors.extend(_validate_dataset_lifecycle_policy(model, allow_ephemeral_datasets=allow_ephemeral_datasets))
+    errors.extend(_validate_acceptance_policy_host_coverage(model))
     errors.extend(_validate_vm_mounts(model))
     errors.extend(_validate_vm_host_resources(model))
+    return errors
+
+
+def _validate_host_proxmox_endpoints(model):
+    errors = []
+    management_address_hosts = {
+        host.get("network", {}).get("management_address"): host_name
+        for host_name, host in model.hosts.items()
+        if host.get("network", {}).get("management_address")
+    }
+    seen_endpoints = {}
+    for host_name, host in model.hosts.items():
+        endpoint = host.get("proxmox", {}).get("endpoint")
+        if not endpoint:
+            continue
+
+        endpoint_host = _endpoint_host(endpoint)
+        if endpoint_host:
+            target_host = management_address_hosts.get(endpoint_host)
+            if target_host and target_host != host_name:
+                errors.append(
+                    ValidationError(
+                        "host_proxmox_endpoint_points_at_other_host",
+                        f"inventory/hosts/{host_name}.yaml.proxmox.endpoint",
+                        f"Host {host_name} Proxmox endpoint points at Host {target_host} management address {endpoint_host}",
+                    )
+                )
+
+        normalized_endpoint = _normalized_endpoint(endpoint)
+        if normalized_endpoint in seen_endpoints:
+            errors.append(
+                ValidationError(
+                    "duplicate_host_proxmox_endpoint",
+                    f"inventory/hosts/{host_name}.yaml.proxmox.endpoint",
+                    f"Hosts {seen_endpoints[normalized_endpoint]} and {host_name} both use Proxmox endpoint {normalized_endpoint}",
+                )
+            )
+        else:
+            seen_endpoints[normalized_endpoint] = host_name
+    return errors
+
+
+def _endpoint_host(endpoint):
+    parsed = urlparse(endpoint if "://" in endpoint else f"//{endpoint}")
+    return parsed.hostname
+
+
+def _normalized_endpoint(endpoint):
+    parsed = urlparse(endpoint if "://" in endpoint else f"//{endpoint}")
+    host = parsed.hostname or endpoint
+    port = parsed.port or 8006
+    return f"{host.lower()}:{port}"
+
+
+def _validate_acceptance_policy_host_coverage(model):
+    errors = []
+    template_hosts = {
+        host_name
+        for host_name, host in model.hosts.items()
+        if host.get("proxmox", {}).get("templates")
+    }
+    for policy_name, policy in model.acceptance_policies.items():
+        storage_by_host = policy.get("storage_by_host", {}) or {}
+        for host_name in sorted(template_hosts - set(storage_by_host)):
+            errors.append(
+                ValidationError(
+                    "missing_acceptance_policy_host_storage",
+                    f"inventory/acceptance/{policy_name}.yaml.storage_by_host.{host_name}",
+                    f"Acceptance Policy {policy_name} has no storage_by_host entry for Host {host_name}",
+                )
+            )
+        for role_name, role in (policy.get("vms", {}) or {}).items():
+            address_by_host = role.get("address_by_host", {}) or {}
+            for host_name in sorted(template_hosts - set(address_by_host)):
+                errors.append(
+                    ValidationError(
+                        "missing_acceptance_policy_host_address",
+                        f"inventory/acceptance/{policy_name}.yaml.vms.{role_name}.address_by_host.{host_name}",
+                        f"Acceptance Policy {policy_name} has no {role_name} address_by_host entry for Host {host_name}",
+                    )
+                )
     return errors
 
 

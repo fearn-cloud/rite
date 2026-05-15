@@ -22,7 +22,7 @@ def main():
         print(f"VM Sibling SOPS File is required at {vm_sops}. Run VM Prepare first.", file=sys.stderr)
         return 1
 
-    subprocess.run(
+    result = subprocess.run(
         [
             str(repo_root / "scripts" / "decrypt-keys"),
             str(vm_sops),
@@ -36,8 +36,9 @@ def main():
             "--extra-vars",
             json.dumps({"configure_vm": vm, "fortress_vm_sops_file": str(vm_sops)}),
         ],
-        check=True,
     )
+    if result.returncode != 0:
+        return result.returncode or 1
     return 0
 
 

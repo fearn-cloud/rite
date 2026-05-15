@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+from collections import deque
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+HOST_CONFIGURE_TAGS = [
+    "proxmox_repos",
+    "system_hygiene",
+    "proxmox_network",
+    "proxmox_users",
+    "gpu_passthrough",
+]
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print(
+            "usage: scripts/host-up <host> [endpoint=<nas-endpoint|all>] "
+            "[auto_confirm=<true|false>] [keep_on_fail=<true|false>]",
+            file=sys.stderr,
+        )
+        return 2
+    host_name, endpoint_arg, auto_confirm, keep_on_fail = parsed
+    if host_name.startswith("host="):
+        host = host_name.removeprefix("host=")
+        print(
+            f"host-up takes the host name as a positional argument; run `just host-up {host}`.",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    runner = HostReadiness(repo_root, host_name, endpoint_arg, auto_confirm, keep_on_fail)
+    return runner.run()
+
+
+def parse_args(argv):
+    if not argv:
+        return None
+    host_name = argv[0]
+    values = {
+        "endpoint": "all",
+        "auto_confirm": "false",
+        "keep_on_fail": "false",
+    }
+    for arg in argv[1:]:
+        if "=" not in arg:
+            return None
+        key, value = arg.split("=", 1)
+        if key not in values:
+            return None
+        values[key] = value.strip('"')
+    for key in ("auto_confirm", "keep_on_fail"):
+        if values[key].lower() not in ("true", "false"):
+            return None
+        values[key] = values[key].lower() == "true"
+    return host_name, values["endpoint"], values["auto_confirm"], values["keep_on_fail"]
+
+
+class HostReadiness:
+    def __init__(self, repo_root, host_name, endpoint_arg, auto_confirm, keep_on_fail):
+        self.repo_root = repo_root
+        self.host_name = host_name
+        self.endpoint_arg = endpoint_arg
+        self.auto_confirm = auto_confirm
+        self.keep_on_fail = keep_on_fail
+        self.summary = []
+
+    def run(self):
+        inventory = load_inventory_tree(self.repo_root)
+        resolved = self.resolve_intent(inventory)
+        if resolved is None:
+            self.print_final(False)
+            return 1
+        templates, endpoints = resolved
+
+        if not self.bootstrap():
+            self.print_final(False)
+            return 1
+        for phase_name, command in [
+            (
+                "configure",
+                [
+                    str(self.repo_root / "scripts" / "host-configure"),
+                    self.host_name,
+                    ",".join(HOST_CONFIGURE_TAGS),
+                ],
+            ),
+            ("templates-build", [str(self.repo_root / "scripts" / "templates-build"), self.host_name]),
+        ]:
+            if not self.run_required_phase(phase_name, command):
+                self.print_final(False)
+                return 1
+
+        for template in templates:
+            command = [
+                str(self.repo_root / "scripts" / "template-verify"),
+                f"host={self.host_name}",
+                f"template={template}",
+                f"keep_on_fail={bool_arg(self.keep_on_fail)}",
+            ]
+            if not self.run_required_phase(f"template-verify {template}", command):
+                self.print_final(False)
+                return 1
+
+        passed = self.run_acceptance_matrix(templates, endpoints)
+        self.print_final(passed)
+        return 0 if passed else 1
+
+    def resolve_intent(self, inventory):
+        host = inventory.hosts.get(self.host_name)
+        if host is None:
+            print(
+                f"Host {self.host_name!r} is not declared at "
+                f"{self.repo_root / 'inventory' / 'hosts' / f'{self.host_name}.yaml'}",
+                file=sys.stderr,
+            )
+            return None
+
+        templates = host.get("proxmox", {}).get("templates", []) or []
+        if not templates:
+            print(f"Host {self.host_name} declares no Templates under proxmox.templates", file=sys.stderr)
+            return None
+        for template in templates:
+            if template not in inventory.templates:
+                print(
+                    f"Host {self.host_name} references missing Template {template} at "
+                    f"{self.repo_root / 'inventory' / 'templates' / f'{template}.yaml'}",
+                    file=sys.stderr,
+                )
+                return None
+
+        if self.endpoint_arg == "all":
+            endpoints = sorted(inventory.nas_endpoints)
+        else:
+            if self.endpoint_arg not in inventory.nas_endpoints:
+                print(
+                    f"NAS Endpoint {self.endpoint_arg!r} is not declared at "
+                    f"{self.repo_root / 'inventory' / 'nas' / f'{self.endpoint_arg}.yaml'}",
+                    file=sys.stderr,
+                )
+                return None
+            endpoints = [self.endpoint_arg]
+        return templates, endpoints
+
+    def bootstrap(self):
+        host_sops = self.repo_root / "inventory" / "hosts" / f"{self.host_name}.sops.yaml"
+        if not host_sops.is_file():
+            result = self.run_command("bootstrap", [str(self.repo_root / "scripts" / "host-bootstrap"), self.host_name])
+            if result.returncode != 0:
+                self.summary.append("bootstrap: failed")
+                return False
+            self.summary.append("bootstrap: ran")
+        else:
+            private_key = subprocess.run(
+                [
+                    "sops",
+                    "--decrypt",
+                    "--extract",
+                    '["ssh_keys"]["bootstrap"]["private_key"]',
+                    str(host_sops),
+                ],
+                cwd=self.repo_root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if private_key.returncode != 0:
+                print(
+                    f"Host Sibling SOPS File {host_sops} does not expose ssh_keys.bootstrap.private_key: "
+                    f"{phase_detail(private_key)}",
+                    file=sys.stderr,
+                )
+                self.summary.append("bootstrap: failed")
+                return False
+            if not private_key.stdout.strip():
+                print(
+                    f"Host Sibling SOPS File {host_sops} exposes an empty ssh_keys.bootstrap.private_key",
+                    file=sys.stderr,
+                )
+                self.summary.append("bootstrap: failed")
+                return False
+            self.summary.append("bootstrap: satisfied")
+
+        reachability = self.run_command(
+            "host-shell",
+            [str(self.repo_root / "scripts" / "host-shell"), self.host_name, "--", "true"],
+        )
+        if reachability.returncode != 0:
+            print(f"host-shell failed: {phase_detail(reachability)}", file=sys.stderr)
+            self.summary.append("host-shell: failed")
+            return False
+        self.summary.append("host-shell: passed")
+        return True
+
+    def run_required_phase(self, phase_name, command):
+        result = self.run_command(phase_name, command)
+        if result.returncode == 0:
+            self.summary.append(f"{phase_name}: passed")
+            return True
+        print(f"{phase_name} failed: {phase_detail(result)}", file=sys.stderr)
+        self.summary.append(f"{phase_name}: failed")
+        return False
+
+    def run_acceptance_matrix(self, templates, endpoints):
+        passed = True
+        for endpoint in endpoints:
+            for template in templates:
+                for workflow, script_name in [
+                    ("nfs-shared-mount", "acceptance-nfs-shared-mount"),
+                    ("service-layer", "acceptance-service-layer"),
+                ]:
+                    label = f"acceptance {workflow} {template}@{endpoint}"
+                    command = [
+                        str(self.repo_root / "scripts" / script_name),
+                        f"host={self.host_name}",
+                        f"template={template}",
+                        f"endpoint={endpoint}",
+                        f"auto_confirm={bool_arg(self.auto_confirm)}",
+                        f"keep_on_fail={bool_arg(self.keep_on_fail)}",
+                    ]
+                    result = self.run_command(label, command)
+                    if result.returncode == 0:
+                        self.summary.append(f"{label}: passed")
+                        continue
+                    print(f"{label} failed: {phase_detail(result)}", file=sys.stderr)
+                    self.summary.append(f"{label}: failed")
+                    passed = False
+                    if self.keep_on_fail:
+                        print(
+                            "keep_on_fail=true preserved artifacts may collide with later acceptance cells; stopping.",
+                            file=sys.stderr,
+                        )
+                        return False
+        return passed
+
+    def run_command(self, phase_name, command):
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=self.repo_root,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
+        except OSError as error:
+            return subprocess.CompletedProcess(command, 1, "", str(error))
+
+        tail = deque(maxlen=200)
+        partial_line = ""
+        at_line_start = True
+        assert process.stdout is not None
+        while True:
+            chunk = os.read(process.stdout.fileno(), 4096)
+            if not chunk:
+                break
+            text = chunk.decode(errors="replace")
+            for piece in text.splitlines(True):
+                if at_line_start:
+                    print(f"[{phase_name}] ", end="", flush=True)
+                print(piece, end="", flush=True)
+                at_line_start = piece.endswith("\n")
+            partial_line += text
+            while "\n" in partial_line:
+                line, partial_line = partial_line.split("\n", 1)
+                tail.append(line + "\n")
+        returncode = process.wait()
+        if partial_line:
+            tail.append(partial_line)
+        return subprocess.CompletedProcess(command, returncode, "".join(tail), "")
+
+    def print_final(self, passed):
+        for line in self.summary:
+            print(line)
+        print(f"host-readiness: {'passed' if passed else 'failed'}")
+
+
+def bool_arg(value):
+    return "true" if value else "false"
+
+
+def phase_detail(result):
+    return (result.stderr or result.stdout or "").strip() or f"exit {result.returncode}"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

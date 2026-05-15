@@ -1,9 +1,11 @@
 import os
+import importlib.util
 import stat
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from importlib.machinery import SourceFileLoader
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -223,6 +225,68 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
             self.assertFalse(calls_log.exists())
             self.assertTrue(vm_yaml.exists())
 
+    def test_open_tofu_state_lock_stops_before_generating_inventory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            tofu_root = root / "tofu"
+            tofu_root.mkdir()
+            (tofu_root / ".terraform.tfstate.lock.info").write_text(
+                '{"ID":"lock-123","Operation":"OperationTypeApply","Who":"operator","Created":"2026-05-14T23:34:22Z","Path":"terraform.tfstate"}'
+            )
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-13-base"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("wintermute: failed", result.stdout)
+            self.assertIn("OpenTofu state is already locked", result.stderr)
+            self.assertIn("OperationTypeApply", result.stderr)
+            self.assertFalse(calls_log.exists())
+            self.assertFalse((root / "inventory" / "vms" / "tmp-template-verify.yaml").exists())
+            self.assertFalse((root / "inventory" / "vms" / "tmp-template-verify.sops.yaml").exists())
+
+    def test_open_tofu_state_lock_stops_before_stale_artifact_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            tofu_root = root / "tofu"
+            tofu_root.mkdir()
+            (tofu_root / ".terraform.tfstate.lock.info").write_text(
+                '{"ID":"lock-123","Operation":"OperationTypeApply","Who":"operator","Created":"2026-05-14T23:34:22Z","Path":"terraform.tfstate"}'
+            )
+            vm_yaml = root / "inventory" / "vms" / "tmp-template-verify.yaml"
+            vm_sops = root / "inventory" / "vms" / "tmp-template-verify.sops.yaml"
+            vm_yaml.write_text(
+                "description: Generated Template Verification VM. Do not edit by hand.\n"
+                "lifecycle:\n"
+                "  kind: operational\n"
+                "  purpose: template-verification\n"
+                "  generated: true\n"
+            )
+            vm_sops.write_text("encrypted generated ssh material\n")
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "template-verify"), "host=wintermute", "template=debian-13-base"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("OpenTofu state is already locked", result.stderr)
+            self.assertFalse(calls_log.exists())
+            self.assertTrue(vm_yaml.exists())
+            self.assertTrue(vm_sops.exists())
+
     def test_verification_failure_with_keep_on_fail_preserves_generated_vm(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._fixture(tmp)
@@ -308,6 +372,18 @@ class TemplateVerifyOrchestrationWorkflowTests(unittest.TestCase):
                 self.assertIn("wintermute: failed", result.stdout)
                 self.assertIn(message, result.stderr)
                 self.assertEqual(should_cleanup, "vm-destroy tmp-template-verify --delete-vm-yaml" in calls_log.read_text())
+
+    def test_failed_phase_message_includes_stdout_and_stderr(self):
+        loader = SourceFileLoader("template_verify", str(REPO_ROOT / "scripts" / "template-verify"))
+        spec = importlib.util.spec_from_loader("template_verify", loader)
+        template_verify = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(template_verify)
+        result = subprocess.CompletedProcess([], 1, "stdout clue\n", "stderr clue\n")
+
+        self.assertEqual(
+            "provision failed: stdout clue\nstderr clue",
+            template_verify.phase_message("provision", result),
+        )
 
     def test_cleanup_failure_reports_cleanup_without_hiding_original_failure(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,7 +6,7 @@ source:
   template: debian-13-base
 hardware:
   cores: 1
-  memory: 1024
+  memory: 2048
   disks:
     - storage: local-lvm
       size: 8G

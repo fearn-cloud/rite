@@ -93,6 +93,26 @@ class VMConfigureWorkflowTests(unittest.TestCase):
             self.assertIn('"fortress_vm_sops_file":', calls)
             self.assertIn("inventory/vms/media01.sops.yaml", calls)
 
+    def test_vm_configure_returns_child_failure_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._configure_fixture(tmp)
+            env = os.environ.copy()
+            env["FORTRESS_ROOT"] = str(root)
+            env["CALLS_LOG"] = str(root / "calls.log")
+            env["FORTRESS_FAKE_DECRYPT_KEYS_FAIL"] = "7"
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-configure"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 7)
+            self.assertNotIn("Traceback", result.stderr)
+
     def test_tmpfs_key_wrapper_decrypts_structured_bootstrap_private_key(self):
         decrypt_keys = (REPO_ROOT / "scripts" / "decrypt-keys").read_text()
 
@@ -161,6 +181,7 @@ class VMConfigureWorkflowTests(unittest.TestCase):
         decrypt_keys.write_text(
             "#!/usr/bin/env bash\n"
             "printf 'decrypt-keys %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
+            "if [ -n \"$FORTRESS_FAKE_DECRYPT_KEYS_FAIL\" ]; then exit \"$FORTRESS_FAKE_DECRYPT_KEYS_FAIL\"; fi\n"
         )
         decrypt_keys.chmod(decrypt_keys.stat().st_mode | stat.S_IXUSR)
         return root, calls_log

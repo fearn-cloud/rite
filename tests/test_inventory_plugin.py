@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -21,12 +22,12 @@ def ansible_value(value):
 
 
 class FortressInventoryPluginTests(unittest.TestCase):
-    def load_inventory(self):
+    def load_inventory(self, inventory_path="tests/fixtures/inventory_valid/fortress.yaml"):
         result = subprocess.run(
             [
                 "ansible-inventory",
                 "-i",
-                "tests/fixtures/inventory_valid/fortress.yaml",
+                str(inventory_path),
                 "--list",
             ],
             cwd=REPO_ROOT,
@@ -280,3 +281,36 @@ class FortressInventoryPluginTests(unittest.TestCase):
         self.assertEqual(media01["ansible_user"], "admin")
         self.assertIn("StrictHostKeyChecking=accept-new", media01["ansible_ssh_common_args"])
         self.assertIn("UserKnownHostsFile=/dev/shm/fortress/known_hosts", media01["ansible_ssh_common_args"])
+
+    def test_inventory_plugin_disables_known_hosts_for_generated_temporary_vms(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "inventory_valid"
+            shutil.copytree(REPO_ROOT / "tests" / "fixtures" / "inventory_valid", root)
+            generated_vm = root / "inventory" / "vms" / "tmp-template-verify.yaml"
+            generated_vm.write_text(
+                "vmid: 8901\n"
+                "description: Generated Template Verification VM. Do not edit by hand.\n"
+                "lifecycle:\n"
+                "  kind: operational\n"
+                "  purpose: template-verification\n"
+                "  generated: true\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 1\n"
+                "  memory: 1024\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.223/24\n"
+                "cloud_init:\n"
+                "  hostname: tmp-template-verify\n"
+            )
+
+            inventory = self.load_inventory(root / "fortress.yaml")
+            vm = ansible_value(inventory["_meta"]["hostvars"]["tmp-template-verify"])
+
+            self.assertIn("StrictHostKeyChecking=no", vm["ansible_ssh_common_args"])
+            self.assertIn("UserKnownHostsFile=/dev/null", vm["ansible_ssh_common_args"])

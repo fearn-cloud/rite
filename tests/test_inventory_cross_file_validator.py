@@ -286,6 +286,66 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertEqual(validate_inventory_tree(root), [])
 
+    def test_host_proxmox_endpoint_must_not_point_at_another_host_management_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "hosts" / "straylight.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: straylight\n"
+                "  endpoint: https://10.0.0.12:8006\n"
+                "network:\n"
+                "  management_address: 10.0.0.12\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: false\n"
+            )
+            (root / "inventory" / "hosts" / "neuromancer.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: neuromancer\n"
+                "  endpoint: https://10.0.0.12:8006\n"
+                "network:\n"
+                "  management_address: 10.0.0.13\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: false\n"
+            )
+
+            errors = validate_inventory_tree(root)
+
+            self.assertIn("host_proxmox_endpoint_points_at_other_host", {error.code for error in errors})
+            self.assertIn("duplicate_host_proxmox_endpoint", {error.code for error in errors})
+
+    def test_acceptance_policies_must_cover_every_template_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "hosts" / "neuromancer.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: neuromancer\n"
+                "  templates: [debian-13-base]\n"
+                "network:\n"
+                "  management_address: 10.0.0.13\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: false\n"
+            )
+            (root / "inventory" / "acceptance").mkdir(exist_ok=True)
+            (root / "inventory" / "acceptance" / "nfs-shared-mount.yaml").write_text(
+                "dataset: acceptance-nfs-demo\n"
+                "storage_by_host:\n"
+                "  wintermute: fast\n"
+                "vms:\n"
+                "  primary:\n"
+                "    address_by_host:\n"
+                "      wintermute: 10.0.0.231/24\n"
+            )
+
+            errors = validate_inventory_tree(root)
+
+            self.assertIn("missing_acceptance_policy_host_storage", {error.code for error in errors})
+            self.assertIn("missing_acceptance_policy_host_address", {error.code for error in errors})
+
     def test_host_ingress_route_hostname_must_match_host_domain_name(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

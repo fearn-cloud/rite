@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -66,6 +67,10 @@ class HostResult:
 
 
 def verify_host(repo_root, host_name, template_name, keep_on_fail):
+    tofu_lock = open_tofu_state_lock(repo_root)
+    if tofu_lock is not None:
+        return HostResult("failed", tofu_lock)
+
     stale_cleanup = clean_stale_generated_artifacts(repo_root, keep_on_fail)
     if stale_cleanup is not None:
         return stale_cleanup
@@ -180,6 +185,27 @@ def is_generated_template_verification_vm(path):
     )
 
 
+def open_tofu_state_lock(repo_root):
+    lock_info = repo_root / "tofu" / ".terraform.tfstate.lock.info"
+    if not lock_info.exists():
+        return None
+    try:
+        lock = json.loads(lock_info.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        return f"OpenTofu state appears locked at {lock_info}, and lock metadata could not be read: {error}"
+
+    details = []
+    for key in ("ID", "Operation", "Who", "Created", "Path"):
+        value = lock.get(key)
+        if value:
+            details.append(f"{key}={value}")
+    suffix = f" ({', '.join(details)})" if details else ""
+    return (
+        f"OpenTofu state is already locked at {lock_info}{suffix}; "
+        "wait for the active tofu workflow to finish before starting Template Verification"
+    )
+
+
 def run_phase(_phase, command, cwd=None, input_text=None):
     try:
         return subprocess.run(
@@ -196,7 +222,7 @@ def run_phase(_phase, command, cwd=None, input_text=None):
 
 
 def phase_message(phase, result):
-    detail = (result.stderr or result.stdout or "").strip()
+    detail = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part and part.strip())
     if detail:
         return f"{phase} failed: {detail}"
     return f"{phase} failed"

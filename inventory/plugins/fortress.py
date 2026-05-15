@@ -81,7 +81,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.set_variable(
                 vm_name,
                 "ansible_ssh_common_args",
-                _ssh_common_args(),
+                _ssh_common_args(disposable=vm.get("lifecycle", {}).get("generated") is True),
             )
             self._set_sibling_ssh_key_var(vm_name, root / "inventory" / "vms" / f"{vm_name}.sops.yaml")
             placement_host = vm.get("placement", {}).get("host")
@@ -138,7 +138,9 @@ def _first_vm_address(vm):
     return address.split("/", 1)[0]
 
 
-def _ssh_common_args():
+def _ssh_common_args(disposable=False):
+    if disposable:
+        return "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
     key_dir = Path(os.environ.get("FORTRESS_KEY_DIR", "/dev/shm/fortress"))
     key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     known_hosts = key_dir / "known_hosts"

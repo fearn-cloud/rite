@@ -1,6 +1,6 @@
 proxmox:
   pve_node_name: neuromancer
-  endpoint: http://10.10.0.12:8006
+  endpoint: http://10.10.0.13:8006
   # endpoint: https://neuromancer.fearn.cloud:8006
   templates:
     - debian-13-base

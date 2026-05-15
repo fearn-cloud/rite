@@ -48,7 +48,30 @@ By default the shared bootstrap private key is read from `~/.ssh/fortress-bootst
 
 ## Continue
 
-After Bootstrap succeeds, commit the new Host Sibling SOPS File and run the Host configure workflow when the Host is ready for convergence.
+After Bootstrap succeeds, commit the new Host Sibling SOPS File and run Host Readiness when the Host is ready for convergence.
+
+## Host Readiness
+
+Use Host Readiness to prove a declared Proxmox Host is ready for ordinary VM and Service workflows:
+
+```sh
+just host-up <host> endpoint=all auto_confirm=false keep_on_fail=false
+```
+
+`host-up` is a resumable wrapper over the lower-level Host, Template, and Acceptance workflows. It treats Bootstrap as complete only when either Bootstrap just ran successfully or an already-completed Bootstrap has a decryptable Host Sibling SOPS File and the stored per-Host credential proves SSH reachability with `host-shell <host> -- true`.
+
+After Bootstrap is satisfied, `host-up` runs full Host Configure, builds all Host-declared Templates, verifies all Host-declared Templates, and runs selected Acceptance Tests across every Template x NAS Endpoint cell. A Host with no declared Templates cannot pass Host Readiness.
+
+Endpoint selection controls the acceptance matrix:
+
+- `endpoint=all` runs acceptance against every declared NAS Endpoint.
+- `endpoint=<name>` scopes acceptance to one NAS Endpoint.
+
+Use `auto_confirm=true` when the operator wants supported downstream phases non-interactive. Host Readiness passes it only to workflows that support that behavior.
+
+Use `keep_on_fail=true` when generated artifacts should be kept for debugging. Host Readiness preserves generated artifacts in downstream workflows that support preservation; when preserved artifacts may collide with later acceptance cells, `host-up` may stop later cells to avoid artifact collisions.
+
+For surgical phase work, use the lower-level commands directly: `just host-bootstrap <host>`, `just host-configure host=<host> tags=...`, `just templates-build <host>`, `just template-verify host=<host> template=<template>`, `just acceptance-nfs-shared-mount host=<host> template=<template> endpoint=<name>`, and `just acceptance-service-layer host=<host> template=<template> endpoint=<name>`. Do that instead of adding phase scoping to `host-up`; Host Readiness is meant to prove the whole Host.
 
 ## Configure
 

@@ -20,6 +20,10 @@ host-configure host tags="":
 host-shell host:
     @./scripts/host-shell {{host}}
 
+# Prove a Host is ready by composing Bootstrap, Configure, Template, and Acceptance workflows.
+host-up host endpoint="all" auto_confirm="false" keep_on_fail="false":
+    @./scripts/host-up {{host}} endpoint={{endpoint}} auto_confirm={{auto_confirm}} keep_on_fail={{keep_on_fail}}
+
 # Provision one VM through prepare, selected-VM Tofu apply, and configure.
 vm-up vm auto_confirm="false":
     @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/vm-up {{vm}} --auto-confirm; else ./scripts/vm-up {{vm}}; fi

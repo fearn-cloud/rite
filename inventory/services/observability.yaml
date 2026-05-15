@@ -26,9 +26,6 @@ deploy:
         - service_path: prometheus
           container: /prometheus
           access: read_write
-        - service_path: prometheus-config
-          container: /etc/prometheus
-          access: read_write
     - name: alertmanager
       image: docker.io/prom/alertmanager:v0.28.1
       published_ports:

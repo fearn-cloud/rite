@@ -17,7 +17,7 @@ class HostShellWorkflowTests(unittest.TestCase):
         self.assertIn("host-shell host:", justfile)
         self.assertIn("./scripts/host-shell {{host}}", justfile)
 
-    def test_host_shell_rejects_extra_arguments(self):
+    def test_host_shell_rejects_extra_arguments_without_separator(self):
         result = subprocess.run(
             [str(REPO_ROOT / "scripts" / "host-shell"), "wintermute", "hostname"],
             cwd=REPO_ROOT,
@@ -27,7 +27,38 @@ class HostShellWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 2)
-        self.assertIn("usage: scripts/host-shell <host>", result.stderr)
+        self.assertIn("usage: scripts/host-shell <host> [-- <command>...]", result.stderr)
+
+    def test_host_shell_rejects_invalid_arguments_before_external_commands(self):
+        hostvars = {
+            "ansible_host": "10.0.0.2",
+            "ansible_user": "root",
+            "ansible_ssh_private_key_file": "/dev/shm/fortress/wintermute.key",
+        }
+        invalid_argvs = [
+            [],
+            ["wintermute", "--"],
+            ["wintermute", "hostname"],
+        ]
+
+        for argv in invalid_argvs:
+            with self.subTest(argv=argv):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root, calls_log = self._shell_fixture(tmp, hostvars)
+                    env = self._shell_env(root, calls_log)
+
+                    result = subprocess.run(
+                        [str(REPO_ROOT / "scripts" / "host-shell"), *argv],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("usage: scripts/host-shell <host> [-- <command>...]", result.stderr)
+                    self.assertFalse(calls_log.exists())
 
     def test_host_shell_rejects_undeclared_hosts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -117,6 +148,66 @@ class HostShellWorkflowTests(unittest.TestCase):
                 calls_log.read_text(),
             )
 
+    def test_host_shell_runs_command_after_separator(self):
+        hostvars = {
+            "ansible_host": "10.0.0.2",
+            "ansible_user": "root",
+            "ansible_ssh_private_key_file": "/dev/shm/fortress/wintermute.key",
+            "ansible_ssh_common_args": "-o StrictHostKeyChecking=accept-new",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._shell_fixture(tmp, hostvars)
+            env = self._shell_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "host-shell"),
+                    "wintermute",
+                    "--",
+                    "systemctl",
+                    "is-active",
+                    "sshd.service",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("ansible-inventory -i", calls_log.read_text())
+            self.assertIn("decrypt-keys", calls_log.read_text())
+            self.assertIn("inventory/hosts/wintermute.sops.yaml -- ssh", calls_log.read_text())
+            self.assertIn(
+                "ssh -o StrictHostKeyChecking=accept-new -i /dev/shm/fortress/wintermute.key "
+                "root@10.0.0.2 systemctl is-active sshd.service",
+                calls_log.read_text(),
+            )
+
+    def test_host_shell_returns_remote_command_exit_code(self):
+        hostvars = {
+            "ansible_host": "10.0.0.2",
+            "ansible_user": "root",
+            "ansible_ssh_private_key_file": "/dev/shm/fortress/wintermute.key",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._shell_fixture(tmp, hostvars)
+            env = self._shell_env(root, calls_log)
+            env["SSH_EXIT"] = "37"
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "host-shell"), "wintermute", "--", "false"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 37)
+            self.assertIn("ssh -i /dev/shm/fortress/wintermute.key root@10.0.0.2 false", calls_log.read_text())
+
     def _shell_fixture(self, tmp, host_hostvars):
         root = Path(tmp)
         host_dir = root / "inventory" / "hosts"
@@ -143,6 +234,7 @@ class HostShellWorkflowTests(unittest.TestCase):
         fake_ssh.write_text(
             "#!/usr/bin/env bash\n"
             "printf 'ssh %s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
+            "exit \"${SSH_EXIT:-0}\"\n"
         )
         fake_ssh.chmod(fake_ssh.stat().st_mode | stat.S_IXUSR)
 

@@ -573,6 +573,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The **IoT VLAN** is denied to internal VLANs by default except for DNS, time, and explicit per-device or per-Service exceptions.
 - The **Guest VLAN** uses only UDM or approved non-internal DNS and does not resolve or reach internal `*.fearn.cloud` Services.
 - The **DMZ VLAN** does not use the internal **Ingress** or **Identity VM**; future DMZ workloads will use a separate ingress and authentication stack.
+- The **DMZ VLAN** must not reach **Host** management addresses, **Host Ingress Routes**, Host SSH, or the PVE API.
 - DMZ ingress rules are future-only and are not part of the internal firewall baseline.
 - Every **Entity** may have a **Sibling SOPS File**.
 - A **Service Secret** belongs to exactly one **Service** and is installed under a service-scoped Podman secret name.

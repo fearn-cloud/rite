@@ -126,6 +126,10 @@ _Avoid_: object, record.
 The set of per-entity YAML files at `inventory/{hosts,vms,services,datasets,nas}/`. Source of truth for all declared state.
 _Avoid_: catalog, registry.
 
+**Inventory Entity Graph**:
+A read-only query layer over Inventory that answers cross-Entity questions without replacing flat per-entity YAML as the source of truth. It exposes fortress domain facts such as a Service's Backend VM, a VM's static IPv4 address, a VM Mount's Dataset, and Host bridge matches without requiring callers to traverse raw YAML shape directly.
+_Avoid_: normalized inventory model, constructed inventory, dynamic inventory.
+
 **Infrastructure VLAN**:
 VLAN 40 (`10.40.0.0/24`), the routed network for static infrastructure Services such as the Ingress.
 _Avoid_: management network, apps network.

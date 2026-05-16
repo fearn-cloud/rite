@@ -150,6 +150,34 @@ class AcceptanceNFSSharedMountWorkflowTests(unittest.TestCase):
             self.assertIn("refusing to overwrite", result.stderr)
             self.assertFalse(calls_log.exists())
 
+    def test_invalid_acceptance_vm_address_fails_before_mutation_with_useful_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            policy = root / "inventory" / "acceptance" / "nfs-shared-mount.yaml"
+            policy.write_text(policy.read_text().replace("10.10.0.231/24", "not-an-address"))
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "acceptance-nfs-shared-mount"),
+                    "host=wintermute",
+                    "template=debian-13-base",
+                    "endpoint=truenas",
+                    "auto_confirm=true",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("Acceptance Policy nfs-shared-mount primary VM declares invalid address 'not-an-address'", result.stderr)
+            self.assertFalse(calls_log.exists())
+            self.assertFalse((root / "inventory" / "vms" / "tmp-nfs-primary.yaml").exists())
+            self.assertFalse((root / "inventory" / "datasets" / "acceptance-nfs-demo.yaml").exists())
+
     def test_keep_on_fail_preserves_resources_and_cleanup_failure_reports_both_failures(self):
         scenarios = {
             "keep": ({"FORTRESS_FAIL_PHASE": "ssh", "KEEP": "true"}, "preserved NFS shared-mount acceptance resources"),

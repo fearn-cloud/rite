@@ -1,4 +1,3 @@
-import ipaddress
 import json
 import os
 import shlex
@@ -7,6 +6,7 @@ import sys
 import time
 from dataclasses import dataclass
 
+from fortress_inventory.entity_graph import InventoryEntityGraph, InventoryEntityGraphError
 from fortress_inventory.simple_yaml import load_yaml
 
 
@@ -68,77 +68,76 @@ class AcceptanceTestLifecycle:
         host_name = args["host"]
         template_name = args["template"]
         endpoint_name = args["endpoint"]
-        host = inventory.hosts.get(host_name)
-        if not host:
+        if host_name not in inventory.hosts:
             print(f"Host {host_name!r} is not declared at {repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}", file=sys.stderr)
             return 1
         if template_name not in inventory.templates:
             print(f"Template {template_name!r} is not declared at {repo_root / 'inventory' / 'templates' / f'{template_name}.yaml'}", file=sys.stderr)
             return 1
-        if template_name not in (host.get("proxmox", {}).get("templates", []) or []):
-            print(f"Host {host_name} does not declare Template {template_name} under proxmox.templates", file=sys.stderr)
-            return 1
         if endpoint_name not in inventory.nas_endpoints:
             print(f"NAS Endpoint {endpoint_name!r} is not declared at {repo_root / 'inventory' / 'nas' / f'{endpoint_name}.yaml'}", file=sys.stderr)
             return 1
-        endpoint = inventory.nas_endpoints[endpoint_name]
         policy = inventory.acceptance_policies.get(self.policy_name)
         if not policy:
             print(f"Acceptance Policy {self.policy_name!r} is not declared at {repo_root / 'inventory' / 'acceptance' / f'{self.policy_name}.yaml'}", file=sys.stderr)
             return 1
-        dataset = self.acceptance_dataset(policy, endpoint_name)
-        if host_name not in (policy.get("storage_by_host", {}) or {}):
-            print(f"Acceptance Policy {self.policy_name} has no storage_by_host entry for Host {host_name}", file=sys.stderr)
-            return 1
 
-        vms = []
         for role in self.roles:
             declaration = (policy.get("vms", {}) or {}).get(role, {})
-            address = (declaration.get("address_by_host", {}) or {}).get(host_name)
-            if not address:
+            if not (declaration.get("address_by_host", {}) or {}).get(host_name):
                 print(f"Acceptance Policy {self.policy_name} has no {role} address_by_host entry for Host {host_name}", file=sys.stderr)
                 return 1
-            role_bridge = self.derive_bridge(host_name, host, policy, role)
-            if isinstance(role_bridge, int):
-                return role_bridge
+
+        graph = InventoryEntityGraph(inventory)
+        try:
+            intent = graph.acceptance_policy_intent(
+                self.policy_name,
+                host_name=host_name,
+                template_name=template_name,
+                nas_endpoint_name=endpoint_name,
+            )
+        except InventoryEntityGraphError as error:
+            print(error, file=sys.stderr)
+            return 1
+        if intent is None:
+            print(f"Acceptance Policy {self.policy_name!r} intent could not be resolved", file=sys.stderr)
+            return 1
+        return self.intent_from_graph_fact(intent, policy)
+
+    def intent_from_graph_fact(self, intent, policy):
+        vms_by_role = {vm.role: vm for vm in intent.vms}
+        vms = []
+        for role in self.roles:
+            vm = vms_by_role[role]
             vms.append(
                 {
-                    "role": role,
-                    "name": declaration.get("name"),
-                    "vmid": declaration.get("vmid"),
-                    "address": address,
-                    "client": str(ipaddress.ip_interface(address).ip),
-                    "bridge": role_bridge,
+                    "role": vm.role,
+                    "name": vm.name,
+                    "vmid": vm.vmid,
+                    "address": vm.static_address,
+                    "client": vm.client_address,
+                    "bridge": {
+                        "name": vm.bridge.name,
+                        "cidr": vm.bridge.cidr,
+                        "gateway": vm.bridge.gateway,
+                    },
                 }
             )
         return {
-            "host": host_name,
-            "template": template_name,
-            "endpoint": endpoint_name,
-            "endpoint_config": endpoint,
+            "host": intent.host_name,
+            "template": intent.template_name,
+            "endpoint": intent.nas_endpoint_name,
+            "endpoint_config": intent.nas_endpoint,
             "policy": policy,
-            "dataset": dataset,
+            "storage": intent.storage,
+            "dataset": {
+                "name": intent.dataset.name,
+                "nas": intent.dataset.nas_endpoint_name,
+                "path": intent.dataset.path,
+                "lifecycle": intent.dataset.lifecycle,
+            },
             "vms": vms,
         }
-
-    def derive_bridge(self, host_name, host, policy, role):
-        declaration = (policy.get("vms", {}) or {}).get(role, {})
-        address = (declaration.get("address_by_host", {}) or {}).get(host_name)
-        if not address:
-            return 1
-        vm_ip = ipaddress.ip_interface(address).ip
-        matches = []
-        for bridge in host.get("network", {}).get("bridges", []) or []:
-            cidr = bridge.get("cidr")
-            if cidr and vm_ip in ipaddress.ip_network(cidr, strict=False):
-                matches.append(bridge)
-        if len(matches) != 1:
-            print(f"{role} VM address {address} must match exactly one Host bridge CIDR; found {len(matches)}", file=sys.stderr)
-            return 1
-        if not matches[0].get("gateway"):
-            print(f"Host {host_name} bridge {matches[0].get('name')} has no gateway for generated {self.bridge_error_label} VM", file=sys.stderr)
-            return 1
-        return matches[0]
 
     def refuse_existing_policy_artifacts(self, repo_root):
         policy_path = repo_root / "inventory" / "acceptance" / f"{self.policy_name}.yaml"
@@ -216,7 +215,7 @@ class AcceptanceTestLifecycle:
         policy = intent["policy"]
         hardware = policy["hardware"]
         mount = policy["mount"]
-        storage = policy["storage_by_host"][intent["host"]]
+        storage = intent["storage"]
         path.write_text(
             f"vmid: {vm['vmid']}\n"
             f"description: Generated {self.artifact_label} VM. Do not edit by hand.\n"

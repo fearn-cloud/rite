@@ -181,7 +181,7 @@ A tailnet-enrolled network router that advertises selected fortress VLAN routes 
 _Avoid_: installing Tailscale everywhere, VPN VM.
 
 **Tailnet Auth Key**:
-An encrypted Tailscale enrollment credential used by the Tailnet Subnet Router during Configure.
+An encrypted Tailscale enrollment credential used by the Tailnet Subnet Router during VM Configure.
 _Avoid_: VPN password, login token, machine credential.
 
 **Bootstrap**:
@@ -192,13 +192,33 @@ _Avoid_: init; provision (reserve for the tofu step on VMs).
 The VM-side equivalent: generate the per-VM SSH keypair, write the private half encrypted, write the public half plaintext into the VM yaml. Refuses to re-run. Precedes `tofu apply`.
 _Avoid_: setup.
 
-**Configure**:
-An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
-_Avoid_: provision (reserve for tofu).
+**Host Configure**:
+An idempotent operator workflow that converges a Host to its declared Host state, usually by wrapping an Ansible run.
+_Avoid_: Configure, provision.
+
+**VM Configure**:
+An idempotent operator workflow that converges a VM to its declared VM state, usually by wrapping an Ansible run.
+_Avoid_: Configure, provision.
 
 **Update**:
 A routine in-place software/runtime advancement for an existing declared Entity within its current compatibility band.
 _Avoid_: refresh, renewal, upgrade.
+
+**Host Update**:
+The Host-level operator workflow that applies routine in-place software advancement to one existing Host.
+_Avoid_: Host Refresh, Host Renewal, Host Upgrade.
+
+**VM Update**:
+The VM-level operator workflow that applies routine in-place software advancement to one existing VM.
+_Avoid_: VM Refresh, VM Renewal, VM Upgrade.
+
+**Template Update**:
+The Template-level operator workflow that applies routine reusable base software advancement to one existing Template.
+_Avoid_: Template Refresh, Template Renewal, Template Upgrade.
+
+**Service Update**:
+The Service-level operator workflow that applies routine in-place runtime advancement to one existing Service.
+_Avoid_: Service Refresh, Service Renewal, Service Upgrade.
 
 **Upgrade**:
 A version-boundary or migration-bearing advancement for an existing declared Entity where compatibility or operator judgment matters.
@@ -217,7 +237,7 @@ The resumable Host-level operator workflow that proves a Host has completed all 
 _Avoid_: Host Prepare, host setup, first class wrapper.
 
 **VM Lifecycle Convergence**:
-The VM workflow that uses Prepare, OpenTofu-managed VM resources, and Configure to move a declared VM toward its desired state.
+The VM workflow that uses Prepare, OpenTofu-managed VM resources, and VM Configure to move a declared VM toward its desired state.
 _Avoid_: VM Reconcile, VM sync.
 
 **Service Deploy**:
@@ -241,7 +261,7 @@ The read-only first phase of NAS Reconcile that compares declared Dataset and de
 _Avoid_: dry run (too generic), manual checklist.
 
 **VM Lifecycle Contract**:
-The minimum first-boot guarantees a Template-backed VM must satisfy before Configure can own it: cloud-init completes, the configured VM admin user exists, the VM admin SSH public key is authorized, passwordless sudo works, and hostname is applied.
+The minimum first-boot guarantees a Template-backed VM must satisfy before VM Configure can own it: cloud-init completes, the configured VM admin user exists, the VM admin SSH public key is authorized, passwordless sudo works, and hostname is applied.
 _Avoid_: smoke test contract, guest readiness.
 
 **Acceptance Test**:
@@ -517,10 +537,10 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The **Operator Workflow Runner** owns confirmation gate handling and rich diagnostic output because those are part of the operator-facing workflow contract.
 - **Host Readiness** treats an already-completed **Bootstrap** as a satisfied prerequisite while preserving **Bootstrap** itself as a one-shot workflow.
 - **Host Readiness** requires an already-bootstrapped **Host** to prove SSH reachability with its stored per-Host credential before continuing.
-- **Host Readiness** runs the full **Configure** scope for the selected **Host**.
+- **Host Readiness** runs the full **Host Configure** scope for the selected **Host**.
 - **Host Readiness** builds and verifies every **Template** declared for the selected **Host**.
 - **Host Readiness** runs selected **Acceptance Tests** for every declared **Template** and every selected **NAS Endpoint**.
-- **Host Readiness** passes only when the selected **Host** has completed **Bootstrap**, full **Configure**, Template build, Template Verification, and selected Acceptance Tests.
+- **Host Readiness** passes only when the selected **Host** has completed **Bootstrap**, full **Host Configure**, Template build, Template Verification, and selected Acceptance Tests.
 - A **Host** with no declared **Templates** cannot pass **Host Readiness**.
 - An **Acceptance Test** may create or configure a disposable **Operational VM** when the contract can only be proven through live infrastructure.
 - A multi-VM **Acceptance Test** uses generated temporary **Operational VMs** rather than checked-in ordinary **VMs**.
@@ -656,13 +676,13 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - NAS server and protocol defaults are global topology; **Datasets** are per-entity Inventory.
 - **NAS Reconcile** validates **Datasets** and converges **Shares**.
 - **NAS Reconcile** is conceptually API-backed; its first implementation may be a read-only **NAS Reconcile Plan**.
-- **NAS Reconcile** runs before **Configure** for VMs that declare **Mounts**.
-- **NAS Reconcile** does not roll back **Shares** after downstream **Configure** or Service deployment failures.
+- **NAS Reconcile** runs before **VM Configure** for VMs that declare **Mounts**.
+- **NAS Reconcile** does not roll back **Shares** after downstream **VM Configure** or Service deployment failures.
 - Ordinary **NAS Reconcile** must refuse all **Dataset** write actions before contacting a NAS Endpoint.
 - Service deployment validates Share-backed consumption but does not run **NAS Reconcile** implicitly.
 - **Service Launch** composes existing operator workflows rather than replacing **VM Lifecycle Convergence**, **Service Deploy**, or **Ingress Regeneration**.
 - **Service Launch** runs **VM Lifecycle Convergence** for the Service's **Backend** **VM** before **Service Deploy** and relies on that workflow to decide whether the **VM** is already ready.
-- **Service Launch** treats Host readiness as a prerequisite and does not run **Bootstrap** or Host **Configure**.
+- **Service Launch** treats Host readiness as a prerequisite and does not run **Bootstrap** or **Host Configure**.
 - **Service Launch** treats NAS readiness as a prerequisite and does not run **NAS Reconcile**.
 - **Service Launch** treats **Ingress** infrastructure readiness as a prerequisite and does not launch **Ingress** or DNS **Services**.
 - **Service Launch** runs **Ingress Regeneration** after **Service Deploy** only when the **Service** declares **Ingress**.
@@ -670,6 +690,34 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Launch** does not roll back or destroy a durable **Backend** **VM** after downstream **Service Deploy** or **Ingress Regeneration** failure.
 - **Service Launch** is invoked for exactly one **Service** and passes operator confirmation policy through to underlying workflows.
 - **Update** keeps the selected **Entity**'s identity, placement, and declared shape intact.
+- **Update** avoids package removals and release-transition behavior by default; those belong to **Upgrade**.
+- **Host Update**, **VM Update**, **Template Update**, and **Service Update** are separate operator workflows because their blast radius and safety gates differ.
+- **Host Update** and **VM Update** are package-manager-neutral domain concepts even when their first implementation uses apt.
+- **Host Update** updates only the selected **Host**; hosted **VMs** and **Services** may be impacted dependents but are not update targets.
+- **Host Update** does not run **Template Update** for **Templates** held by the selected **Host**.
+- **Template Update** updates only the selected **Template**; existing **VMs** cloned from that **Template** are not update targets.
+- **Template Update** rebuilds the selected **Template** from declared **Template** Inventory and proves it with **Template Verification** rather than mutating the existing Proxmox Template in place.
+- **Template Update** may replace a **Template** even when existing **VMs** declare that **Template**, because existing **VMs** are independent durable entities after clone.
+- **Template Update** targets one selected **Host**'s copy of a **Template**, or every declaring **Host** only when the Operator explicitly selects all Hosts.
+- **Template Update** is non-disruptive to existing **VMs** and **Services** by default; its live side effect is temporary **Template Verification VM** use.
+- **VM Update** updates only the selected **VM**; resident **Services** may be impacted dependents but are not update targets.
+- **VM Update** is independent from **Template Update**; updating a **VM** does not require updating its declared source **Template** first.
+- **Service Update** advances only to the Service runtime references already declared in **Inventory**; selecting a newer Service version happens by changing **Inventory** first.
+- **Service Update** composes **Service Deploy** so generated Service artifacts match current **Inventory** before runtime advancement.
+- **Service Update** always runs **Service Deploy** first rather than detecting whether generated Service artifacts are stale.
+- **Service Update** updates only the named **Service**, even when other **Services** share its **Backend** **VM** or **Service Group**.
+- **Service Update** restarts all fortress-owned units for the named **Service** rather than detecting a smaller changed-unit subset.
+- **Service Update** succeeds when all fortress-owned units for the named **Service** reach active state.
+- **Host Update** always runs **Host Configure** first.
+- **VM Update** always runs **VM Configure** first.
+- **Host Configure** may report that a reboot is required, but it must not reboot a Host.
+- **Host Update** may reboot the selected **Host** as an explicit maintenance-window decision.
+- Before a **Host Update** reboots a **Host**, it gracefully shuts down ordinary **VMs** placed on that **Host** and treats failure to reach stopped state as requiring operator judgment.
+- After a **Host Update** reboots a **Host**, it starts the same ordinary **VMs** it shut down before the reboot.
+- **VM Configure** may report that a reboot is required, but it must not reboot a VM.
+- **VM Update** may reboot the selected **VM** as an explicit maintenance-window decision.
+- Before a **VM Update** reboots a **VM**, it stops resident fortress-managed **Services** normally and treats failure to reach stopped state as requiring operator judgment.
+- After a **VM Update** reboots a **VM**, it restores the same resident fortress-managed **Services** it stopped before the reboot.
 - **Upgrade** is separate from **Update** because version-boundary changes may need compatibility checks, migrations, or explicit operator judgment.
 - A **Datastore** uses the same **Dataset**, **Share**, and **Mount** model as other NAS-backed storage.
 - A **Dataset** declaration includes the NAS endpoint it belongs to.
@@ -706,7 +754,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **VM** declares Dataset access by declaring a **Mount** with a required Share protocol.
 - A **Mount** declaration uses flat fields: `name`, `dataset`, `protocol`, `mount_point`, and `access`.
 - A **Mount** declaration always includes an explicit `mount_point`.
-- Changing a declared **Mount**'s `mount_point` requires operator confirmation before **Configure** continues.
+- Changing a declared **Mount**'s `mount_point` requires operator confirmation before **VM Configure** continues.
 - Changing a declared **Mount**'s `access` requires operator confirmation before reconciliation continues.
 - Removing a declared **Mount** requires operator confirmation before reconciliation continues.
 - A **Mount** declares its Share protocol explicitly; **Datasets** are not protocol-specific.
@@ -718,9 +766,9 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Share-backed Volume** subpath under an **Adopted Dataset** must already exist unless an explicit creation workflow is modeled later.
 - **Application Configuration Artifacts** may consume fortress-generated paths, ports, secrets, and hostnames, but their application-specific settings remain outside the first-party fortress schema.
 - An **Application Configuration Template** must render only into its owning **Service Data Directory** unless a later explicit exception is modeled.
-- A declared **Mount** must be active and accessible during **Configure** before later VM configuration or Service deployment may rely on it.
+- A declared **Mount** must be active and accessible during **VM Configure** before later VM configuration or Service deployment may rely on it.
 - Service deployment validates the **Share-backed Volume** subpaths used by that **Service** before starting containers.
-- A **Mount** with a declared ownership mapping must prove read/write/delete access as the mapped UID/GID during **Configure**.
+- A **Mount** with a declared ownership mapping must prove read/write/delete access as the mapped UID/GID during **VM Configure**.
 
 ## Example dialogue
 
@@ -741,6 +789,9 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **`ingress.exposure` enum**: Only `lan_only` appears in [docs/architecture.md](docs/architecture.md). Whether `internet_exposed` (or similar) is a planned value, and what it would imply for the Caddy/Cloudflare wiring, is unresolved.
 - **`ingress.auth` enum**: The Firewall Matrix requires **File Browser** to use **Ingress Auth**, but the current Service schema only accepts `auth.type: none`. Inventory may temporarily encode the Service as unauthenticated while preserving the policy gap here.
 - **Multi-VM Backend**: Deferred. A **Service** has exactly one **Backend** for the initial Quadlet and Ingress implementation; HA Backend semantics will be designed when the Ingress supports multiple Backends.
+- **Service Group Update**: Deferred. **Service Update** updates only one named **Service**; coordinated **Service Group** maintenance will be modeled when a real group-level update need appears.
+- **Service health checks**: Deferred. **Service Update** proves systemd unit activation; application-level health semantics require an explicit future Service health contract.
+- **Fleet Update**: Deferred. Fleet-wide maintenance ordering, batching, and failure isolation will be modeled only after the individual **Host Update**, **Template Update**, **VM Update**, and **Service Update** workflows are proven.
 - **Adopted Share**: Deferred. Existing manual Shares are not adopted by fortress; overlapping unmanaged Shares block **NAS Reconcile** until the Operator removes or otherwise resolves them.
 - **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require an unambiguous static IP address for NFS Share client access.
 - **Dataset ACLs and modes**: Deferred. Dataset declarations model root owner UID/GID only; root-level Acceptance Test writes do not settle mapped UID/GID or ACL semantics.

@@ -196,6 +196,14 @@ _Avoid_: setup.
 An idempotent operator workflow that converges a Host or VM to its declared state, usually by wrapping an Ansible run. Re-runnable.
 _Avoid_: provision (reserve for tofu).
 
+**Update**:
+A routine in-place software/runtime advancement for an existing declared Entity within its current compatibility band.
+_Avoid_: refresh, renewal, upgrade.
+
+**Upgrade**:
+A version-boundary or migration-bearing advancement for an existing declared Entity where compatibility or operator judgment matters.
+_Avoid_: update, refresh, renewal.
+
 **Operator Workflow Plan**:
 An inspectable ordered declaration of phases, confirmation gates, and diagnostic labels for one operator workflow invocation.
 _Avoid_: script loop, subprocess helper.
@@ -661,6 +669,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Launch** deploys only the named **Service**, even when other **Services** share its **Backend** **VM** or **Service Group**.
 - **Service Launch** does not roll back or destroy a durable **Backend** **VM** after downstream **Service Deploy** or **Ingress Regeneration** failure.
 - **Service Launch** is invoked for exactly one **Service** and passes operator confirmation policy through to underlying workflows.
+- **Update** keeps the selected **Entity**'s identity, placement, and declared shape intact.
+- **Upgrade** is separate from **Update** because version-boundary changes may need compatibility checks, migrations, or explicit operator judgment.
 - A **Datastore** uses the same **Dataset**, **Share**, and **Mount** model as other NAS-backed storage.
 - A **Dataset** declaration includes the NAS endpoint it belongs to.
 - A **Dataset** declaration includes an explicit `lifecycle`.
@@ -724,6 +734,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **"template"**: Overloaded between the **Template** (a Proxmox VM marked `template: 1`), the `vm-templates/<name>.yaml` recipe that produces it, and Jinja templates inside Ansible roles. The first two are the same concept at recipe and instance layers; Jinja templates should always be qualified ("Jinja template" or "config template").
 - **"service"**: Overloaded with "systemd service unit". A **Service** in this project is a deployed app (one yaml under `inventory/services/`); a systemd service unit is always qualified as "systemd unit".
 - **Hostname conventions**: A **Service**'s `hostname` is the Ingress-only end-user FQDN (`photos.fearn.cloud`); a **VM**'s `cloud_init.hostname` is the short form (`web01`), with FQDN derived as `<short>.fearn.cloud`; a **Container Alias** is private Podman network DNS. The split is intentional, but easy to reverse by accident.
+- **"update" vs "upgrade"**: Resolved. **Update** is routine in-place advancement within the current compatibility band; **Upgrade** is reserved for version-boundary or migration-bearing advancement.
 - **Non-Ingress Service names**: Deferred. A non-Ingress **Service** must not use `hostname`; direct DNS names for non-HTTP or administration surfaces need a separate modeled concept later.
 - **Multi-address Ingress VM**: Deferred. The **Ingress DNS Record** target address is unambiguous while the **Ingress** **VM** has one client-facing static address; explicit address selection belongs in a later model if the **Ingress** **VM** gains multiple client-facing addresses.
 - **Ingress health name**: Deferred. A dedicated health-check hostname would need its own explicit route concept; it is not implied by the **Ingress** **VM** existing.

@@ -282,6 +282,73 @@ class HostUpWorkflowTests(unittest.TestCase):
             self.assertIn("acceptance service-layer debian-13-base@truenas: passed", result.stdout)
             self.assertIn("host-readiness: failed", result.stdout)
 
+    def test_acceptance_failure_cleans_generated_artifacts_before_later_cells(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._fixture(tmp)
+            service_dir = root / "inventory" / "services"
+            service_layer = root / "scripts" / "acceptance-service-layer"
+            service_layer.write_text(
+                "#!/usr/bin/env bash\n"
+                f"printf 'acceptance-service-layer %s\\n' \"$*\" >> {str(calls_log)!r}\n"
+                "case \"$*\" in\n"
+                "  *endpoint=backup*)\n"
+                "    cat > \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.yaml\" <<'YAML'\n"
+                "generated: true\n"
+                "generated_by: service-layer-acceptance\n"
+                "YAML\n"
+                "    printf 'encrypted\\n' > \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.sops.yaml\"\n"
+                "    mkdir \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.quadlet.d\"\n"
+                "    printf '[Container]\\n' > \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.quadlet.d/web.container\"\n"
+                "    echo 'service-layer failed after generating artifacts' >&2\n"
+                "    exit 1\n"
+                "    ;;\n"
+                "  *endpoint=truenas*)\n"
+                "    if [ -e \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.yaml\" ]; then\n"
+                "      echo 'stale Service-layer artifact collision' >&2\n"
+                "      exit 1\n"
+                "    fi\n"
+                "    ;;\n"
+                "esac\n"
+            )
+            service_layer.chmod(service_layer.stat().st_mode | stat.S_IXUSR)
+            cleanup = root / "scripts" / "acceptance-clean-generated-artifacts"
+            cleanup.write_text(
+                "#!/usr/bin/env bash\n"
+                f"printf 'acceptance-clean-generated-artifacts %s\\n' \"$*\" >> {str(calls_log)!r}\n"
+                "rm -rf \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.quadlet.d\"\n"
+                "rm -f \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.yaml\"\n"
+                "rm -f \"$FORTRESS_ROOT/inventory/services/tmp-service-layer.sops.yaml\"\n"
+            )
+            cleanup.chmod(cleanup.stat().st_mode | stat.S_IXUSR)
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "host-up"), "wintermute"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            calls = calls_log.read_text().splitlines()
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(
+                "acceptance-clean-generated-artifacts workflow=service-layer auto_confirm=true",
+                calls,
+            )
+            self.assertLess(
+                calls.index("acceptance-clean-generated-artifacts workflow=service-layer auto_confirm=true"),
+                calls.index(
+                    "acceptance-service-layer host=wintermute template=debian-13-base endpoint=truenas "
+                    "auto_confirm=false keep_on_fail=false"
+                ),
+            )
+            self.assertNotIn("stale Service-layer artifact collision", result.stderr)
+            self.assertFalse((service_dir / "tmp-service-layer.yaml").exists())
+            self.assertFalse((service_dir / "tmp-service-layer.sops.yaml").exists())
+            self.assertFalse((service_dir / "tmp-service-layer.quadlet.d").exists())
+
     def test_acceptance_failure_with_keep_on_fail_stops_to_avoid_artifact_collision(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._fixture(tmp)
@@ -327,6 +394,7 @@ class HostUpWorkflowTests(unittest.TestCase):
             "template-verify",
             "acceptance-nfs-shared-mount",
             "acceptance-service-layer",
+            "acceptance-clean-generated-artifacts",
         ]:
             self._fake_script(root / "scripts" / name, calls_log, name)
         return root, calls_log

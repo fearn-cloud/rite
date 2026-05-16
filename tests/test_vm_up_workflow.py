@@ -5,6 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fortress_workflows import CommandPhase, ConfirmationGate
+from fortress_workflows.vm_lifecycle import build_vm_lifecycle_plan
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MEDIA01_TARGETS = (
@@ -14,6 +17,57 @@ MEDIA01_TARGETS = (
 
 
 class VMUpWorkflowTests(unittest.TestCase):
+    def test_vm_lifecycle_plan_declares_prepare_plan_confirmation_apply_configure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+
+            plan = build_vm_lifecycle_plan(root, "media01")
+
+            self.assertEqual("vm-lifecycle:media01", plan.id)
+            self.assertEqual(
+                ["prepare", "tofu-plan", "confirm-apply", "tofu-apply", "configure"],
+                [step.id for step in plan.steps],
+            )
+            prepare, tofu_plan, confirmation, tofu_apply, configure = plan.steps
+            self.assertIsInstance(prepare, CommandPhase)
+            self.assertEqual("Prepare", prepare.display_name)
+            self.assertEqual([str(root / "scripts" / "vm-prepare"), "media01"], list(prepare.command))
+            self.assertIsInstance(tofu_plan, CommandPhase)
+            self.assertEqual(
+                [
+                    str(root / "scripts" / "tofu-wrap"),
+                    "plan",
+                    "-var",
+                    "selected_vm=media01",
+                    "-target",
+                    'module.vms_wintermute.proxmox_virtual_environment_file.cloud_init_user_data["media01"]',
+                    "-target",
+                    'module.vms_wintermute.proxmox_virtual_environment_vm.vm["media01"]',
+                ],
+                list(tofu_plan.command),
+            )
+            self.assertIsInstance(confirmation, ConfirmationGate)
+            self.assertEqual("Type 'apply media01' to apply the selected-VM plan: ", confirmation.prompt)
+            self.assertEqual("apply media01", confirmation.required_input)
+            self.assertIsInstance(tofu_apply, CommandPhase)
+            self.assertEqual(
+                [
+                    str(root / "scripts" / "tofu-wrap"),
+                    "apply",
+                    "-var",
+                    "selected_vm=media01",
+                    "-target",
+                    'module.vms_wintermute.proxmox_virtual_environment_file.cloud_init_user_data["media01"]',
+                    "-target",
+                    'module.vms_wintermute.proxmox_virtual_environment_vm.vm["media01"]',
+                    "-auto-approve",
+                ],
+                list(tofu_apply.command),
+            )
+            self.assertIsInstance(configure, CommandPhase)
+            self.assertEqual("Configure", configure.display_name)
+            self.assertEqual([str(root / "scripts" / "vm-configure"), "media01"], list(configure.command))
+
     def test_just_vm_up_calls_workflow_script(self):
         justfile = (REPO_ROOT / "justfile").read_text()
 
@@ -69,6 +123,29 @@ class VMUpWorkflowTests(unittest.TestCase):
                     "vm-configure media01",
                 ],
                 calls_log.read_text().splitlines(),
+            )
+
+    def test_vm_up_shows_selected_plan_output_before_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            env = self._workflow_env(root, root / "calls.log")
+            env["FORTRESS_TOFU_PLAN_STDOUT"] = "selected plan output"
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-up"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                input="apply media01\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("selected plan output", result.stdout)
+            self.assertLess(
+                result.stdout.index("selected plan output"),
+                result.stdout.index("Type 'apply media01'"),
             )
 
     def test_vm_up_denies_apply_without_explicit_matching_approval(self):
@@ -221,6 +298,7 @@ class VMUpWorkflowTests(unittest.TestCase):
                 "printf '%s %s\\n' \"$name\" \"$*\" >> \"$CALLS_LOG\"\n"
                 "phase=\"$name\"\n"
                 "if [ \"$name\" = tofu-wrap ]; then phase=\"tofu-$1\"; fi\n"
+                "if [ \"$phase\" = tofu-plan ] && [ -n \"$FORTRESS_TOFU_PLAN_STDOUT\" ]; then echo \"$FORTRESS_TOFU_PLAN_STDOUT\"; fi\n"
                 "if [ \"$FORTRESS_FAIL_PHASE\" = \"$phase\" ]; then exit 42; fi\n"
             )
             script.chmod(script.stat().st_mode | stat.S_IXUSR)

@@ -15,6 +15,22 @@ The system is designed for a single operator, no CI yet (CI is a known future ad
 
 ---
 
+## 1.1. Operator Workflow Runner
+
+Operator-facing ceremonies that compose several existing commands use an **Operator Workflow Plan** plus the **Operator Workflow Runner**. Use this seam when a workflow needs ordered phases, an approval point, reusable failure policy, or subprocess diagnostics across more than one underlying script. Keep a narrow single-purpose script when it already performs one concrete operation and does not need cross-phase orchestration.
+
+An **Operator Workflow Plan** is the inspectable declaration for one invocation: phase IDs, display names, commands, diagnostic labels, confirmation gates, and any per-phase failure policy. The plan builder module owns the domain ceremony: `fortress_workflows.vm_lifecycle` knows Prepare, selected OpenTofu plan/apply, and Configure; `fortress_workflows.service_launch` knows Backend VM readiness, Service Deploy, and optional Ingress Regeneration; `fortress_workflows.host_readiness` knows bootstrap satisfaction, Host Configure scope, Template Verification, and the Template x NAS Endpoint acceptance matrix. In short, plan builders own domain-specific ceremony rules.
+
+The runner owns execution mechanics. The **Operator Workflow Runner** in `fortress_workflows.runner` executes plan steps in order, enforces confirmation gates, runs subprocesses, applies the stop versus continue failure policy, emits streaming prefix output for long-running phases, keeps captured tails for streaming diagnostics, and returns standardized failure detail for scripts to render with their workflow-specific diagnostic labels. VM Lifecycle Convergence, Service Launch, and Host Readiness entrypoint scripts should call a plan builder and `OperatorWorkflowRunner`; they should not grow local `run_phase`, `phase_detail`, confirmation-loop, streaming, or subprocess orchestration implementations.
+
+Current runner-backed workflows:
+
+- `scripts/vm-up` builds VM Lifecycle Convergence with `build_vm_lifecycle_plan`.
+- `scripts/service-launch` builds Service Launch with `build_service_launch_plan`.
+- `scripts/host-up` builds Host Readiness with `build_host_readiness_plan`.
+
+---
+
 ## 2. Hardware Fleet
 
 All hosts are standalone — there is no Proxmox cluster, no shared storage, no live migration. Each host is its own island.

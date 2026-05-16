@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fortress_inventory.model import load_inventory_tree
-from fortress_tofu.generate import hcl_identifier
+from fortress_workflows import CommandPhase, ConfirmationGate, OperatorWorkflowRunner
+from fortress_workflows.vm_lifecycle import build_vm_lifecycle_plan
 
 
 def main():
@@ -23,38 +22,15 @@ def main():
         print(f"VM {vm!r} is not declared at {vm_yaml}", file=sys.stderr)
         return 1
 
-    target_args = selected_vm_target_args(repo_root, vm)
-    if target_args is None:
+    try:
+        plan = build_vm_lifecycle_plan(repo_root, vm)
+    except ValueError as error:
+        print(error, file=sys.stderr)
         return 1
 
-    phases = [
-        ("Prepare", [str(repo_root / "scripts" / "vm-prepare"), vm]),
-        ("tofu plan", [str(repo_root / "scripts" / "tofu-wrap"), "plan", "-var", f"selected_vm={vm}", *target_args]),
-    ]
-    for phase, command in phases:
-        returncode = run_phase(phase, command, vm)
-        if returncode != 0:
-            return returncode
-
-    if not auto_confirm:
-        approval = input(f"Type 'apply {vm}' to apply the selected-VM plan: ")
-        if approval != f"apply {vm}":
-            print(f"Apply denied for VM {vm}", file=sys.stderr)
-            return 1
-
-    phases = [
-        (
-            "tofu apply",
-            [str(repo_root / "scripts" / "tofu-wrap"), "apply", "-var", f"selected_vm={vm}", *target_args, "-auto-approve"],
-        ),
-        ("Configure", [str(repo_root / "scripts" / "vm-configure"), vm]),
-    ]
-    for phase, command in phases:
-        returncode = run_phase(phase, command, vm)
-        if returncode != 0:
-            return returncode
-
-    return 0
+    result = OperatorWorkflowRunner(cwd=repo_root, auto_confirm=auto_confirm).run(plan)
+    render_result(plan, result, vm)
+    return result.return_code
 
 
 def parse_args(args):
@@ -71,31 +47,21 @@ def parse_args(args):
     return vm, auto_confirm
 
 
-def selected_vm_target_args(repo_root, vm):
-    model = load_inventory_tree(repo_root)
-    host = model.vms.get(vm, {}).get("placement", {}).get("host")
-    if not host:
-        print(f"VM {vm!r} has no placement.host", file=sys.stderr)
-        return None
-    host_alias = hcl_identifier(host)
-    return [
-        "-target",
-        f'module.vms_{host_alias}.proxmox_virtual_environment_file.cloud_init_user_data["{vm}"]',
-        "-target",
-        f'module.vms_{host_alias}.proxmox_virtual_environment_vm.vm["{vm}"]',
-    ]
-
-
-def run_phase(phase, command, vm):
-    try:
-        result = subprocess.run(command)
-    except OSError as error:
-        print(f"{phase} failed for VM {vm}: {error}", file=sys.stderr)
-        return 1
-    if result.returncode != 0:
-        print(f"{phase} failed for VM {vm}", file=sys.stderr)
-        return result.returncode or 1
-    return 0
+def render_result(plan, result, vm):
+    if result.success:
+        return
+    denied_gates = {gate.step_id for gate in result.gate_results if gate.status == "denied"}
+    for step in plan.steps:
+        if isinstance(step, ConfirmationGate) and step.id in denied_gates:
+            print(f"Apply denied for VM {vm}", file=sys.stderr)
+            return
+    failed_phases = {phase.step_id: phase for phase in result.phase_results if phase.status == "failed"}
+    for step in plan.steps:
+        if isinstance(step, CommandPhase) and step.id in failed_phases:
+            detail = failed_phases[step.id].failure_detail
+            suffix = f": {detail}" if detail else ""
+            print(f"{step.diagnostic_label}{suffix}", file=sys.stderr)
+            return
 
 
 if __name__ == "__main__":

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fortress_inventory.entity_graph import InventoryEntityGraph, InventoryEntityGraphError
+from fortress_inventory.entity_graph import InventoryEntityGraphError
 from fortress_inventory.model import load_inventory_tree
+from fortress_workflows import OperatorWorkflowRunner
+from fortress_workflows.service_launch import build_service_launch_plan, render_service_launch_result
 
 
 def main():
@@ -28,25 +29,18 @@ def main():
         )
         return 1
 
-    intent = resolve_intent(repo_root, model, service_name, service)
-    if intent is None:
+    try:
+        plan = build_service_launch_plan(repo_root, service_name, auto_confirm=auto_confirm)
+    except InventoryEntityGraphError as error:
+        print_intent_error(repo_root, model, service_name, service, error)
+        return 1
+    except ValueError as error:
+        print(error, file=sys.stderr)
         return 1
 
-    vm_up = [str(repo_root / "scripts" / "vm-up"), intent.backend_vm_name]
-    if auto_confirm:
-        vm_up.append("--auto-confirm")
-    phases = [
-        ("VM Lifecycle Convergence", vm_up),
-        ("Service Deploy", [str(repo_root / "scripts" / "service-deploy"), service_name]),
-    ]
-    if intent.requires_ingress_regeneration:
-        phases.append(("Ingress Regeneration", [str(repo_root / "scripts" / "ingress-regenerate")]))
-
-    for phase, command in phases:
-        returncode = run_phase(phase, command, service_name)
-        if returncode != 0:
-            return returncode
-    return 0
+    result = OperatorWorkflowRunner(cwd=repo_root, auto_confirm=auto_confirm).run(plan)
+    render_service_launch_result(plan, result)
+    return result.return_code
 
 
 def parse_args(args):
@@ -63,40 +57,23 @@ def parse_args(args):
     return service_name, auto_confirm
 
 
-def resolve_intent(repo_root, model, service_name, service):
-    graph = InventoryEntityGraph(model)
-    try:
-        return graph.service_launch_intent(service_name)
-    except InventoryEntityGraphError as error:
-        backend = service.get("backend") or {}
-        if not isinstance(backend, dict):
-            print(error, file=sys.stderr)
-            return None
-        backend_vm_name = backend.get("vm")
-        if not backend_vm_name:
-            print(f"Service {service_name!r} has no backend.vm", file=sys.stderr)
-            return None
-        if backend_vm_name not in model.vms:
-            print(
-                f"Backend VM {backend_vm_name!r} for Service {service_name!r} is not declared at "
-                f"{repo_root / 'inventory' / 'vms' / f'{backend_vm_name}.yaml'}",
-                file=sys.stderr,
-            )
-            return None
+def print_intent_error(repo_root, model, service_name, service, error):
+    backend = service.get("backend") or {}
+    if not isinstance(backend, dict):
         print(error, file=sys.stderr)
-        return None
-
-
-def run_phase(phase, command, service_name):
-    try:
-        result = subprocess.run(command)
-    except OSError as error:
-        print(f"{phase} failed for Service {service_name}: {error}", file=sys.stderr)
-        return 1
-    if result.returncode != 0:
-        print(f"{phase} failed for Service {service_name}", file=sys.stderr)
-        return result.returncode or 1
-    return 0
+        return
+    backend_vm_name = backend.get("vm")
+    if not backend_vm_name:
+        print(f"Service {service_name!r} has no backend.vm", file=sys.stderr)
+        return
+    if backend_vm_name not in model.vms:
+        print(
+            f"Backend VM {backend_vm_name!r} for Service {service_name!r} is not declared at "
+            f"{repo_root / 'inventory' / 'vms' / f'{backend_vm_name}.yaml'}",
+            file=sys.stderr,
+        )
+        return
+    print(error, file=sys.stderr)
 
 
 if __name__ == "__main__":

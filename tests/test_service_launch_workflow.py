@@ -5,11 +5,51 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fortress_workflows import CommandPhase
+from fortress_workflows.service_launch import build_service_launch_plan
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class ServiceLaunchWorkflowTests(unittest.TestCase):
+    def test_service_launch_plan_declares_vm_lifecycle_deploy_then_ingress_when_enabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+
+            plan = build_service_launch_plan(root, "immich", auto_confirm=True)
+
+            self.assertEqual("service-launch:immich", plan.id)
+            self.assertEqual(
+                ["vm-lifecycle", "service-deploy", "ingress-regeneration"],
+                [step.id for step in plan.steps],
+            )
+            vm_lifecycle, service_deploy, ingress_regeneration = plan.steps
+            self.assertIsInstance(vm_lifecycle, CommandPhase)
+            self.assertEqual("VM Lifecycle Convergence", vm_lifecycle.display_name)
+            self.assertEqual(
+                [str(root / "scripts" / "vm-up"), "media01", "--auto-confirm"],
+                list(vm_lifecycle.command),
+            )
+            self.assertIsInstance(service_deploy, CommandPhase)
+            self.assertEqual("Service Deploy", service_deploy.display_name)
+            self.assertEqual([str(root / "scripts" / "service-deploy"), "immich"], list(service_deploy.command))
+            self.assertIsInstance(ingress_regeneration, CommandPhase)
+            self.assertEqual("Ingress Regeneration", ingress_regeneration.display_name)
+            self.assertEqual([str(root / "scripts" / "ingress-regenerate")], list(ingress_regeneration.command))
+
+    def test_service_launch_plan_skips_ingress_and_does_not_pass_auto_confirm_to_deploy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(root, "headless", "media01", ingress_enabled=False)
+
+            plan = build_service_launch_plan(root, "headless", auto_confirm=False)
+
+            self.assertEqual(["vm-lifecycle", "service-deploy"], [step.id for step in plan.steps])
+            vm_lifecycle, service_deploy = plan.steps
+            self.assertEqual([str(root / "scripts" / "vm-up"), "media01"], list(vm_lifecycle.command))
+            self.assertEqual([str(root / "scripts" / "service-deploy"), "headless"], list(service_deploy.command))
+
     def test_just_service_launch_calls_workflow_script(self):
         justfile = (REPO_ROOT / "justfile").read_text()
 

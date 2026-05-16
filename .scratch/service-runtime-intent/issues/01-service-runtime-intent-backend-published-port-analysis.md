@@ -2,7 +2,7 @@
 
 # Service Runtime Intent: Backend and Published Port analysis
 
-Status: ready-for-agent
+Status: ready-for-human
 Category: enhancement
 Date: 2026-05-16
 
@@ -31,15 +31,15 @@ Inventory validation should adapt Service Runtime Intent diagnostics into ordina
 - Published Port runtime fact — identifies the Service, Backend VM, container name or index, host port, container port, bind address, protocol parts, and whether it is marked for Ingress.
 
 **Acceptance criteria:**
-- [ ] The codebase has a Service Runtime Intent module documented or named with the `Service Runtime Intent` domain term from `CONTEXT.md`.
-- [ ] Fleet analysis resolves Backend runtime facts for Services with singular Backends.
-- [ ] Fleet analysis normalizes Quadlet Published Ports, including default host port, default bind address, default protocol, and `tcp_udp` expansion.
-- [ ] Fleet analysis diagnoses Backend port collisions between Services on the same Backend VM.
-- [ ] Fleet analysis diagnoses Published Port collisions between Services on the same Backend VM for each protocol.
-- [ ] Fleet analysis diagnoses Ingress-enabled Quadlet Services whose Backend port is not matched by exactly one TCP-capable Published Port marked for Ingress.
-- [ ] Inventory validation uses Service Runtime Intent diagnostics for the Backend and Published Port rules covered by this issue.
-- [ ] Existing operator-facing behavior for Service Deploy, Quadlet rendering, and Ingress Regeneration remains unchanged.
-- [ ] Tests cover the new Service Runtime Intent seam directly and preserve existing Inventory validation coverage for the migrated rules.
+- [x] The codebase has a Service Runtime Intent module documented or named with the `Service Runtime Intent` domain term from `CONTEXT.md`.
+- [x] Fleet analysis resolves Backend runtime facts for Services with singular Backends.
+- [x] Fleet analysis normalizes Quadlet Published Ports, including default host port, default bind address, default protocol, and `tcp_udp` expansion.
+- [x] Fleet analysis diagnoses Backend port collisions between Services on the same Backend VM.
+- [x] Fleet analysis diagnoses Published Port collisions between Services on the same Backend VM for each protocol.
+- [x] Fleet analysis diagnoses Ingress-enabled Quadlet Services whose Backend port is not matched by exactly one TCP-capable Published Port marked for Ingress.
+- [x] Inventory validation uses Service Runtime Intent diagnostics for the Backend and Published Port rules covered by this issue.
+- [x] Existing operator-facing behavior for Service Deploy, Quadlet rendering, and Ingress Regeneration remains unchanged.
+- [x] Tests cover the new Service Runtime Intent seam directly and preserve existing Inventory validation coverage for the migrated rules.
 
 **Out of scope:**
 - Moving Service Deploy vars to Service Runtime Intent.
@@ -51,3 +51,11 @@ Inventory validation should adapt Service Runtime Intent diagnostics into ordina
 ## Notes
 
 This follows the architecture discussion that chose Service Runtime Intent as the deepened module for fortress-owned Service runtime meaning. The first tracer bullet is deliberately limited to Backend and Published Port analysis so the seam can be proven before higher-blast-radius deploy-var migration.
+
+## Comments
+
+Implemented in `fortress_services.runtime_intent` with direct Service Runtime Intent tests covering Backend facts, Published Port normalization, Backend collisions, Published Port collisions, and Ingress match diagnostics.
+
+Inventory validation now adapts Service Runtime Intent diagnostics back into ordinary `ValidationError` instances for the migrated Backend and Published Port rules, preserving the existing validation codes and messages.
+
+Verification: `python3 -m unittest discover` passed, 406 tests.

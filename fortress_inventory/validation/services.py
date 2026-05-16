@@ -1,4 +1,18 @@
+from fortress_services.runtime_intent import analyze_service_runtime_intent
+
 from .errors import ValidationError
+
+
+BACKEND_RUNTIME_DIAGNOSTICS = {
+    "service_backend_not_singular",
+    "missing_service_backend_vm",
+    "backend_port_collision",
+}
+PUBLISHED_PORT_RUNTIME_DIAGNOSTICS = {
+    "published_port_collision",
+    "invalid_ingress_published_port",
+    "missing_ingress_published_port",
+}
 
 
 def validate_service_ingress_contract(model):
@@ -52,43 +66,10 @@ def validate_ingress_dns_targets(model):
 
 
 def validate_service_backends(model):
-    errors = []
-    seen_ports = {}
-    for service_name, service in model.services.items():
-        backend = service.get("backend", {})
-        if not isinstance(backend, dict):
-            errors.append(
-                ValidationError(
-                    "service_backend_not_singular",
-                    f"inventory/services/{service_name}.yaml.backend",
-                    f"Service {service_name} must declare one singular Backend for issue 07",
-                )
-            )
-            continue
-        vm_name = backend.get("vm")
-        port = backend.get("port")
-        if vm_name and vm_name not in model.vms:
-            errors.append(
-                ValidationError(
-                    "missing_service_backend_vm",
-                    f"inventory/services/{service_name}.yaml.backend.vm",
-                    f"Service {service_name} references missing Backend VM {vm_name}",
-                )
-            )
-        if vm_name and port:
-            key = (vm_name, port)
-            if key in seen_ports:
-                other_service = seen_ports[key]
-                errors.append(
-                    ValidationError(
-                        "backend_port_collision",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Services {other_service} and {service_name} both use Backend {vm_name}:{port}",
-                    )
-                )
-            else:
-                seen_ports[key] = service_name
-    return errors
+    return _runtime_diagnostics_as_validation_errors(
+        analyze_service_runtime_intent(model),
+        BACKEND_RUNTIME_DIAGNOSTICS,
+    )
 
 
 def validate_quadlet_services(model):
@@ -134,67 +115,18 @@ def validate_native_services(model):
 
 
 def _validate_published_ports(model):
-    errors = []
-    seen = {}
-    for service_name, service in model.services.items():
-        if service.get("deploy", {}).get("type") != "quadlet":
-            continue
-        backend = service.get("backend", {})
-        if not isinstance(backend, dict):
-            continue
-        backend_vm_name = backend.get("vm")
-        backend_port = backend.get("port")
-        ingress_backend_matches = []
-        for container_index, container, port_index, published_port in _service_published_ports(service):
-            host_port = published_port.get("host", published_port.get("container"))
-            protocol = published_port.get("protocol", "tcp")
-            if (
-                published_port.get("ingress") is True
-                and host_port == backend_port
-                and "tcp" in _published_port_protocols(protocol)
-            ):
-                ingress_backend_matches.append((container_index, port_index))
-            if backend_vm_name and host_port:
-                for protocol_part in _published_port_protocols(protocol):
-                    key = (backend_vm_name, host_port, protocol_part)
-                    if key in seen:
-                        other_service, other_container_index, other_port_index = seen[key]
-                        errors.append(
-                            ValidationError(
-                                "published_port_collision",
-                                _service_published_port_path(service_name, container_index, port_index, "host"),
-                                f"Services {other_service} and {service_name} both publish "
-                                f"{protocol_part.upper()} port {host_port} on Backend VM {backend_vm_name}",
-                            )
-                        )
-                    else:
-                        seen[key] = (service_name, container_index, port_index)
-        if service.get("ingress", {}).get("enabled") and backend_port:
-            if len(ingress_backend_matches) != 1:
-                errors.append(
-                    ValidationError(
-                        "invalid_ingress_published_port",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Service {service_name} enables Ingress but must have exactly one TCP-capable "
-                        f"Published Port marked for Ingress on Backend port {backend_port}",
-                    )
-                )
-            if not ingress_backend_matches:
-                errors.append(
-                    ValidationError(
-                        "missing_ingress_published_port",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Service {service_name} enables Ingress but no Published Port explicitly marks "
-                        f"Backend port {backend_port} with ingress: true",
-                    )
-                )
-    return errors
+    return _runtime_diagnostics_as_validation_errors(
+        analyze_service_runtime_intent(model),
+        PUBLISHED_PORT_RUNTIME_DIAGNOSTICS,
+    )
 
 
-def _published_port_protocols(protocol):
-    if protocol == "tcp_udp":
-        return ("tcp", "udp")
-    return (protocol or "tcp",)
+def _runtime_diagnostics_as_validation_errors(intent, codes):
+    return [
+        ValidationError(diagnostic.code, diagnostic.path, diagnostic.message)
+        for diagnostic in intent.diagnostics
+        if diagnostic.code in codes
+    ]
 
 
 def _validate_service_images(model):
@@ -530,22 +462,8 @@ def _service_volumes(service):
             yield container_index, container, volume_index, volume
 
 
-def _service_published_ports(service):
-    containers = service.get("deploy", {}).get("containers", []) or []
-    for container_index, container in enumerate(containers):
-        for port_index, published_port in enumerate(container.get("published_ports", []) or []):
-            yield container_index, container, port_index, published_port
-
-
 def _service_volume_path(service_name, container_index, volume_index, field):
     return (
         f"inventory/services/{service_name}.yaml.deploy.containers"
         f"[{container_index}].volumes[{volume_index}].{field}"
-    )
-
-
-def _service_published_port_path(service_name, container_index, port_index, field):
-    return (
-        f"inventory/services/{service_name}.yaml.deploy.containers"
-        f"[{container_index}].published_ports[{port_index}].{field}"
     )

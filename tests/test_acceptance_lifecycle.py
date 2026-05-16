@@ -35,6 +35,92 @@ class AcceptanceLifecycleTests(unittest.TestCase):
             self.assertIn("dataset: acceptance-nfs-demo", primary_yaml)
             self.assertIn("mount_point: /mnt/nfs-demo", primary_yaml)
 
+    def test_lifecycle_resolves_selected_acceptance_intent_from_graph_fact(self):
+        import fortress_acceptance.lifecycle as lifecycle_module
+        from fortress_acceptance.lifecycle import AcceptanceTestLifecycle
+        from fortress_inventory.entity_graph import (
+            AcceptanceEphemeralDatasetFact,
+            AcceptanceOperationalVmFact,
+            AcceptancePolicyIntent,
+            HostBridgeFact,
+        )
+
+        class FakeGraph:
+            def __init__(self, inventory):
+                self.inventory = inventory
+
+            def acceptance_policy_intent(self, policy_name, host_name, template_name, nas_endpoint_name):
+                return AcceptancePolicyIntent(
+                    policy_name=policy_name,
+                    host_name=host_name,
+                    template_name=template_name,
+                    nas_endpoint_name=nas_endpoint_name,
+                    nas_endpoint={"name": nas_endpoint_name, "management_address": "10.10.0.15"},
+                    hardware={"cores": 1, "memory": 1024, "disk_size": "8G"},
+                    storage="graph-storage",
+                    mount={"name": "graph-mount", "mount_point": "/mnt/graph", "access": "read_write"},
+                    dataset=AcceptanceEphemeralDatasetFact(
+                        name="graph-dataset",
+                        nas_endpoint_name=nas_endpoint_name,
+                        path="/mnt/tank/fortress-acceptance/graph-mount",
+                        lifecycle="ephemeral",
+                    ),
+                    vms=(
+                        AcceptanceOperationalVmFact(
+                            role="primary",
+                            name="graph-primary",
+                            vmid=8901,
+                            static_address="10.10.0.241/24",
+                            client_address="10.10.0.241",
+                            bridge=HostBridgeFact("vmbr0", "10.10.0.1/24", "10.10.0.1"),
+                        ),
+                        AcceptanceOperationalVmFact(
+                            role="peer",
+                            name="graph-peer",
+                            vmid=8902,
+                            static_address="10.10.0.242/24",
+                            client_address="10.10.0.242",
+                            bridge=HostBridgeFact("vmbr0", "10.10.0.1/24", "10.10.0.1"),
+                        ),
+                    ),
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._fixture(tmp)
+            (root / "inventory" / "acceptance" / "nfs-shared-mount.yaml").write_text(
+                "dataset: acceptance-nfs-demo\n"
+                "mount:\n"
+                "  name: stale-raw-mount\n"
+                "hardware:\n"
+                "  cores: 99\n"
+                "storage_by_host: {}\n"
+                "vms:\n"
+                "  primary:\n"
+                "    name: stale-primary\n"
+                "  peer:\n"
+                "    name: stale-peer\n"
+            )
+            original_graph = lifecycle_module.InventoryEntityGraph
+            lifecycle_module.InventoryEntityGraph = FakeGraph
+            try:
+                lifecycle = AcceptanceTestLifecycle(
+                    policy_name="nfs-shared-mount",
+                    artifact_label="NFS shared-mount Acceptance",
+                    purpose="nfs-shared-mount-acceptance",
+                )
+                intent = lifecycle.resolve_intent(
+                    root,
+                    load_inventory_tree(root),
+                    {"host": "wintermute", "template": "debian-13-base", "endpoint": "truenas"},
+                )
+            finally:
+                lifecycle_module.InventoryEntityGraph = original_graph
+
+            self.assertEqual("graph-dataset", intent["dataset"]["name"])
+            self.assertEqual("graph-storage", intent["storage"])
+            self.assertEqual("graph-mount", intent["policy"]["mount"]["name"])
+            self.assertEqual(["graph-primary", "graph-peer"], [vm["name"] for vm in intent["vms"]])
+
     def test_service_layer_lifecycle_resolves_endpoint_config_and_common_artifacts(self):
         from fortress_acceptance.lifecycle import AcceptanceTestLifecycle
 

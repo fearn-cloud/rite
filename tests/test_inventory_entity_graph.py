@@ -861,14 +861,50 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 nas_endpoint_name="truenas",
             ),
         )
-        self.assertIsNone(
+        with self.assertRaisesRegex(
+            InventoryEntityGraphError,
+            "Acceptance Policy 'missing-policy' is not declared",
+        ):
             graph.acceptance_policy_intent(
                 "missing-policy",
                 host_name="wintermute",
                 template_name="debian-13-base",
                 nas_endpoint_name="truenas",
             )
+
+    def test_acceptance_policy_intent_rejects_missing_selected_entities(self):
+        model = InventoryModel(
+            root=None,
+            hosts={"wintermute": {}},
+            vms={},
+            services={},
+            datasets={},
+            nas_endpoints={"truenas": {"name": "truenas"}},
+            templates={"debian-13-base": {"name": "debian-13-base"}},
+            template_verification_policy={},
+            acceptance_policies={"service-layer": {"dataset": "acceptance-service-layer"}},
+            globals={},
         )
+        graph = InventoryEntityGraph(model)
+
+        cases = [
+            (
+                {"host_name": "missing-host", "template_name": "debian-13-base", "nas_endpoint_name": "truenas"},
+                "Host 'missing-host' is not declared",
+            ),
+            (
+                {"host_name": "wintermute", "template_name": "missing-template", "nas_endpoint_name": "truenas"},
+                "Template 'missing-template' is not declared",
+            ),
+            (
+                {"host_name": "wintermute", "template_name": "debian-13-base", "nas_endpoint_name": "missing-nas"},
+                "NAS Endpoint 'missing-nas' is not declared",
+            ),
+        ]
+        for kwargs, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(InventoryEntityGraphError, message):
+                    graph.acceptance_policy_intent("service-layer", **kwargs)
 
     def test_iteration_helpers_discover_entity_and_ingress_route_names(self):
         model = inventory_model(

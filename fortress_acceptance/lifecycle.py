@@ -68,26 +68,6 @@ class AcceptanceTestLifecycle:
         host_name = args["host"]
         template_name = args["template"]
         endpoint_name = args["endpoint"]
-        if host_name not in inventory.hosts:
-            print(f"Host {host_name!r} is not declared at {repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}", file=sys.stderr)
-            return 1
-        if template_name not in inventory.templates:
-            print(f"Template {template_name!r} is not declared at {repo_root / 'inventory' / 'templates' / f'{template_name}.yaml'}", file=sys.stderr)
-            return 1
-        if endpoint_name not in inventory.nas_endpoints:
-            print(f"NAS Endpoint {endpoint_name!r} is not declared at {repo_root / 'inventory' / 'nas' / f'{endpoint_name}.yaml'}", file=sys.stderr)
-            return 1
-        policy = inventory.acceptance_policies.get(self.policy_name)
-        if not policy:
-            print(f"Acceptance Policy {self.policy_name!r} is not declared at {repo_root / 'inventory' / 'acceptance' / f'{self.policy_name}.yaml'}", file=sys.stderr)
-            return 1
-
-        for role in self.roles:
-            declaration = (policy.get("vms", {}) or {}).get(role, {})
-            if not (declaration.get("address_by_host", {}) or {}).get(host_name):
-                print(f"Acceptance Policy {self.policy_name} has no {role} address_by_host entry for Host {host_name}", file=sys.stderr)
-                return 1
-
         graph = InventoryEntityGraph(inventory)
         try:
             intent = graph.acceptance_policy_intent(
@@ -102,9 +82,9 @@ class AcceptanceTestLifecycle:
         if intent is None:
             print(f"Acceptance Policy {self.policy_name!r} intent could not be resolved", file=sys.stderr)
             return 1
-        return self.intent_from_graph_fact(intent, policy)
+        return self.intent_from_graph_fact(intent)
 
-    def intent_from_graph_fact(self, intent, policy):
+    def intent_from_graph_fact(self, intent):
         vms_by_role = {vm.role: vm for vm in intent.vms}
         vms = []
         for role in self.roles:
@@ -128,7 +108,10 @@ class AcceptanceTestLifecycle:
             "template": intent.template_name,
             "endpoint": intent.nas_endpoint_name,
             "endpoint_config": intent.nas_endpoint,
-            "policy": policy,
+            "policy": {
+                "hardware": intent.hardware,
+                "mount": intent.mount,
+            },
             "storage": intent.storage,
             "dataset": {
                 "name": intent.dataset.name,

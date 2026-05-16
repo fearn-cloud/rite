@@ -484,16 +484,18 @@ class InventoryEntityGraph:
         )
 
     def acceptance_policy_intent(self, policy_name, host_name, template_name, nas_endpoint_name):
-        policy = self._model.acceptance_policies.get(policy_name)
-        if not policy:
-            return None
-        host = self._model.hosts.get(host_name)
-        if not host:
-            return None
+        if policy_name not in self._model.acceptance_policies:
+            raise InventoryEntityGraphError(
+                f"Acceptance Policy {policy_name!r} is not declared"
+            )
+        policy = self._model.acceptance_policies[policy_name]
+        if host_name not in self._model.hosts:
+            raise InventoryEntityGraphError(f"Host {host_name!r} is not declared")
+        host = self._model.hosts[host_name]
         if template_name not in self._model.templates:
-            return None
+            raise InventoryEntityGraphError(f"Template {template_name!r} is not declared")
         if nas_endpoint_name not in self._model.nas_endpoints:
-            return None
+            raise InventoryEntityGraphError(f"NAS Endpoint {nas_endpoint_name!r} is not declared")
         if template_name not in (host.get("proxmox", {}).get("templates", []) or []):
             raise InventoryEntityGraphError(
                 f"Host {host_name} does not declare Template {template_name} under proxmox.templates"

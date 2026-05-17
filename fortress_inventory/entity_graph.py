@@ -69,6 +69,25 @@ class ServiceLaunchIntent:
 
 
 @dataclass(frozen=True)
+class HostUpdateImpactedVm:
+    vm_name: str
+    vmid: int
+
+
+@dataclass(frozen=True)
+class HostUpdateRebootImpact:
+    host_name: str
+    ordinary_vms: tuple[HostUpdateImpactedVm, ...]
+    resident_service_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VmUpdateRebootImpact:
+    vm_name: str
+    resident_service_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class VmLifecycleSelectedHostFacts:
     vm_name: str
     placement_host_name: str
@@ -85,6 +104,14 @@ class TemplateVerificationIntent:
     storage: str
     static_address: str
     bridge: HostBridgeFact
+
+
+@dataclass(frozen=True)
+class TemplateLineageVmFact:
+    vm_name: str
+    vmid: int | None
+    placement_host_name: str | None
+    template_name: str
 
 
 @dataclass(frozen=True)
@@ -167,6 +194,47 @@ class InventoryEntityGraph:
             service_name=service_name,
             backend_vm_name=backend_vm_name,
             requires_ingress_regeneration=service.get("ingress", {}).get("enabled") is True,
+        )
+
+    def host_update_reboot_impact(self, host_name):
+        if host_name not in self._model.hosts:
+            return None
+
+        impacted_vms = []
+        for vm_name, vm in self._model.vms.items():
+            if self.vm_placement_host_name(vm_name) != host_name:
+                continue
+            vmid = vm.get("vmid")
+            if vmid is None:
+                raise InventoryEntityGraphError(f"VM {vm_name} has no vmid for Host Update reboot interruption")
+            impacted_vms.append(HostUpdateImpactedVm(vm_name=vm_name, vmid=vmid))
+
+        impacted_vm_names = {vm.vm_name for vm in impacted_vms}
+        resident_services = []
+        for service_name in self._model.services:
+            backend_vm_name = self.service_backend_vm_name(service_name)
+            if backend_vm_name in impacted_vm_names:
+                resident_services.append(service_name)
+
+        return HostUpdateRebootImpact(
+            host_name=host_name,
+            ordinary_vms=tuple(sorted(impacted_vms, key=lambda vm: vm.vm_name)),
+            resident_service_names=tuple(sorted(resident_services)),
+        )
+
+    def vm_update_reboot_impact(self, vm_name):
+        if vm_name not in self._model.vms:
+            return None
+
+        resident_services = []
+        for service_name in self._model.services:
+            backend_vm_name = self.service_backend_vm_name(service_name)
+            if backend_vm_name == vm_name:
+                resident_services.append(service_name)
+
+        return VmUpdateRebootImpact(
+            vm_name=vm_name,
+            resident_service_names=tuple(sorted(resident_services)),
         )
 
     def _service_backend(self, service_name):
@@ -481,6 +549,25 @@ class InventoryEntityGraph:
             storage=storage,
             static_address=static_address,
             bridge=bridge,
+        )
+
+    def host_names_declaring_template(self, template_name):
+        return tuple(
+            host_name
+            for host_name, host in sorted(self._model.hosts.items())
+            if template_name in (host.get("proxmox", {}).get("templates", []) or [])
+        )
+
+    def template_lineage_vms(self, template_name):
+        return tuple(
+            TemplateLineageVmFact(
+                vm_name=vm_name,
+                vmid=vm.get("vmid"),
+                placement_host_name=(vm.get("placement") or {}).get("host"),
+                template_name=template_name,
+            )
+            for vm_name, vm in sorted(self._model.vms.items())
+            if (vm.get("source") or {}).get("template") == template_name
         )
 
     def acceptance_policy_intent(self, policy_name, host_name, template_name, nas_endpoint_name):

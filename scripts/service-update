@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_workflows import OperatorWorkflowRunner
+from fortress_workflows.service_update import build_service_update_plan, render_service_update_result
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/service-update <service> [--auto-confirm]", file=sys.stderr)
+        return 2
+
+    service_name, auto_confirm = parsed
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    service_yaml = repo_root / "inventory" / "services" / f"{service_name}.yaml"
+    if not service_yaml.is_file():
+        print(f"Service {service_name!r} is not declared at {service_yaml}", file=sys.stderr)
+        return 1
+
+    try:
+        plan = build_service_update_plan(repo_root, service_name)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    result = OperatorWorkflowRunner(cwd=repo_root, auto_confirm=auto_confirm).run(plan)
+    render_service_update_result(plan, result, service_name)
+    return result.return_code
+
+
+def parse_args(args):
+    if not (1 <= len(args) <= 2):
+        return None
+
+    service_name = args[0].removeprefix("service=")
+    auto_confirm = False
+    if len(args) == 2:
+        if args[1] != "--auto-confirm":
+            return None
+        auto_confirm = True
+
+    return service_name, auto_confirm
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

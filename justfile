@@ -24,6 +24,10 @@ host-shell host:
 host-up host endpoint="all" auto_confirm="false" keep_on_fail="false":
     @./scripts/host-up {{host}} endpoint={{endpoint}} auto_confirm={{auto_confirm}} keep_on_fail={{keep_on_fail}}
 
+# Apply routine in-place software maintenance to one Host.
+host-update host:
+    @./scripts/host-update {{host}}
+
 # Provision one VM through prepare, selected-VM Tofu apply, and configure.
 vm-up vm auto_confirm="false":
     @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/vm-up {{vm}} --auto-confirm; else ./scripts/vm-up {{vm}}; fi
@@ -31,6 +35,10 @@ vm-up vm auto_confirm="false":
 # Configure an already-provisioned VM with Ansible.
 vm-configure vm:
     @./scripts/vm-configure {{vm}}
+
+# Apply routine in-place software maintenance to one VM.
+vm-update vm:
+    @./scripts/vm-update {{vm}}
 
 # Open an SSH shell to a VM.
 vm-shell vm:
@@ -47,6 +55,10 @@ service-deploy service:
 # Launch a Service by converging its Backend VM, deploying it, and refreshing Ingress when declared.
 service-launch service auto_confirm="false":
     @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/service-launch {{service}} --auto-confirm; else ./scripts/service-launch {{service}}; fi
+
+# Apply routine in-place runtime maintenance to one Service.
+service-update service auto_confirm="false":
+    @if [ "{{auto_confirm}}" = "true" ] || [ "{{auto_confirm}}" = "auto_confirm=true" ]; then ./scripts/service-update {{service}} --auto-confirm; else ./scripts/service-update {{service}}; fi
 
 # Plan NAS Dataset and Share changes against a captured reality JSON file.
 nas-reconcile-plan reality_json:
@@ -71,6 +83,14 @@ templates-build host:
 # Verify a Template on a Host; keep_on_fail=true preserves generated artifacts.
 template-verify host template keep_on_fail="false":
     @./scripts/template-verify host={{host}} template={{template}} keep_on_fail={{keep_on_fail}}
+
+# Apply routine reusable base software maintenance to one Template on one Host.
+template-update host template keep_on_fail="false":
+    @./scripts/template-update host={{host}} template={{template}} keep_on_fail={{keep_on_fail}}
+
+# Apply routine reusable base software maintenance to one Template on every declaring Host.
+template-update-all template keep_on_fail="false":
+    @./scripts/template-update host=all template={{template}} keep_on_fail={{keep_on_fail}}
 
 # Run NFS shared-mount acceptance against a NAS endpoint such as endpoint=truenas.
 acceptance-nfs-shared-mount host template endpoint auto_confirm="false" keep_on_fail="false":

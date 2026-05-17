@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/vm-routine-software-advance <vm>", file=sys.stderr)
+        return 2
+
+    vm = sys.argv[1].removeprefix("vm=")
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
+    vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
+    if not vm_yaml.is_file():
+        print(f"VM {vm!r} is not declared at {vm_yaml}", file=sys.stderr)
+        return 1
+    if not vm_sops.is_file():
+        print(f"VM Sibling SOPS File is required at {vm_sops}. Run VM Prepare first.", file=sys.stderr)
+        return 1
+
+    result = subprocess.run(
+        [
+            str(repo_root / "scripts" / "decrypt-keys"),
+            str(vm_sops),
+            "--",
+            "ansible-playbook",
+            str(repo_root / "ansible" / "playbooks" / "vm-routine-software-advance.yml"),
+            "-i",
+            str(repo_root / "inventory" / "fortress.yaml"),
+            "--limit",
+            vm,
+            "--extra-vars",
+            json.dumps({"update_vm": vm, "fortress_vm_sops_file": str(vm_sops)}),
+        ],
+    )
+    if result.returncode != 0:
+        return result.returncode or 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

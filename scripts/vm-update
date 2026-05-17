@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_workflows import CommandPhase, ConfirmationGate, OperatorWorkflowRunner
+from fortress_workflows.vm_update import build_vm_update_plan
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/vm-update <vm> [--reboot] [--auto-confirm]", file=sys.stderr)
+        return 2
+
+    vm, reboot, auto_confirm = parsed
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
+    if not vm_yaml.is_file():
+        print(f"VM {vm!r} is not declared at {vm_yaml}", file=sys.stderr)
+        return 1
+
+    try:
+        plan = build_vm_update_plan(repo_root, vm, reboot=reboot)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    result = OperatorWorkflowRunner(cwd=repo_root, auto_confirm=auto_confirm).run(plan)
+    render_result(plan, result, vm)
+    return result.return_code
+
+
+def parse_args(args):
+    if not (1 <= len(args) <= 3):
+        return None
+    vm = args[0].removeprefix("vm=")
+    reboot = False
+    auto_confirm = False
+    for arg in args[1:]:
+        if arg == "--reboot":
+            reboot = True
+        elif arg == "--auto-confirm":
+            auto_confirm = True
+        else:
+            return None
+    return vm, reboot, auto_confirm
+
+
+def render_result(plan, result, vm):
+    if result.success:
+        return
+    denied_gates = {gate.step_id for gate in result.gate_results if gate.status == "denied"}
+    for step in plan.steps:
+        if isinstance(step, ConfirmationGate) and step.id in denied_gates:
+            print(f"VM Update reboot denied for VM {vm}", file=sys.stderr)
+            return
+    failed_phases = {phase.step_id: phase for phase in result.phase_results if phase.status == "failed"}
+    for step in plan.steps:
+        if isinstance(step, CommandPhase) and step.id in failed_phases:
+            detail = failed_phases[step.id].failure_detail
+            suffix = f": {detail}" if detail else ""
+            print(f"{step.diagnostic_label}{suffix}", file=sys.stderr)
+            return
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

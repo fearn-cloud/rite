@@ -18,11 +18,12 @@ from fortress_inventory.model import load_inventory_tree  # noqa: E402
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("usage: scripts/templates-build <host>", file=sys.stderr)
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/templates-build <host> [<template> --replace-existing]", file=sys.stderr)
         return 2
 
-    host_name = sys.argv[1].removeprefix("host=")
+    host_name, selected_template_name, replace_existing = parsed
     repo_root = Path(os.environ.get("FORTRESS_ROOT", REPO_ROOT))
     inventory = load_inventory_tree(repo_root)
     if host_name not in inventory.hosts:
@@ -32,7 +33,21 @@ def main():
 
     host = inventory.hosts[host_name]
     templates = []
-    for template_name in host.get("proxmox", {}).get("templates", []) or []:
+    declared_templates = host.get("proxmox", {}).get("templates", []) or []
+    if selected_template_name is not None:
+        if selected_template_name not in inventory.templates:
+            print(
+                f"Template {selected_template_name!r} is not declared at "
+                f"{repo_root / 'inventory' / 'templates' / f'{selected_template_name}.yaml'}",
+                file=sys.stderr,
+            )
+            return 1
+        if selected_template_name not in declared_templates:
+            print(f"Host {host_name} does not declare Template {selected_template_name} under proxmox.templates", file=sys.stderr)
+            return 1
+        declared_templates = [selected_template_name]
+
+    for template_name in declared_templates:
         template = inventory.templates.get(template_name)
         if not template:
             print(f"Host {host_name} references missing Template {template_name}", file=sys.stderr)
@@ -40,17 +55,25 @@ def main():
         templates.append(template)
 
     if not shutil.which("qm"):
-        return build_templates_on_host(repo_root, host_name, host, templates)
+        return build_templates_on_host(repo_root, host_name, host, templates, replace_existing)
 
     for template in templates:
-        result = build_template(template)
+        result = build_template(template, replace_existing=replace_existing)
         if result != 0:
             return result
 
     return 0
 
 
-def build_templates_on_host(repo_root, host_name, host, templates):
+def parse_args(argv):
+    if len(argv) == 1:
+        return argv[0].removeprefix("host="), None, False
+    if len(argv) == 3 and argv[2] == "--replace-existing":
+        return argv[0].removeprefix("host="), argv[1].removeprefix("template="), True
+    return None
+
+
+def build_templates_on_host(repo_root, host_name, host, templates, replace_existing):
     management_address = host.get("network", {}).get("management_address")
     if not management_address:
         print(f"Host {host_name} has no network.management_address for remote Template build", file=sys.stderr)
@@ -78,7 +101,7 @@ def build_templates_on_host(repo_root, host_name, host, templates):
         key_path.write_text(decrypted.stdout)
         key_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
-        payload = {"templates": templates}
+        payload = {"templates": templates, "replace_existing": replace_existing}
         if "FORTRESS_TEMPLATE_CACHE" in os.environ:
             payload["template_cache"] = os.environ["FORTRESS_TEMPLATE_CACHE"]
 
@@ -101,7 +124,7 @@ def build_templates_on_host(repo_root, host_name, host, templates):
         return remote.returncode
 
 
-def build_template(template):
+def build_template(template, replace_existing=False):
     vmid = str(template["vmid"])
     if not require_tool("qm"):
         return 1
@@ -113,13 +136,18 @@ def build_template(template):
     )
     if existing.returncode == 0:
         if is_template_config(existing.stdout):
-            print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
-            return 0
-        print(
-            f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
-            file=sys.stderr,
-        )
-        return 1
+            if replace_existing:
+                print(f"Replacing Template {template['name']} at VMID {vmid}")
+                subprocess.run(["qm", "destroy", vmid, "--purge"], check=True)
+            else:
+                print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
+                return 0
+        else:
+            print(
+                f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
+                file=sys.stderr,
+            )
+            return 1
 
     for tool in ("curl", "virt-customize"):
         if not require_tool(tool):
@@ -263,13 +291,13 @@ def main():
     if payload.get("template_cache"):
         os.environ["FORTRESS_TEMPLATE_CACHE"] = payload["template_cache"]
     for template in payload["templates"]:
-        result = build_template(template)
+        result = build_template(template, replace_existing=payload.get("replace_existing", False))
         if result != 0:
             return result
     return 0
 
 
-def build_template(template):
+def build_template(template, replace_existing=False):
     vmid = str(template["vmid"])
     if not require_tool("qm"):
         return 1
@@ -281,13 +309,18 @@ def build_template(template):
     )
     if existing.returncode == 0:
         if is_template_config(existing.stdout):
-            print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
-            return 0
-        print(
-            f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
-            file=sys.stderr,
-        )
-        return 1
+            if replace_existing:
+                print(f"Replacing Template {template['name']} at VMID {vmid}")
+                subprocess.run(["qm", "destroy", vmid, "--purge"], check=True)
+            else:
+                print(f"Template {template['name']} already exists at VMID {vmid}; skipping")
+                return 0
+        else:
+            print(
+                f"VMID {vmid} already exists but is not a Template; refusing to overwrite it",
+                file=sys.stderr,
+            )
+            return 1
 
     for tool in ("curl", "virt-customize"):
         if not require_tool(tool):

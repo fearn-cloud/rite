@@ -92,6 +92,16 @@ class VMNFSMountsRoleTests(unittest.TestCase):
         self.assertIn("retries:", tasks)
         self.assertIn("delay:", tasks)
 
+    def test_role_does_not_chmod_already_mounted_nfs_roots(self):
+        tasks = (REPO_ROOT / "ansible" / "roles" / "vm_nfs_mounts" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("name: Check active NFS mount points", tasks)
+        self.assertIn("findmnt --noheadings --target {{ item.mount_point }}", tasks)
+        self.assertIn("register: fortress_nfs_mount_point_checks", tasks)
+        self.assertIn("name: Ensure unmounted NFS mount points exist", tasks)
+        self.assertIn("loop: \"{{ fortress_nfs_mount_point_checks.results | default([]) }}\"", tasks)
+        self.assertIn("when: item.rc != 0", tasks)
+
     def test_role_renders_read_write_access_as_rw_option(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

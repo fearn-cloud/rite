@@ -5,15 +5,19 @@ from fortress_inventory.entity_graph import (
     AcceptanceOperationalVmFact,
     AcceptancePolicyIntent,
     DesiredNfsShareInput,
+    HostUpdateImpactedVm,
+    HostUpdateRebootImpact,
     MountDatasetFact,
     HostBridgeFact,
     InventoryEntityGraph,
     InventoryEntityGraphError,
     ServiceLaunchIntent,
     ServiceShareBackedVolumeFact,
+    TemplateLineageVmFact,
     TemplateVerificationIntent,
     VmLifecycleSelectedHostFacts,
     VmMountFact,
+    VmUpdateRebootImpact,
 )
 from fortress_inventory.model import InventoryModel
 
@@ -520,6 +524,60 @@ class InventoryEntityGraphTests(unittest.TestCase):
         )
         self.assertIsNone(graph.vm_lifecycle_selected_host_facts("missing-vm"))
 
+    def test_resolves_host_update_reboot_impact_from_placed_vms_and_resident_services(self):
+        model = inventory_model(
+            hosts={"wintermute": {}, "straylight": {}},
+            vms={
+                "media01": {"vmid": 101, "placement": {"host": "wintermute"}},
+                "forgejo01": {"vmid": 102, "placement": {"host": "wintermute"}},
+                "dns01": {"vmid": 201, "placement": {"host": "straylight"}},
+            },
+            services={
+                "jellyfin": {"backend": {"vm": "media01"}},
+                "forgejo": {"backend": {"vm": "forgejo01"}},
+                "unbound": {"backend": {"vm": "dns01"}},
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(
+            HostUpdateRebootImpact(
+                host_name="wintermute",
+                ordinary_vms=(
+                    HostUpdateImpactedVm(vm_name="forgejo01", vmid=102),
+                    HostUpdateImpactedVm(vm_name="media01", vmid=101),
+                ),
+                resident_service_names=("forgejo", "jellyfin"),
+            ),
+            graph.host_update_reboot_impact("wintermute"),
+        )
+        self.assertIsNone(graph.host_update_reboot_impact("missing-host"))
+
+    def test_resolves_vm_update_reboot_impact_from_resident_services(self):
+        model = inventory_model(
+            vms={
+                "media01": {"vmid": 101},
+                "forgejo01": {"vmid": 102},
+            },
+            services={
+                "jellyfin": {"backend": {"vm": "media01"}},
+                "sonarr": {"backend": {"vm": "media01"}},
+                "forgejo": {"backend": {"vm": "forgejo01"}},
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(
+            VmUpdateRebootImpact(
+                vm_name="media01",
+                resident_service_names=("jellyfin", "sonarr"),
+            ),
+            graph.vm_update_reboot_impact("media01"),
+        )
+        self.assertIsNone(graph.vm_update_reboot_impact("missing-vm"))
+
     def test_vm_lifecycle_selected_host_provider_facts_reject_invalid_declared_hosts(self):
         model = inventory_model(
             hosts={"wintermute": {}},
@@ -770,6 +828,61 @@ class InventoryEntityGraphTests(unittest.TestCase):
             graph.template_verification_intent("wintermute", "debian-13-base"),
         )
         self.assertIsNone(graph.template_verification_intent("missing-host", "debian-13-base"))
+
+    def test_resolves_template_update_scope_and_existing_vm_lineage(self):
+        model = InventoryModel(
+            root=None,
+            hosts={
+                "wintermute": {"proxmox": {"templates": ["debian-13-base"]}},
+                "molly": {"proxmox": {"templates": ["debian-13-base", "ubuntu-2404-base"]}},
+                "straylight": {"proxmox": {"templates": ["ubuntu-2404-base"]}},
+            },
+            vms={
+                "media01": {
+                    "vmid": 101,
+                    "placement": {"host": "wintermute"},
+                    "source": {"template": "debian-13-base"},
+                },
+                "dns01": {
+                    "vmid": 102,
+                    "placement": {"host": "molly"},
+                    "source": {"template": "debian-13-base"},
+                },
+                "web01": {
+                    "vmid": 103,
+                    "placement": {"host": "straylight"},
+                    "source": {"template": "ubuntu-2404-base"},
+                },
+            },
+            services={},
+            datasets={},
+            nas_endpoints={},
+            templates={"debian-13-base": {"name": "debian-13-base"}},
+            template_verification_policy={},
+            acceptance_policies={},
+            globals={},
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(("molly", "wintermute"), graph.host_names_declaring_template("debian-13-base"))
+        self.assertEqual(
+            (
+                TemplateLineageVmFact(
+                    vm_name="dns01",
+                    vmid=102,
+                    placement_host_name="molly",
+                    template_name="debian-13-base",
+                ),
+                TemplateLineageVmFact(
+                    vm_name="media01",
+                    vmid=101,
+                    placement_host_name="wintermute",
+                    template_name="debian-13-base",
+                ),
+            ),
+            graph.template_lineage_vms("debian-13-base"),
+        )
 
     def test_resolves_acceptance_policy_intent_for_selected_host_template_and_nas_endpoint(self):
         model = InventoryModel(

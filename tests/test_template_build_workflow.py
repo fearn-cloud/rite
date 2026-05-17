@@ -156,6 +156,95 @@ class TemplateBuildWorkflowTests(unittest.TestCase):
             self.assertNotIn("virt-customize", calls)
             self.assertNotIn("qm create", calls)
 
+    def test_replace_existing_rebuilds_only_selected_template_through_explicit_destroy_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._template_fixture(tmp)
+            second = root / "inventory" / "templates" / "ubuntu-2404-base.yaml"
+            second.write_text((root / "inventory" / "templates" / "debian-13-base.yaml").read_text().replace("debian-13-base", "ubuntu-2404-base").replace("9001", "9002"))
+            host_yaml = root / "inventory" / "hosts" / "wintermute.yaml"
+            host_yaml.write_text(host_yaml.read_text().replace("[debian-13-base]", "[debian-13-base, ubuntu-2404-base]"))
+            env = self._fake_tools(root, calls_log)
+            env["FORTRESS_FAKE_QM_CONFIG"] = "template"
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "templates-build"),
+                    "wintermute",
+                    "debian-13-base",
+                    "--replace-existing",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = calls_log.read_text()
+            self.assertIn("qm config 9001", calls)
+            self.assertIn("qm destroy 9001 --purge", calls)
+            self.assertIn("qm create 9001 --name debian-13-base", calls)
+            self.assertIn("qm template 9001", calls)
+            self.assertNotIn("qm config 9002", calls)
+            self.assertNotIn("ubuntu-2404-base", calls)
+            self.assertIn("Replacing Template debian-13-base at VMID 9001", result.stdout)
+
+    def test_replace_existing_refuses_existing_non_template_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._template_fixture(tmp)
+            env = self._fake_tools(root, calls_log)
+            env["FORTRESS_FAKE_QM_CONFIG"] = "vm"
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "templates-build"),
+                    "wintermute",
+                    "debian-13-base",
+                    "--replace-existing",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("already exists but is not a Template", result.stderr)
+            calls = calls_log.read_text()
+            self.assertIn("qm config 9001", calls)
+            self.assertNotIn("qm destroy", calls)
+            self.assertNotIn("qm create", calls)
+
+    def test_replace_existing_remote_payload_scopes_to_selected_template(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._template_fixture(tmp, include_host_sops=True)
+            second = root / "inventory" / "templates" / "ubuntu-2404-base.yaml"
+            second.write_text((root / "inventory" / "templates" / "debian-13-base.yaml").read_text().replace("debian-13-base", "ubuntu-2404-base").replace("9001", "9002"))
+            host_yaml = root / "inventory" / "hosts" / "wintermute.yaml"
+            host_yaml.write_text(host_yaml.read_text().replace("[debian-13-base]", "[debian-13-base, ubuntu-2404-base]"))
+            env = self._fake_tools(root, calls_log, include_qm=False)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "templates-build"),
+                    "wintermute",
+                    "debian-13-base",
+                    "--replace-existing",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads((root / "remote-payload.json").read_text())
+            self.assertTrue(payload["replace_existing"])
+            self.assertEqual(["debian-13-base"], [template["name"] for template in payload["templates"]])
+
     def test_existing_non_template_vmid_fails_without_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._template_fixture(tmp)

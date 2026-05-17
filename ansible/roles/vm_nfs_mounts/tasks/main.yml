@@ -14,14 +14,25 @@
     mode: "0755"
   when: (fortress_vm.mounts | default([]) | selectattr('protocol', 'equalto', 'nfs') | list) | length > 0
 
-- name: Ensure NFS mount points exist
-  ansible.builtin.file:
-    path: "{{ item.mount_point }}"
-    state: directory
-    mode: "0755"
+- name: Check active NFS mount points
+  ansible.builtin.command:
+    cmd: "findmnt --noheadings --target {{ item.mount_point }}"
+  changed_when: false
+  failed_when: false
   loop: "{{ fortress_vm.mounts | default([]) | selectattr('protocol', 'equalto', 'nfs') | list }}"
   loop_control:
     label: "{{ item.mount_point }}"
+  register: fortress_nfs_mount_point_checks
+
+- name: Ensure unmounted NFS mount points exist
+  ansible.builtin.file:
+    path: "{{ item.item.mount_point }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ fortress_nfs_mount_point_checks.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.mount_point }}"
+  when: item.rc != 0
 
 - name: Render NFS systemd mount units
   ansible.builtin.template:

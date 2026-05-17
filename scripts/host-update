@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_workflows import CommandPhase, ConfirmationGate, OperatorWorkflowRunner  # noqa: E402
+from fortress_workflows.host_update import HostUpdatePlanError, build_host_update_plan  # noqa: E402
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print("usage: scripts/host-update <host> [--reboot]", file=sys.stderr)
+        return 2
+
+    host_name, reboot = parsed
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    try:
+        plan = build_host_update_plan(repo_root, host_name, reboot=reboot)
+    except HostUpdatePlanError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    result = OperatorWorkflowRunner(cwd=repo_root).run(plan)
+    render_result(plan, result, host_name)
+    return result.return_code
+
+
+def parse_args(args):
+    if not (1 <= len(args) <= 2):
+        return None
+    host_name = args[0].removeprefix("host=")
+    reboot = False
+    if len(args) == 2:
+        if args[1] != "--reboot":
+            return None
+        reboot = True
+    return host_name, reboot
+
+
+def render_result(plan, result, host_name):
+    if result.success:
+        return
+    denied_gates = {gate.step_id for gate in result.gate_results if gate.status == "denied"}
+    for step in plan.steps:
+        if isinstance(step, ConfirmationGate) and step.id in denied_gates:
+            print(f"Host Update reboot denied for Host {host_name}", file=sys.stderr)
+            return
+    failed_phases = {phase.step_id: phase for phase in result.phase_results if phase.status == "failed"}
+    for step in plan.steps:
+        if isinstance(step, CommandPhase) and step.id in failed_phases:
+            detail = failed_phases[step.id].failure_detail
+            suffix = f": {detail}" if detail else ""
+            print(f"{step.diagnostic_label}{suffix}", file=sys.stderr)
+            return
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,57 @@
+---
+- name: Advance routine VM software inside the current compatibility band
+  hosts: "{{ update_vm }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Refresh apt package metadata
+      ansible.builtin.command:
+        cmd: apt-get update
+      changed_when: true
+      when: not (fortress_skip_apt_metadata_refresh | default(false))
+
+    - name: Preview routine apt package advancement
+      ansible.builtin.command:
+        cmd: apt-get --simulate upgrade --with-new-pkgs --no-remove
+      changed_when: false
+      register: fortress_apt_upgrade_preview
+      when: fortress_apt_upgrade_preview_override is not defined
+
+    - name: Use injected routine apt package advancement preview
+      ansible.builtin.set_fact:
+        fortress_apt_upgrade_preview: "{{ fortress_apt_upgrade_preview_override }}"
+      when: fortress_apt_upgrade_preview_override is defined
+
+    - name: Summarize routine apt package advancement
+      ansible.builtin.set_fact:
+        fortress_apt_updated_packages: >-
+          {{
+            fortress_apt_upgrade_preview.stdout_lines
+            | default([])
+            | select('match', '^Inst ')
+            | map('regex_replace', '^Inst ([^ ]+).*$', '\1')
+            | list
+          }}
+        fortress_apt_security_updates: >-
+          {{
+            fortress_apt_upgrade_preview.stdout_lines
+            | default([])
+            | select('match', '^Inst ')
+            | select('search', '(?i)security')
+            | map('regex_replace', '^Inst ([^ ]+).*$', '\1')
+            | list
+          }}
+
+    - name: Report routine apt package advancement
+      ansible.builtin.debug:
+        msg:
+          - "Updated packages: {{ fortress_apt_updated_packages | join(', ') if fortress_apt_updated_packages else '(none)' }}"
+          - "Security updates: {{ fortress_apt_security_updates | join(', ') if fortress_apt_security_updates else '(none)' }}"
+
+    - name: Apply routine apt package advancement without removals
+      ansible.builtin.command:
+        cmd: apt-get upgrade --assume-yes --with-new-pkgs --no-remove
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      changed_when: true
+      when: not (fortress_skip_routine_software_apply | default(false))

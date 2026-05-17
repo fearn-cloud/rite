@@ -1,0 +1,27 @@
+# Move shared-network validation from Service Group to Service Network
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Move the existing shared-network validation behavior off logical Service Group membership and onto Service Network membership. Services in the same Service Network must share one Backend VM and one Container Alias namespace. Services in the same Service Group but without a shared Service Network must not gain private network coupling from that grouping alone.
+
+Keep Service Network validation isolated from Service Group Launch validation so runtime topology and group launch choreography can evolve independently.
+
+## Acceptance criteria
+
+- [ ] Validation rejects a Service Network whose member Services span Backend VMs.
+- [ ] Validation rejects Container Alias collisions inside one Service Network.
+- [ ] Validation permits Services in the same Service Group to live on different Backend VMs when no Service Group Launch rule is involved.
+- [ ] Validation permits Services in the same Service Group to avoid shared private networking when they do not share a `service_network`.
+- [ ] Existing Service Group validation tests are renamed or reworked so their expected errors use Service Network language.
+- [ ] Tests describe externally visible validation failures rather than implementation-specific traversal.
+
+## Blocked by
+
+- .scratch/service-group-launch/issues/01-introduce-service-network-inventory-field.md
+

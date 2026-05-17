@@ -55,8 +55,12 @@ A deployed application or co-located group of containers, declared in `inventory
 _Avoid_: app, workload; "systemd service" (always qualify as "systemd unit").
 
 **Service Group**:
-A named set of one or more Services on the same VM that intentionally share a VM-local Podman network for private Service-to-Service communication.
-_Avoid_: stack (too Compose-specific), app suite.
+A named set of one or more Services that the operator treats as a coherent group.
+_Avoid_: stack (too Compose-specific), app suite; Service Network.
+
+**Service Network**:
+A VM-local Podman network shared by one or more Services for private Service-to-Service communication.
+_Avoid_: Service Group, stack network.
 
 **Media VM**:
 The Apps VLAN VM that runs media playback, request, catalog, and indexer Services such as Jellyfin, Seerr, Sonarr, Radarr, Prowlarr, and Bazarr.
@@ -83,7 +87,7 @@ The VM (and TCP port) that the Ingress reverse-proxies a Service to. Declared as
 _Avoid_: upstream (overloaded with apt/git senses).
 
 **Service Runtime Intent**:
-The resolved fortress-owned runtime meaning of one or more Services, projected from Inventory for Service Deploy and validation. Includes Backend placement, Published Ports, Service Data Directories, Service Secrets, Service Group runtime wiring, container start order, and Share-backed Volumes without requiring callers to traverse raw Service yaml.
+The resolved fortress-owned runtime meaning of one or more Services, projected from Inventory for Service Deploy and validation. Includes Backend placement, Published Ports, Service Data Directories, Service Secrets, Service Network wiring, container start order, and Share-backed Volumes without requiring callers to traverse raw Service yaml.
 _Avoid_: raw service config, deploy vars, rendered Quadlet.
 
 **Published Port**:
@@ -507,8 +511,13 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The **Identity VM** is `identity-vm` at `10.40.0.19/24` on the `straylight` Host.
 - Headscale does not depend on the **Identity VM** until a later explicit OIDC integration decision.
 - A **Dataset** is declared in `inventory/datasets/<dataset>.yaml`.
-- A **Service Group** contains one or more **Services** on the same **VM**.
+- A **Service Group** contains one or more **Services**.
 - A **Service Group** name is globally unique within the **Inventory**.
+- A **Service Network** is VM-local and may be shared by multiple **Services** on the same **VM**.
+- **Service Group** membership does not imply **Service Network** membership.
+- A **Service** declares logical group membership with `service_group` and private runtime network membership with `service_network`.
+- A **Service** declares **Service Network** membership directly; **Service Network** membership is validated from member **Services**.
+- Existing **Service** declarations that used `service_group` for shared runtime networking migrate by keeping `service_group` and adding matching `service_network`.
 - Media request and playback Services may share a **Service Group** when they have the same storage access and trust boundary.
 - Download clients must run on a separate **VM** from media request and playback Services.
 - The **Media VM** and **Download VM** both consume the media Dataset, while individual **Services** narrow their visible paths through **Share-backed Volumes**.
@@ -689,6 +698,15 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Launch** deploys only the named **Service**, even when other **Services** share its **Backend** **VM** or **Service Group**.
 - **Service Launch** does not roll back or destroy a durable **Backend** **VM** after downstream **Service Deploy** or **Ingress Regeneration** failure.
 - **Service Launch** is invoked for exactly one **Service** and passes operator confirmation policy through to underlying workflows.
+- **Service Group Launch** is invoked for exactly one **Service Group** and deploys every **Service** in that group as one group-scoped ceremony.
+- **Service Group Launch Order** is a VM-declared explicit order that accounts for every **Service** in the launched **Service Group**.
+- **Service Group Launch** is valid only when all launched **Services** share one **Backend** **VM**.
+- **Service Group Launch** runs **VM Lifecycle Convergence** once for that shared **Backend** **VM** before deploying group **Services**.
+- **Service Group Launch** is invoked as a group-targeted operator workflow rather than overloading single-**Service** launch.
+- **Service Group Launch** stops at the first failed **Service Deploy** and does not roll back earlier successful group work.
+- **Service Group Launch** deploys group **Services** through **Service Deploy** and does not add **Service Update** restart or active-check semantics.
+- **Service Group Launch** may deploy Quadlet and Native **Services** because **Service Group** membership is independent of deployment substrate.
+- **Service Group Launch** runs **Ingress Regeneration** once after all group **Service Deploy** phases complete, and only when at least one launched **Service** declares **Ingress**.
 - **Update** keeps the selected **Entity**'s identity, placement, and declared shape intact.
 - **Update** avoids package removals and release-transition behavior by default; those belong to **Upgrade**.
 - **Host Update**, **VM Update**, **Template Update**, and **Service Update** are separate operator workflows because their blast radius and safety gates differ.
@@ -789,6 +807,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **`ingress.exposure` enum**: Only `lan_only` appears in [docs/architecture.md](docs/architecture.md). Whether `internet_exposed` (or similar) is a planned value, and what it would imply for the Caddy/Cloudflare wiring, is unresolved.
 - **`ingress.auth` enum**: The Firewall Matrix requires **File Browser** to use **Ingress Auth**, but the current Service schema only accepts `auth.type: none`. Inventory may temporarily encode the Service as unauthenticated while preserving the policy gap here.
 - **Multi-VM Backend**: Deferred. A **Service** has exactly one **Backend** for the initial Quadlet and Ingress implementation; HA Backend semantics will be designed when the Ingress supports multiple Backends.
+- **Service Group vs Service Network**: Resolved. **Service Group** names a logical/operator grouping of **Services**; **Service Network** names the VM-local Podman networking boundary formerly implied by Service Group membership.
+- **Service Group and Service Network coupling**: Resolved. A **Service Group** and **Service Network** are independently declared concepts; matching names may be convenient but must not imply coupling.
+- **Service grouping fields**: Resolved. Existing Service-level `service_group` means logical **Service Group** membership; a separate `service_network` field carries **Service Network** membership.
+- **Service Network declaration**: Resolved. **Service Network** membership is declared on each member **Service**, not as a VM-level network membership list.
+- **Service Group to Service Network migration**: Resolved. Services that previously relied on `service_group` for shared Podman networking keep the logical group and add a matching `service_network` during migration so runtime behavior is preserved.
+- **Service Group Launch**: Resolved. Launching a **Service Group** means launching every **Service** in that group, not inferring only the dependencies of a named entrypoint **Service**.
+- **Service Group Launch declaration**: Resolved. A launchable **Service Group** is declared on its shared **Backend** **VM**; the VM declaration and member **Service** declarations must agree on group membership.
+- **Service Group Launch declaration validation**: Resolved. A VM-declared **Service Group Launch Order** must list existing group member **Services** for that VM exactly once, and a launchable **Service Group** must not be declared on more than one **VM**.
+- **Service Group Launch Backend scope**: Resolved. Same-Backend membership is a **Service Group Launch** constraint, not part of the general **Service Group** definition.
+- **Service Group Launch ordering**: Resolved. Service Group Launch uses an explicit order for every **Service** in the group; the first media order is Prowlarr, Sonarr, Radarr, Bazarr, Jellyfin, then Seerr.
 - **Service Group Update**: Deferred. **Service Update** updates only one named **Service**; coordinated **Service Group** maintenance will be modeled when a real group-level update need appears.
 - **Service health checks**: Deferred. **Service Update** proves systemd unit activation; application-level health semantics require an explicit future Service health contract.
 - **Fleet Update**: Deferred. Fleet-wide maintenance ordering, batching, and failure isolation will be modeled only after the individual **Host Update**, **Template Update**, **VM Update**, and **Service Update** workflows are proven.

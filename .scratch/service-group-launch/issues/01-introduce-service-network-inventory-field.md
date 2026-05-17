@@ -1,0 +1,27 @@
+# Introduce Service Network inventory field and migrate existing Services
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Add `service_network` as the Inventory field for VM-local private Service-to-Service networking while keeping `service_group` as the logical Service Group field. Existing Services that relied on `service_group` for shared Podman networking should keep their logical `service_group` and add a matching `service_network` so the migration is not a runtime behavior change.
+
+This slice should leave the real Inventory loadable and should update the most immediate schema-facing terminology so Service Group and Service Network are not conflated.
+
+## Acceptance criteria
+
+- [ ] Service schema accepts `service_network` on Service declarations.
+- [ ] Existing shared-network Services that depended on `service_group` networking declare a matching `service_network`.
+- [ ] Services that do not need shared private networking can omit `service_network`.
+- [ ] Loading the real Inventory succeeds after the migration.
+- [ ] Tests cover accepted and rejected schema shapes for `service_network`.
+- [ ] Operator-facing schema or fixture terminology distinguishes Service Group from Service Network where this slice touches it.
+
+## Blocked by
+
+None - can start immediately
+

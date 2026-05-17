@@ -1,0 +1,28 @@
+# Render Quadlet shared networks from Service Network
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Change Quadlet rendering so shared Podman network artifacts and container `Network=` wiring are driven by `service_network`. Services without `service_network` should keep their existing isolated per-Service network behavior. The rendered artifact names and deploy variables should use Service Network terminology where externally visible.
+
+This slice preserves runtime behavior for migrated Services while making the implementation reflect the new domain boundary.
+
+## Acceptance criteria
+
+- [ ] Shared Quadlet network artifact names are derived from `service_network`, not `service_group`.
+- [ ] Container `Network=` entries for shared-network Services point at the Service Network-derived Podman network.
+- [ ] Services without `service_network` still render isolated per-Service network wiring.
+- [ ] Golden or focused Quadlet tests prove the Service Network controls shared network rendering.
+- [ ] Existing deploy variable names or diagnostics touched by this slice no longer describe shared Podman networks as Service Groups.
+- [ ] Native Services remain unaffected by Quadlet-specific rendering changes.
+
+## Blocked by
+
+- .scratch/service-group-launch/issues/01-introduce-service-network-inventory-field.md
+- .scratch/service-group-launch/issues/02-move-shared-network-validation-to-service-network.md
+

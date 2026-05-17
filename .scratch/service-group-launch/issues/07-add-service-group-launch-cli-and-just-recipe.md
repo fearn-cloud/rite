@@ -1,0 +1,29 @@
+# Add service-group-launch CLI and Just recipe
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Add an executable `service-group-launch <group> [--auto-confirm]` operator command and expose it through Just. The command should validate arguments, build the Service Group Launch plan, run it through the shared Operator Workflow Runner, and render group-specific failure diagnostics including the failed phase and Service when a Service Deploy fails.
+
+This command must not overload `service-launch <service>`; single-Service launch remains scoped to one Service.
+
+## Acceptance criteria
+
+- [ ] `scripts/service-group-launch <group>` runs the Service Group Launch workflow for the requested group.
+- [ ] `--auto-confirm` is accepted and propagated to VM Lifecycle Convergence through the workflow plan.
+- [ ] Unknown flags and missing arguments print usage and fail without running a workflow.
+- [ ] Requests for groups that are not declared as launchable produce clear operator-facing errors.
+- [ ] Failed Service Deploy output identifies the phase and Service that failed.
+- [ ] The command stops before later Service Deploy phases and skips Ingress Regeneration after a failed Service Deploy.
+- [ ] Just exposes Service Group Launch with auto-confirm behavior consistent with `service-launch`.
+- [ ] Tests prove `service-launch <service>` remains single-Service scoped and is not overloaded with group targets.
+
+## Blocked by
+
+- .scratch/service-group-launch/issues/06-build-service-group-launch-workflow-plan.md
+

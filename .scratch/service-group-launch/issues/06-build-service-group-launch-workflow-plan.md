@@ -1,0 +1,29 @@
+# Build the Service Group Launch workflow plan
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Add the Service Group Launch workflow builder. It should compose existing workflow commands into one Operator Workflow Plan: VM Lifecycle Convergence once for the shared Backend VM, Service Deploy once for each ordered Service, and Ingress Regeneration once at the end only when at least one launched Service declares Ingress.
+
+Failure semantics should match the PRD: stop at the first failed Service Deploy, do not roll back durable VM or earlier Service Deploy work, and keep Launch distinct from Service Update restart and active-check semantics.
+
+## Acceptance criteria
+
+- [ ] The workflow plan id and diagnostics identify Service Group Launch and the target group.
+- [ ] The first phase runs VM Lifecycle Convergence once for the shared Backend VM.
+- [ ] Operator confirmation policy is passed through to VM Lifecycle Convergence.
+- [ ] Ordered Service Deploy phases appear exactly in the Service Group Launch Order.
+- [ ] Quadlet and Native Services are both deployed through ordinary Service Deploy phases.
+- [ ] Ingress Regeneration appears once at the end when any launched Service declares Ingress.
+- [ ] Ingress Regeneration is omitted when no launched Service declares Ingress.
+- [ ] Tests cover phase shape, order, stop-on-failure behavior, and absence of Service Update semantics.
+
+## Blocked by
+
+- .scratch/service-group-launch/issues/05-expose-service-group-launch-intent.md
+

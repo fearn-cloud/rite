@@ -1,0 +1,29 @@
+# Refresh operator documentation for Service Group and Service Network
+
+Status: ready-for-agent
+
+## Parent
+
+.scratch/service-group-launch/PRD.md
+
+## What to build
+
+Update operator documentation, architecture notes, and runbooks so Service Group consistently means logical/operator grouping and Service Network consistently means VM-local Podman networking. Document Service Group Launch as a group-targeted launch workflow while preserving the distinction between Service Launch, Service Group Launch, and Service Update.
+
+This slice should clean up stale wording that says Service Group membership grants shared Podman networking.
+
+## Acceptance criteria
+
+- [ ] Runbooks no longer describe Service Group as the shared Podman network mechanism.
+- [ ] New-service guidance explains when to use `service_group` and when to use `service_network`.
+- [ ] Workflow documentation includes `service-group-launch <group>` and the Just recipe.
+- [ ] Architecture documentation names Service Group Launch alongside the existing workflow scripts/builders.
+- [ ] Documentation preserves the Launch/Update distinction and does not imply Service Group Update exists.
+- [ ] Documentation tests, if present for touched files, are updated to assert the new terminology and command surface.
+
+## Blocked by
+
+- .scratch/service-group-launch/issues/02-move-shared-network-validation-to-service-network.md
+- .scratch/service-group-launch/issues/03-render-quadlet-shared-networks-from-service-network.md
+- .scratch/service-group-launch/issues/07-add-service-group-launch-cli-and-just-recipe.md
+

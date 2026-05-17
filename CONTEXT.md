@@ -1,6 +1,6 @@
-# fortress
+# Rite
 
-Homelab infrastructure automation for a fleet of standalone Proxmox 9 machines. The operator declares desired state in flat per-entity YAML files; tooling converges live infrastructure toward that declared state through workflow-specific ceremonies.
+A single-operator control plane for declaring, validating, and safely converging a personal Proxmox fleet through explicit Operator Workflows.
 
 ## Language
 
@@ -161,15 +161,15 @@ _Avoid_: router config, firewall export.
 ### Operator and ceremony
 
 **Operator**:
-The single human running fortress. The only intended persona; "future-self on a new workstation" is the only second viewer.
+The single human running Rite. The only intended persona; "future-self on a new workstation" is the only second viewer.
 _Avoid_: user, admin.
 
 **Remote Operator Workstation**:
-A trusted workstation-like environment outside the local admin network that can run full fortress Operator workflows through tailnet reachability.
+A trusted workstation-like environment outside the local admin network that can run full Rite Operator Workflows through tailnet reachability.
 _Avoid_: dev VM, remote editor, jump box.
 
 **Remote Operator Session**:
-A deliberately unlocked period during which a Remote Operator Workstation has the credentials needed to run fortress Operator workflows.
+A deliberately unlocked period during which a Remote Operator Workstation has the credentials needed to run Rite Operator Workflows.
 _Avoid_: permanent remote access, always-on dev credentials.
 
 **Hosted Tailnet**:

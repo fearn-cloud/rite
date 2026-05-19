@@ -106,6 +106,10 @@ _Avoid_: upstream (overloaded with apt/git senses).
 The resolved fortress-owned runtime meaning of one or more Services, projected from Inventory for Service Deploy and validation. Includes Backend placement, Published Ports, Service Data Directories, Service Secrets, Service Network wiring, container start order, and Share-backed Volumes without requiring callers to traverse raw Service yaml. It owns Service runtime meaning, not rendered artifacts.
 _Avoid_: raw service config, deploy vars, rendered Quadlet.
 
+**Service Runtime Identity**:
+The fortress-owned runtime names and paths derived from Service Runtime Intent, such as Podman container names, systemd unit names, Service Network names, Service Secret names, Service Data Directory paths, and required mount unit names.
+_Avoid_: Quadlet rendering detail, Ansible variable name.
+
 **Published Port**:
 A VM-local port exposed by a Quadlet container for another VM or the Ingress to reach; defaults to loopback binding and TCP unless declared otherwise.
 _Avoid_: exposed port (overloaded between container metadata and host publishing).
@@ -881,7 +885,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Group Launch ordering**: Resolved. Service Group Launch uses an explicit order for every **Service** in the group; the first media order is Prowlarr, Sonarr, Radarr, Bazarr, Jellyfin, then Seerr.
 - **Service Group Update**: Deferred. **Service Update** updates only one named **Service**; coordinated **Service Group** maintenance will be modeled when a real group-level update need appears.
 - **Service health checks**: Deferred. **Service Update** proves systemd unit activation; application-level health semantics require an explicit future Service health contract.
-- **Service Runtime Intent edge**: Resolved. **Service Runtime Intent** owns fortress-owned Service runtime meaning, not rendered artifacts; Quadlet files, Ansible variable names, systemd commands, Grafana JSON, and application-specific configuration remain Adapter concerns.
+- **Service Runtime Intent edge**: Resolved. **Service Runtime Intent** owns fortress-owned Service runtime meaning, including **Service Runtime Identity**, not rendered artifacts; Quadlet files, Ansible variable names, systemd commands, Grafana JSON, and application-specific configuration remain Adapter concerns.
 - **Service Runtime Intent scope**: Resolved. Fleet-wide **Service Runtime Intent** analysis is canonical because cross-Service facts require global visibility; per-Service access is a convenience view over the fleet-wide result, not a second analysis path.
 - **Service Runtime Intent diagnostics**: Resolved. **Service Runtime Intent** owns diagnostics for runtime-meaning invariants; Inventory validation adapts those diagnostics into operator-facing validation errors, while JSON Schema retains schema-shape validation.
 - **VM-level Instrumentation collector selection**: Deferred. First-pass enabled VM-level **Instrumentation** applies one baseline collector set; per-VM collector profiles belong in a later extension of the VM-level **Instrumentation** declaration and would be applied to existing **VMs** through Instrumentation Convergence.

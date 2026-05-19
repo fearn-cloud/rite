@@ -18,9 +18,9 @@ This creates low Locality. A change to Service volume or secret semantics requir
 
 Deepen **Service Runtime Intent** into the canonical fleet-wide Module for fortress-owned Service runtime meaning. Fleet-wide analysis remains canonical because cross-Service facts such as port collisions and Service Network alias collisions require global visibility. Per-Service access should be a convenience view over the fleet-wide result, not a second analysis path.
 
-**Service Runtime Intent** owns meaning and diagnostics, not rendered artifacts. It should expose resolved facts for Backend placement, Published Ports, Telemetry Targets, Share-backed Volumes, Service-owned volumes, Service Data Directories, Service Secrets, Native Service Environment Secrets, Service Network wiring, and container start order. Inventory validation remains the Adapter that turns runtime diagnostics into operator-facing validation errors. Quadlet rendering, Ansible variable names, systemd command details, Grafana JSON, generated Prometheus files, and application-specific configuration remain Adapter concerns.
+**Service Runtime Intent** owns meaning and diagnostics, not rendered artifacts. It should expose resolved facts for Backend placement, Published Ports, Telemetry Targets, Share-backed Volumes, Service-owned volumes, Service Data Directories, Service Secrets, Native Service Environment Secrets, Service Network wiring, container start order, and **Service Runtime Identity**. Inventory validation remains the Adapter that turns runtime diagnostics into operator-facing validation errors. Quadlet rendering, Ansible variable names, systemd command details, Grafana JSON, generated Prometheus files, and application-specific configuration remain Adapter concerns.
 
-The next implementation milestone is **Share-backed Volumes, Service Data Directories, and Service secret wiring through Service Runtime Intent**. It should preserve current operator behavior while moving runtime meaning into the deeper Module.
+The next open implementation milestone is **Service Runtime Identity through Service Runtime Intent**. It should preserve current operator behavior while moving fortress-owned runtime names and paths into the deeper Module. Transitional raw-yaml fallback traversal may remain during migration, but removing it is a final human-in-the-loop step so Service Runtime Intent becomes the only path.
 
 ## User Stories
 
@@ -118,7 +118,7 @@ The next implementation milestone is **Share-backed Volumes, Service Data Direct
 
 - Keep the existing compatibility Adapter for `fortress_services.runtime_intent`, but new code should prefer the canonical Inventory-owned Service Runtime Intent Module.
 
-- Later slices should move Service Network wiring, Container Alias namespace facts, container start order, and additional Observability/Ingress callers onto the deeper Service Runtime Intent seam.
+- Later slices should move Service Network wiring, Container Alias namespace facts, container start order, Service Runtime Identity, and additional Observability/Ingress callers onto the deeper Service Runtime Intent seam.
 
 ## Testing Decisions
 
@@ -156,7 +156,7 @@ The next implementation milestone is **Share-backed Volumes, Service Data Direct
 
 - Modeling secret values, decrypting SOPS inside Service Runtime Intent, or passing plaintext through runtime facts is out of scope.
 
-- Moving Service Network wiring, Container Alias namespace validation, and container start order into Service Runtime Intent is out of scope for the first milestone, though it remains part of the longer-term direction.
+- Moving Service Network wiring, Container Alias namespace validation, container start order, and Service Runtime Identity into Service Runtime Intent was out of scope for the first milestone, but is the next open milestone.
 
 - Changing Ingress route generation, DNS record generation, NAS Reconcile, or Operator Workflow Runner behavior is out of scope.
 
@@ -166,7 +166,9 @@ The next implementation milestone is **Share-backed Volumes, Service Data Direct
 
 - A completed tracer bullet already introduced Backend and Published Port analysis under `.scratch/service-runtime-intent/issues/01-service-runtime-intent-backend-published-port-analysis.md`.
 
-- The next issue should be sliced as the first post-tracer milestone: move Service volume and secret runtime meaning into Service Runtime Intent while preserving existing external behavior.
+- The completed post-tracer milestone moved Service volume and secret runtime meaning into Service Runtime Intent while preserving existing external behavior.
+
+- The next open milestone moves Service Runtime Identity into Service Runtime Intent, migrates Quadlet rendering and Service Deploy to consume it, then ends with a human-in-the-loop issue that removes transitional fallback traversal.
 
 - The Deletion Test points toward deepening, not deleting, the existing Module: if Service Runtime Intent disappeared, Backend, Published Port, Share-backed Volume, Service Data Directory, and secret rules would reappear across validation, deploy helpers, Quadlet rendering, and tests.
 

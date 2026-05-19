@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 import os
+import random
+import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fortress_ingress.generate import GENERATED_CADDY_ROUTES_PATH, render_caddy_routes, render_ingress_dns_record_sets
+from fortress_inventory.entity_graph import InventoryEntityGraph
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.validate import validate_inventory_model
+
+
+DNS_PROOF_TIMEOUT_SECONDS = float(os.environ.get("FORTRESS_DNS_PROOF_TIMEOUT_SECONDS", "20"))
+DNS_PROOF_INTERVAL_SECONDS = float(os.environ.get("FORTRESS_DNS_PROOF_INTERVAL_SECONDS", "0.5"))
 
 
 def main():
@@ -75,6 +83,8 @@ def regenerate_ingress(repo_root, model, caddy_routes, dns_record_sets):
             ["sudo", "systemctl", "restart", f"fortress-{service_name}-pihole.service"],
         ):
             return 1
+        if not _prove_dns_records_loaded(model, service_name, vm, record_set["content"]):
+            return 1
 
     print("Ingress regeneration complete.", flush=True)
     return 0
@@ -92,6 +102,138 @@ def _run_step(repo_root, description, vm, command, stdin=""):
         return True
     print(f"failed: {description}", file=sys.stderr)
     return False
+
+
+def _prove_dns_records_loaded(model, service_name, vm, content):
+    resolver = _resolver_address(model, vm)
+    expected_address = _ingress_address(model)
+    hostnames = _generated_record_hostnames(content)
+    print(f"running: prove Ingress DNS records for {service_name} through {resolver}", flush=True)
+    deadline = time.monotonic() + DNS_PROOF_TIMEOUT_SECONDS
+    while True:
+        last_error = _dns_record_set_error(resolver, expected_address, hostnames)
+        if not last_error:
+            print(f"ok: prove Ingress DNS records for {service_name} through {resolver}", flush=True)
+            return True
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(DNS_PROOF_INTERVAL_SECONDS)
+    print(
+        f"failed: prove Ingress DNS records for {service_name} through {resolver}: {last_error}",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _resolver_address(model, vm):
+    addresses = InventoryEntityGraph(model).vm_static_ipv4_addresses(vm)
+    if len(addresses) != 1:
+        raise ValueError(f"DNS VM {vm} must declare exactly one static IPv4 address")
+    return addresses[0]
+
+
+def _ingress_address(model):
+    graph = InventoryEntityGraph(model)
+    vm = graph.service_backend_vm_name("internal-ingress")
+    addresses = graph.vm_static_ipv4_addresses(vm)
+    if len(addresses) != 1:
+        raise ValueError(f"Ingress VM {vm} must declare exactly one static IPv4 address")
+    return addresses[0]
+
+
+def _generated_record_hostnames(content):
+    hostnames = []
+    for line in content.splitlines():
+        if not line.startswith("address=/"):
+            continue
+        _prefix, hostname, _address = line.split("/", 2)
+        hostnames.append(hostname)
+    return tuple(hostnames)
+
+
+def _dns_record_set_error(resolver, expected_address, hostnames):
+    if os.environ.get("FORTRESS_FAKE_DNS_PROOF_FAIL"):
+        return os.environ["FORTRESS_FAKE_DNS_PROOF_FAIL"]
+
+    fake_log = os.environ.get("CALLS_LOG")
+    if fake_log:
+        with open(fake_log, "a") as log:
+            log.write(f"dns-proof @{resolver} {len(hostnames)} hostnames -> {expected_address}\n")
+        return ""
+
+    for hostname in hostnames:
+        try:
+            answers = dns_a_query(resolver, hostname)
+        except OSError as error:
+            return f"{hostname}: {error}"
+        if expected_address not in answers:
+            rendered = ", ".join(answers) if answers else "no A answers"
+            return f"{hostname}: expected {expected_address}, got {rendered}"
+    return ""
+
+
+def dns_a_query(resolver, hostname):
+    query_id = random.randrange(0, 65536).to_bytes(2, "big")
+    header = query_id + b"\x01\x00" + b"\x00\x01" + b"\x00\x00" + b"\x00\x00" + b"\x00\x00"
+    question = encode_dns_name(hostname) + b"\x00\x01" + b"\x00\x01"
+    payload = header + question
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+        client.settimeout(2)
+        client.sendto(payload, (resolver, 53))
+        response, _ = client.recvfrom(512)
+    if response[:2] != query_id:
+        raise OSError("response query id did not match request")
+    return parse_a_answers(response)
+
+
+def encode_dns_name(hostname):
+    labels = hostname.rstrip(".").split(".")
+    if not labels or any(not label or len(label.encode()) > 63 for label in labels):
+        raise OSError(f"invalid hostname {hostname!r}")
+    return b"".join(len(label.encode()).to_bytes(1, "big") + label.encode() for label in labels) + b"\x00"
+
+
+def parse_a_answers(response):
+    if len(response) < 12:
+        raise OSError("short DNS response")
+    rcode = response[3] & 0x0F
+    if rcode != 0:
+        raise OSError(f"rcode {rcode}")
+    question_count = int.from_bytes(response[4:6], "big")
+    answer_count = int.from_bytes(response[6:8], "big")
+    offset = 12
+    for _ in range(question_count):
+        offset = skip_dns_name(response, offset) + 4
+    answers = []
+    for _ in range(answer_count):
+        offset = skip_dns_name(response, offset)
+        if offset + 10 > len(response):
+            raise OSError("truncated DNS answer")
+        record_type = int.from_bytes(response[offset : offset + 2], "big")
+        record_class = int.from_bytes(response[offset + 2 : offset + 4], "big")
+        data_length = int.from_bytes(response[offset + 8 : offset + 10], "big")
+        offset += 10
+        if offset + data_length > len(response):
+            raise OSError("truncated DNS answer data")
+        data = response[offset : offset + data_length]
+        offset += data_length
+        if record_type == 1 and record_class == 1 and data_length == 4:
+            answers.append(".".join(str(octet) for octet in data))
+    return tuple(answers)
+
+
+def skip_dns_name(response, offset):
+    while True:
+        if offset >= len(response):
+            raise OSError("truncated DNS name")
+        length = response[offset]
+        if length & 0xC0 == 0xC0:
+            if offset + 1 >= len(response):
+                raise OSError("truncated DNS name pointer")
+            return offset + 2
+        if length == 0:
+            return offset + 1
+        offset += 1 + length
 
 
 if __name__ == "__main__":

@@ -12,6 +12,8 @@ just instrumentation-converge
 
 Instrumentation Convergence applies enabled VM-level Instrumentation across ordinary VMs, runs VM Configure for each ordinary VM with Instrumentation enabled, and then runs Service Update for the Observability Service. This is the operator path for applying Instrumentation to existing VMs and Services after Inventory changes.
 
+Before running VM Configure, the workflow checks whether each inventory-declared ordinary VM exists on its live Host. It skips inventory-declared VMs that are absent from the live Host. Skipped VMs are also omitted from the generated Observability Service configuration during that convergence run, so Prometheus does not keep scraping VM-level or Service Telemetry Targets for absent VMs.
+
 The workflow stops at the first failed VM Configure or Observability Service Update phase and reports the failed phase. Fix that phase, then rerun `just instrumentation-converge`.
 
 ## VM Baseline Instrumentation

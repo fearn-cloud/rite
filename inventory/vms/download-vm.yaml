@@ -26,3 +26,4 @@ mounts:
     access: read_write
 backup:
   enabled: true
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHp4VMcMxtUh/pUW4SmtR6p3P30S2O906t7Gm4zIdKJg fortress-vm-prepare:download-vm:2026-05-19T00:14:53Z

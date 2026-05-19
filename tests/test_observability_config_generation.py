@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fortress_inventory.model import InventoryModel
 from fortress_inventory.simple_yaml import load_yaml
@@ -200,6 +201,37 @@ class ObservabilityConfigGenerationTests(unittest.TestCase):
         service_metrics = scrape_config(prometheus, "fortress-service-immich-metrics")
         self.assertEqual("http", service_metrics["scheme"])
         self.assertEqual("/metrics", service_metrics["metrics_path"])
+
+    def test_generated_config_omits_live_absent_vms_excluded_by_convergence(self):
+        model = inventory_model(
+            vms={
+                "observability-vm": {
+                    "network": {"interfaces": [{"address": "10.40.0.17/24"}]},
+                    "instrumentation": {"enabled": True},
+                },
+                "stale-vm": {
+                    "network": {"interfaces": [{"address": "10.50.0.99/24"}]},
+                    "instrumentation": {"enabled": True},
+                },
+            },
+            services={"observability": observability_service()},
+        )
+
+        with patch.dict("os.environ", {"FORTRESS_OBSERVABILITY_EXCLUDED_VMS": "stale-vm"}):
+            prometheus = generated_yaml_file(
+                quadlet_deploy_vars(
+                    model.services["observability"],
+                    model.vms["observability-vm"],
+                    model=model,
+                ),
+                "/srv/services/observability/prometheus-config/prometheus.yml",
+            )
+
+        vm_scrapes = scrape_config(prometheus, "fortress-vm-node-exporter")
+        self.assertEqual(
+            [{"targets": ["10.40.0.17:9100"], "labels": {"fortress_vm": "observability-vm"}}],
+            vm_scrapes["static_configs"],
+        )
 
     def test_generated_config_includes_loki_ingestion_endpoint_for_vm_local_alloy(self):
         model = inventory_model(

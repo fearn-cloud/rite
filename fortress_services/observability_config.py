@@ -1,3 +1,5 @@
+import os
+
 from fortress_inventory.entity_graph import InventoryEntityGraph
 from fortress_services.quadlet import ServiceDataFile
 
@@ -9,7 +11,12 @@ GENERATED_ENDPOINTS_PATH = "/srv/services/observability/generated-endpoints.yml"
 
 def observability_service_data_files(model):
     graph = InventoryEntityGraph(model)
-    telemetry_targets = graph.service_telemetry_target_facts()
+    excluded_vm_names = _excluded_vm_names()
+    telemetry_targets = [
+        target
+        for target in graph.service_telemetry_target_facts()
+        if target.vm_name not in excluded_vm_names
+    ]
     observability_service = model.services.get("observability") or {}
     owner = observability_service.get("service_data_owner") or {}
     http_probe_static_configs = [
@@ -34,7 +41,7 @@ def observability_service_data_files(model):
                         "labels": {"fortress_vm": vm.vm_name},
                     }
                     for vm in graph.instrumented_vm_facts()
-                    if vm.static_ipv4_address
+                    if vm.vm_name not in excluded_vm_names and vm.static_ipv4_address
                 ],
             }
         ]
@@ -111,6 +118,14 @@ def _published_port_for_container(service, container_name, container_port):
             if published_port.get("container") == container_port:
                 return published_port.get("host", container_port)
     return container_port
+
+
+def _excluded_vm_names():
+    return {
+        vm_name.strip()
+        for vm_name in os.environ.get("FORTRESS_OBSERVABILITY_EXCLUDED_VMS", "").split(",")
+        if vm_name.strip()
+    }
 
 
 def _dump_yaml(value, indent=0):

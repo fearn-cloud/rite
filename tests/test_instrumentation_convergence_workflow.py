@@ -74,6 +74,36 @@ class InstrumentationConvergenceWorkflowTests(unittest.TestCase):
                 calls_log.read_text().splitlines(),
             )
 
+    def test_instrumentation_converge_skips_inventory_vms_absent_from_live_host(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp, with_live_probe=True)
+            (root / "inventory" / "vms" / "stale-vm.yaml").write_text(
+                "vmid: 103\n"
+                "placement:\n"
+                "  host: wintermute\n"
+            )
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "instrumentation-converge")],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Skipping VM stale-vm: VMID 103 is absent on Host wintermute", result.stdout)
+            self.assertEqual(
+                [
+                    "vm-configure app-vm",
+                    "vm-configure observability-vm",
+                    "service-update observability --auto-confirm excluded=stale-vm",
+                ],
+                calls_log.read_text().splitlines(),
+            )
+
     def test_instrumentation_converge_stops_and_reports_the_failed_phase(self):
         scenarios = {
             "vm-configure app-vm": (
@@ -113,13 +143,19 @@ class InstrumentationConvergenceWorkflowTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertEqual(expected_calls, calls_log.read_text().splitlines())
 
-    def _workflow_fixture(self, tmp):
+    def _workflow_fixture(self, tmp, with_live_probe=False):
         root = Path(tmp)
+        (root / "inventory" / "hosts").mkdir(parents=True)
         (root / "inventory" / "services").mkdir(parents=True)
         (root / "inventory" / "vms").mkdir(parents=True)
         (root / "scripts").mkdir()
-        (root / "inventory" / "vms" / "app-vm.yaml").write_text("vmid: 101\n")
-        (root / "inventory" / "vms" / "observability-vm.yaml").write_text("vmid: 102\n")
+        if with_live_probe:
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text("network:\n  management_address: 10.0.0.10\n")
+            vm_placement = "placement:\n  host: wintermute\n"
+        else:
+            vm_placement = ""
+        (root / "inventory" / "vms" / "app-vm.yaml").write_text(f"vmid: 101\n{vm_placement}")
+        (root / "inventory" / "vms" / "observability-vm.yaml").write_text(f"vmid: 102\n{vm_placement}")
         (root / "inventory" / "services" / "observability.yaml").write_text(
             "name: observability\n"
             "backend:\n"
@@ -141,11 +177,22 @@ class InstrumentationConvergenceWorkflowTests(unittest.TestCase):
                 "if [ \"$#\" -gt 0 ]; then call=\"$call $*\"; fi\n"
                 "printf '%s' \"$name\" >> \"$CALLS_LOG\"\n"
                 "if [ \"$#\" -gt 0 ]; then printf ' %s' \"$*\" >> \"$CALLS_LOG\"; fi\n"
+                "if [ \"$name\" = service-update ] && [ -n \"$FORTRESS_OBSERVABILITY_EXCLUDED_VMS\" ]; then printf ' excluded=%s' \"$FORTRESS_OBSERVABILITY_EXCLUDED_VMS\" >> \"$CALLS_LOG\"; fi\n"
                 "printf '\\n' >> \"$CALLS_LOG\"\n"
                 "if [ \"$FORTRESS_FAIL_CALL\" = \"$call\" ]; then exit 42; fi\n"
                 "if [ \"$FORTRESS_FAIL_PHASE\" = \"$name\" ]; then exit 42; fi\n"
             )
             script.chmod(script.stat().st_mode | stat.S_IXUSR)
+        host_shell = root / "scripts" / "host-shell"
+        host_shell.write_text(
+            "#!/usr/bin/env bash\n"
+            "vmid=${@: -1}\n"
+            "case \"$vmid\" in\n"
+            "  101|102) exit 0 ;;\n"
+            "  *) echo \"Configuration file 'nodes/wintermute/qemu-server/${vmid}.conf' does not exist\" >&2; exit 2 ;;\n"
+            "esac\n"
+        )
+        host_shell.chmod(host_shell.stat().st_mode | stat.S_IXUSR)
         return root, calls_log
 
     def _workflow_env(self, root, calls_log):

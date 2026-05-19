@@ -17,6 +17,8 @@ class InstrumentationRunbookTests(unittest.TestCase):
             "runs VM Configure for each ordinary VM with Instrumentation enabled",
             "then runs Service Update for the Observability Service",
             "path for applying Instrumentation to existing VMs and Services",
+            "skips inventory-declared VMs that are absent from the live Host",
+            "omitted from the generated Observability Service configuration during that convergence run",
         ]:
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, content)

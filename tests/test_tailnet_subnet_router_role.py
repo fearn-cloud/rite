@@ -17,6 +17,9 @@ class TailnetSubnetRouterRoleTests(unittest.TestCase):
         self.assertIn("name: tailscale", tasks)
         self.assertIn("net.ipv4.ip_forward", tasks)
         self.assertIn("net.ipv6.conf.all.forwarding", tasks)
+        self.assertIn("/etc/sysctl.d/99-fortress-tailnet-subnet-router.conf", tasks)
+        self.assertIn("ansible.builtin.command: sysctl -w", tasks)
+        self.assertNotIn("ansible.posix.sysctl", tasks)
 
     def test_role_reads_auth_key_from_vm_sibling_sops_file_only_for_first_enrollment(self):
         tasks = (REPO_ROOT / "ansible" / "roles" / "tailnet_subnet_router" / "tasks" / "main.yml").read_text()

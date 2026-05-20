@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fortress_inventory.entity_graph import InventoryEntityGraph
 from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.service_runtime_intent import analyze_service_runtime_intent
 from fortress_workflows.runner import CommandPhase, ConfirmationGate, OperatorWorkflowPlan
 from fortress_workflows.service_update import service_units_active_check_command, service_update_units
 
@@ -34,7 +35,15 @@ def build_vm_update_plan(repo_root: Path, vm: str, reboot: bool = False) -> Oper
         graph = InventoryEntityGraph(model)
         impact = graph.vm_update_reboot_impact(vm)
         resident_services = impact.resident_service_names if impact else ()
-        steps.extend(_vm_reboot_steps(repo_root, vm, model.services, resident_services))
+        steps.extend(
+            _vm_reboot_steps(
+                repo_root,
+                vm,
+                model.services,
+                resident_services,
+                runtime_intent=analyze_service_runtime_intent(model),
+            )
+        )
 
     return OperatorWorkflowPlan(
         id=f"vm-update:{vm}",
@@ -42,7 +51,7 @@ def build_vm_update_plan(repo_root: Path, vm: str, reboot: bool = False) -> Oper
     )
 
 
-def _vm_reboot_steps(repo_root, vm, services, resident_service_names):
+def _vm_reboot_steps(repo_root, vm, services, resident_service_names, runtime_intent):
     steps = [
         ConfirmationGate(
             id="confirm-vm-reboot",
@@ -57,7 +66,7 @@ def _vm_reboot_steps(repo_root, vm, services, resident_service_names):
     ]
     service_units = []
     for service_name in resident_service_names:
-        units = service_update_units(services[service_name])
+        units = service_update_units(services[service_name], runtime_intent=runtime_intent)
         if not units:
             raise ValueError(f"Service {service_name!r} has no fortress-owned systemd units to stop before VM reboot")
         service_units.append((service_name, units))

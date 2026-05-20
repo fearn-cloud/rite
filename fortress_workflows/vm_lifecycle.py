@@ -9,16 +9,11 @@ from fortress_workflows.runner import CommandPhase, ConfirmationGate, OperatorWo
 
 def build_vm_lifecycle_plan(repo_root: Path, vm: str) -> OperatorWorkflowPlan:
     target_args = selected_vm_target_args(repo_root, vm)
+    prepare_phase = _prepare_phase(repo_root, vm)
     return OperatorWorkflowPlan(
         id=f"vm-lifecycle:{vm}",
         steps=[
-            CommandPhase(
-                id="prepare",
-                display_name="Prepare",
-                command=[str(repo_root / "scripts" / "vm-prepare"), vm],
-                diagnostic_label=f"Prepare failed for VM {vm}",
-                streaming=True,
-            ),
+            prepare_phase,
             CommandPhase(
                 id="tofu-plan",
                 display_name="tofu plan",
@@ -75,3 +70,40 @@ def selected_vm_target_args(repo_root: Path, vm: str) -> list[str]:
         "-target",
         f'module.vms_{host_alias}.proxmox_virtual_environment_vm.vm["{vm}"]',
     ]
+
+
+def _prepare_phase(repo_root: Path, vm: str) -> CommandPhase:
+    vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
+    if vm_sops.is_file() and _has_ssh_bootstrap_block(vm_sops):
+        return CommandPhase(
+            id="prepare-satisfied",
+            display_name="Prepare Satisfied",
+            command=[str(repo_root / "scripts" / "vm-prepare-satisfied"), vm],
+            diagnostic_label=f"Prepare satisfaction failed for VM {vm}",
+            streaming=True,
+        )
+    return CommandPhase(
+        id="prepare",
+        display_name="Prepare",
+        command=[str(repo_root / "scripts" / "vm-prepare"), vm],
+        diagnostic_label=f"Prepare failed for VM {vm}",
+        streaming=True,
+    )
+
+
+def _has_ssh_bootstrap_block(path: Path) -> bool:
+    stack: list[tuple[int, str]] = []
+    for raw_line in path.read_text().splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        text = raw_line.strip()
+        if ":" not in text or text.startswith("- "):
+            continue
+        key = text.split(":", 1)[0].strip().strip("\"'")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key))
+        if [entry_key for _entry_indent, entry_key in stack] == ["ssh_keys", "bootstrap"]:
+            return True
+    return False

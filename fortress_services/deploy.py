@@ -1,4 +1,3 @@
-import json
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -7,7 +6,6 @@ from pathlib import PurePosixPath
 from fortress_inventory.service_runtime_intent import (
     analyze_service_runtime_intent,
     service_runtime_intent_for_service,
-    service_secret_runtime_facts_for_service,
 )
 from fortress_services.observability_config import (
     GRAFANA_GENERATED_DASHBOARD_DIR,
@@ -28,29 +26,16 @@ class NativeEnvironmentSecretPreflightError(ValueError):
 
 
 def share_backed_volume_subpaths(service, vm, runtime_intent=None):
-    if runtime_intent is not None:
-        service_intent = _service_runtime_intent_view(service, runtime_intent)
-        return [
-            volume.resolved_source_path
-            for volume in service_intent.share_backed_volumes
-            if volume.resolved_source_path != volume.vm_mount_path
-        ]
-
-    mount_by_name = {
-        mount.get("name"): mount
-        for mount in vm.get("mounts", []) or []
-        if mount.get("name")
-    }
-    subpaths = []
-    for container in service.get("deploy", {}).get("containers", []) or []:
-        for volume in container.get("volumes", []) or []:
-            mount_name = volume.get("mount")
-            source = volume.get("source")
-            if not mount_name or source in (None, "/"):
-                continue
-            mount = mount_by_name[mount_name]
-            subpaths.append(str(PurePosixPath(mount["mount_point"]) / source))
-    return subpaths
+    service_intent = _required_service_runtime_intent_view(
+        service,
+        runtime_intent,
+        "build Share-backed Volume deploy subpaths",
+    )
+    return [
+        volume.resolved_source_path
+        for volume in service_intent.share_backed_volumes
+        if volume.resolved_source_path != volume.vm_mount_path
+    ]
 
 
 def service_secret_installations(service, runtime_intent=None):
@@ -71,10 +56,11 @@ def service_secret_keys(service, runtime_intent=None):
 
 def _unique_service_secret_facts(service, runtime_intent=None):
     facts = {}
-    if runtime_intent is not None:
-        service_secret_facts = _service_runtime_intent_view(service, runtime_intent).service_secrets
-    else:
-        service_secret_facts = service_secret_runtime_facts_for_service(service)
+    service_secret_facts = _required_service_runtime_intent_view(
+        service,
+        runtime_intent,
+        "build Service Secret deploy facts",
+    ).service_secrets
     for secret_fact in service_secret_facts:
         facts.setdefault(secret_fact.secret_key, secret_fact)
     return facts
@@ -82,51 +68,57 @@ def _unique_service_secret_facts(service, runtime_intent=None):
 
 def native_environment_secret_specs(service, runtime_intent=None):
     facts = _native_environment_secret_facts(service, runtime_intent)
-    if facts is not None:
-        return [
-            {
-                "env": fact.env,
-                "sops_extract": fact.sops_extract,
-            }
-            for fact in facts
-        ]
-
-    specs = []
-    for secret in service.get("deploy", {}).get("environment_secrets", []) or []:
-        secret_key = service_secret_key(secret)
-        specs.append(
-            {
-                "env": secret["env"],
-                "sops_extract": _sops_extract_path("secrets", secret_key, "value"),
-            }
-        )
-    return specs
+    return [
+        {
+            "env": fact.env,
+            "sops_extract": fact.sops_extract,
+        }
+        for fact in facts
+    ]
 
 
 def native_environment_secret_keys(service, runtime_intent=None):
     facts = _native_environment_secret_facts(service, runtime_intent)
-    if facts is not None:
-        return _unique_ordered(fact.secret_key for fact in facts)
-
-    keys = []
-    seen = set()
-    for secret in service.get("deploy", {}).get("environment_secrets", []) or []:
-        secret_key = service_secret_key(secret)
-        if secret_key in seen:
-            continue
-        seen.add(secret_key)
-        keys.append(secret_key)
-    return keys
+    return _unique_ordered(fact.secret_key for fact in facts)
 
 
 def _native_environment_secret_facts(service, runtime_intent):
-    if runtime_intent is None:
-        return None
-    return list(_service_runtime_intent_view(service, runtime_intent).native_environment_secrets)
+    return list(
+        _required_service_runtime_intent_view(
+            service,
+            runtime_intent,
+            "build Native Service Environment Secret deploy facts",
+        ).native_environment_secrets
+    )
 
 
 def _service_runtime_intent_view(service, runtime_intent):
     return service_runtime_intent_for_service(runtime_intent, service["name"])
+
+
+def _required_service_runtime_intent_view(service, runtime_intent, action):
+    if runtime_intent is None:
+        raise ValueError(
+            "Service Runtime Intent is required to "
+            f"{action} for Service {service['name']}"
+        )
+    return _service_runtime_intent_view(service, runtime_intent)
+
+
+def service_backend_vm_name(service, runtime_intent=None):
+    backend = next(
+        iter(
+            _required_service_runtime_intent_view(
+                service,
+                runtime_intent,
+                "resolve Service Backend VM",
+            ).backends
+        ),
+        None,
+    )
+    if backend is not None:
+        return backend.vm_name
+    return None
 
 
 def _unique_ordered(values):
@@ -203,6 +195,11 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
     service = _service_with_deploy_capability_setup(service)
     if runtime_intent is None and model is not None:
         runtime_intent = analyze_service_runtime_intent(model)
+    service_intent = _required_service_runtime_intent_view(
+        service,
+        runtime_intent,
+        "build Quadlet deploy variables",
+    )
     runtime_directories = _runtime_service_data_directories(service, model, runtime_intent=runtime_intent)
     rendered = render_quadlet_service(
         service,
@@ -221,7 +218,8 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
             service_data_files,
         )
         service_data_reconcile_directories.append(GRAFANA_GENERATED_DASHBOARD_DIR)
-    start_units = service_start_units(service)
+    start_units = _service_start_units(service, service_intent=service_intent)
+    stop_units = _service_stop_units(start_units, service_intent=service_intent)
     network_units = quadlet_network_units(rendered.artifacts)
     return {
         "fortress_quadlet_artifacts": [
@@ -239,23 +237,20 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
         "fortress_service_data_reconcile_directories": service_data_reconcile_directories,
         "fortress_service_network_units": network_units,
         "fortress_service_start_units": start_units,
-        "fortress_service_stop_units": list(reversed(start_units)),
+        "fortress_service_stop_units": stop_units,
         "fortress_service_container_images": [
             container["image"]
             for container in service.get("deploy", {}).get("containers", []) or []
         ],
-        "fortress_owned_quadlet_prune_paths": [
-            artifact.path
-            for artifact in rendered.artifacts
-            if artifact.filename.startswith(f"fortress-{service['name']}-")
-        ],
+        "fortress_owned_quadlet_prune_paths": _owned_quadlet_prune_paths(
+            rendered.artifacts,
+            service_intent=service_intent,
+        ),
         "fortress_service_secret_prefix": f"fortress_{service['name']}_",
     }
 
 
 def _runtime_service_data_directories(service, model, runtime_intent=None):
-    if runtime_intent is None and model is None:
-        return None
     if runtime_intent is None:
         runtime_intent = analyze_service_runtime_intent(model)
     return tuple(
@@ -354,35 +349,22 @@ def _native_config_change_action(config_file):
     return "reload"
 
 
-def service_start_units(service):
-    containers = {
-        container["name"]: container
-        for container in service.get("deploy", {}).get("containers", []) or []
-    }
-    ordered = []
-    visiting = set()
-    visited = set()
+def _service_start_units(service, service_intent):
+    unit_order = _service_unit_order(service_intent)
+    if unit_order is not None:
+        return list(unit_order.start_units)
+    return []
 
-    def visit(container_name):
-        if container_name in visited:
-            return
-        if container_name in visiting:
-            raise ValueError(f"cycle in Container Dependency graph for Service {service['name']}")
-        visiting.add(container_name)
-        container = containers[container_name]
-        for dependency in container.get("depends_on", []) or []:
-            if dependency not in containers:
-                raise ValueError(
-                    f"unknown Container Dependency {dependency!r} for Service {service['name']}"
-                )
-            visit(dependency)
-        visiting.remove(container_name)
-        visited.add(container_name)
-        ordered.append(fortress_container_unit(service, container_name))
 
-    for container_name in containers:
-        visit(container_name)
-    return ordered
+def _service_stop_units(start_units, service_intent):
+    unit_order = _service_unit_order(service_intent)
+    if unit_order is not None:
+        return list(unit_order.stop_units)
+    return []
+
+
+def _service_unit_order(service_intent):
+    return next(iter(service_intent.service_unit_orders), None)
 
 
 def quadlet_network_units(artifacts):
@@ -393,8 +375,21 @@ def quadlet_network_units(artifacts):
     ]
 
 
-def fortress_container_unit(service, container_name):
-    return f"fortress-{service['name']}-{container_name}.service"
+def _owned_quadlet_prune_paths(artifacts, service_intent):
+    runtime_container_filenames = _runtime_container_quadlet_filenames(service_intent)
+    return [
+        artifact.path
+        for artifact in artifacts
+        if artifact.filename in runtime_container_filenames
+    ]
+
+
+def _runtime_container_quadlet_filenames(service_intent):
+    return {
+        f"{container_identity.podman_name}.container"
+        for container_identity in service_intent.container_identities
+        if container_identity.podman_name is not None
+    }
 
 
 def service_data_directory_vars(directory):
@@ -415,13 +410,6 @@ def service_data_file_vars(file):
     if file.force:
         values["force"] = True
     return values
-
-
-def service_secret_key(secret):
-    reference = secret["secret"]
-    if reference.startswith("secrets."):
-        return reference.split(".", 1)[1]
-    return reference
 
 
 def _service_secret_entries(yaml_text):
@@ -511,7 +499,3 @@ def _inline_mapping_fields(raw_value):
         if key is not None:
             fields.add(key)
     return fields
-
-
-def _sops_extract_path(*parts):
-    return "".join(f"[{json.dumps(part)}]" for part in parts)

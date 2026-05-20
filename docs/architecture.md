@@ -541,12 +541,12 @@ deploy:
 
 - **Default: Podman Quadlets** (systemd-native containers). No daemon, journald-integrated logs, systemd dependency graph (`After=`, `Requires=`), `systemctl status <svc>` works.
 - **Native escape hatch**: for things genuinely better as packages (Caddy is the main candidate — single Go binary, well-maintained apt package). Ansible-managed configs equally well in either substrate.
-- **Multi-container as first-class** (not single-container with workarounds). `containers:` is a list; ansible renders one quadlet per entry plus a `.network` quadlet for the shared bridge.
+- **Multi-container as first-class** (not single-container with workarounds). `containers:` is a list; Service Runtime Intent resolves Service Runtime Identity facts for the Service Network and containers, then the Quadlet Adapter renders one quadlet per entry plus a `.network` quadlet for the shared bridge.
 - **Service Secrets via Podman secrets** (`Secret=name,target=/run/secrets/name`). Apps consume via `_FILE` env var convention by default; apps that expect the Podman secret name use `env_value: secret_name`. Native Services use Native Service Environment Secrets rendered by Service Deploy into root-owned environment files.
 - **Image pinning by tag** by default (`v1.120.0`), digest-pinning for security-critical containers (Caddy, Pi-hole). **Auto-update off**; updates flow through PR + `just service-deploy`.
 - **Per-service podman networks** (one `.network` quadlet per service). Cross-service traffic blocked unless explicit. Host networking (`network_mode: host`) as opt-in for cases that need it (Pi-hole on :53).
 - **Service Data Directories** under `/srv/services/<svc>/<path>/`. Direct filesystem visibility, easy backup (PBS captures via VM disk snapshot), portable across VM rebuilds.
-- **Service Runtime Intent** owns resolved Service runtime meaning and diagnostics for Service Data Directories, Share-backed Volumes, and Service Secrets. Quadlet text, Service Deploy Ansible variable names, and native environment file details remain Adapter concerns.
+- **Service Runtime Intent** owns resolved Service runtime meaning and diagnostics, including **Service Runtime Identity**: fortress-owned runtime names and paths such as Service Network names, Podman container names, systemd unit names, Service Secret names, Service Data Directory paths, and required mount unit names. Quadlet text, Service Deploy Ansible variable names, systemd commands, native environment file details, and application-specific configuration remain Adapter concerns.
 
 ### 10.5. Ingress
 

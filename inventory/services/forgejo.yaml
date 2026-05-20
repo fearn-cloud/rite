@@ -1,5 +1,5 @@
 name: forgejo
-hostname: forgejo.fearn.cloud
+hostname: git.fearn.cloud
 service_data_owner:
   uid: 1000
   gid: 1000
@@ -28,9 +28,9 @@ deploy:
       env:
         USER_UID: 1000
         USER_GID: 1000
-        FORGEJO__server__DOMAIN: forgejo.fearn.cloud
-        FORGEJO__server__ROOT_URL: https://forgejo.fearn.cloud/
-        FORGEJO__server__SSH_DOMAIN: forgejo.fearn.cloud
+        FORGEJO__server__DOMAIN: git.fearn.cloud
+        FORGEJO__server__ROOT_URL: https://git.fearn.cloud/
+        FORGEJO__server__SSH_DOMAIN: git.fearn.cloud
         FORGEJO__server__SSH_PORT: 2222
       volumes:
         - service_path: data

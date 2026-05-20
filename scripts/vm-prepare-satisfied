@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.simple_yaml import load_yaml
+
+
+PUBLIC_KEY_EXTRACT = '["ssh_keys"]["bootstrap"]["public_key"]'
+TYPE_EXTRACT = '["ssh_keys"]["bootstrap"]["type"]'
+
+
+def main():
+    if len(sys.argv) != 2:
+        print("usage: scripts/vm-prepare-satisfied <vm>", file=sys.stderr)
+        return 2
+
+    vm = sys.argv[1].removeprefix("vm=")
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
+    vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
+
+    if not vm_yaml.is_file():
+        print(f"VM {vm!r} is not declared at {vm_yaml}", file=sys.stderr)
+        return 1
+    if not vm_sops.is_file():
+        print(f"VM Sibling SOPS File is required at {vm_sops}", file=sys.stderr)
+        return 1
+
+    try:
+        vm_inventory = load_yaml(vm_yaml)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    inventory_public_key = (vm_inventory.get("ssh_public_key") or "").strip()
+    if not inventory_public_key:
+        print(f"{vm_yaml} is missing ssh_public_key", file=sys.stderr)
+        return 1
+
+    if not _has_yaml_path(vm_sops, ["ssh_keys", "bootstrap"]):
+        print(f"{vm_sops} does not contain ssh_keys.bootstrap", file=sys.stderr)
+        return 1
+    if not _has_yaml_path(vm_sops, ["ssh_keys", "bootstrap", "private_key"]):
+        print(f"{vm_sops} does not structurally contain ssh_keys.bootstrap.private_key", file=sys.stderr)
+        return 1
+
+    sops_public_key = _sops_extract(vm_sops, PUBLIC_KEY_EXTRACT)
+    if sops_public_key is None or not sops_public_key.strip():
+        print(f"{vm_sops} does not expose ssh_keys.bootstrap.public_key", file=sys.stderr)
+        return 1
+    if inventory_public_key != sops_public_key.strip():
+        print(
+            f"VM SSH public key mismatch for {vm}: {vm_yaml}:ssh_public_key "
+            f"does not match {vm_sops}:ssh_keys.bootstrap.public_key",
+            file=sys.stderr,
+        )
+        return 1
+
+    if _has_yaml_path(vm_sops, ["ssh_keys", "bootstrap", "type"]):
+        credential_type = _sops_extract(vm_sops, TYPE_EXTRACT)
+        if credential_type is None:
+            print(f"{vm_sops} does not expose ssh_keys.bootstrap.type", file=sys.stderr)
+            return 1
+        if credential_type.strip() != "vm_ssh":
+            print(f"{vm_sops}:ssh_keys.bootstrap.type must be vm_ssh", file=sys.stderr)
+            return 1
+
+    print(f"Prepare already satisfied for VM {vm}")
+    return 0
+
+
+def _sops_extract(path: Path, extract: str) -> str | None:
+    result = subprocess.run(
+        ["sops", "--decrypt", "--extract", extract, str(path)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _has_yaml_path(path: Path, path_parts: list[str]) -> bool:
+    stack: list[tuple[int, str]] = []
+    for raw_line in path.read_text().splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        text = raw_line.strip()
+        if ":" not in text or text.startswith("- "):
+            continue
+        key = text.split(":", 1)[0].strip().strip("\"'")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        stack.append((indent, key))
+        if [entry_key for _entry_indent, entry_key in stack] == path_parts:
+            return True
+    return False
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
+from fortress_inventory.service_runtime_intent import analyze_service_runtime_intent
 from fortress_services.quadlet import render_quadlet_service
 
 
@@ -18,6 +20,13 @@ class NewServiceRunbookTests(unittest.TestCase):
             "Service yaml does not declare NAS Endpoint, Dataset, Share, or protocol details directly",
             "Backend",
             "hostname",
+            "Service Runtime Identity",
+            "fortress-owned runtime names and paths",
+            "Podman container names",
+            "systemd unit names",
+            "required mount unit names",
+            "rendered Quadlet text",
+            "adapter output, not Inventory identity",
             "Ingress defaults",
             "Published Ports",
             "Service Group",
@@ -123,7 +132,16 @@ class NewServiceRunbookTests(unittest.TestCase):
             ]
         }
 
-        rendered = render_quadlet_service(service, vm, inventory_root=REPO_ROOT / "inventory" / "acceptance")
+        model = SimpleNamespace(
+            services={"fortress-service-demo": service},
+            vms={"wintermute-demo": vm},
+        )
+        rendered = render_quadlet_service(
+            service,
+            vm,
+            inventory_root=REPO_ROOT / "inventory" / "acceptance",
+            runtime_intent=analyze_service_runtime_intent(model),
+        )
 
         containers = service["deploy"]["containers"]
         self.assertEqual(["web", "postgres", "redis"], [container["name"] for container in containers])

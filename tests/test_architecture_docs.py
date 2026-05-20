@@ -79,6 +79,22 @@ class ArchitectureDocsTests(unittest.TestCase):
         self.assertNotIn("just ingress-rebuild", content)
         self.assertNotIn("All `*.fearn.cloud` DNS records resolve to this VM's IP", content)
 
+    def test_architecture_notes_describe_service_runtime_identity_seam(self):
+        content = (REPO_ROOT / "docs" / "architecture.md").read_text()
+
+        for phrase in [
+            "Service Runtime Intent",
+            "Service Runtime Identity",
+            "fortress-owned runtime names and paths",
+            "Service Network names",
+            "Podman container names",
+            "systemd unit names",
+            "required mount unit names",
+            "Quadlet text, Service Deploy Ansible variable names, systemd commands, native environment file details, and application-specific configuration remain Adapter concerns",
+        ]:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

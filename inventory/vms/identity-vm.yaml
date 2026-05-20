@@ -20,3 +20,4 @@ cloud_init:
   hostname: identity-vm
 backup:
   enabled: true
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDFHUbGVbwt3oojAwX65ldE4VEx1OnoXBcLgH1G3+k1M fortress-vm-prepare:identity-vm:2026-05-20T05:19:36Z

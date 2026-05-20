@@ -6,8 +6,25 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fortress_inventory.service_runtime_intent import (
+    BackendRuntimeFact,
+    ContainerIdentityRuntimeFact,
+    ServiceDataDirectoryRuntimeFact,
+    ServiceNetworkIdentityRuntimeFact,
+    ServiceOwnedVolumeRuntimeFact,
+    ServiceRuntimeIntent,
+    ServiceUnitOrderRuntimeFact,
+    analyze_service_runtime_intent,
+)
 from fortress_inventory.model import load_inventory_tree
-from fortress_services.deploy import native_deploy_vars, quadlet_deploy_vars
+from fortress_services.deploy import (
+    native_deploy_vars,
+    native_environment_secret_keys,
+    quadlet_deploy_vars,
+    service_backend_vm_name,
+    service_secret_keys,
+    share_backed_volume_subpaths,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -755,6 +772,194 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
             )
             self.assertEqual("fortress_immich_", extra_vars["fortress_service_secret_prefix"])
 
+    def test_quadlet_deploy_vars_consumes_runtime_intent_identity_facts(self):
+        service = {
+            "name": "raw-service",
+            "backend": {"vm": "media01", "port": 8080},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "web",
+                        "image": "example/web:1",
+                        "depends_on": ["db"],
+                        "volumes": [
+                            {
+                                "service_path": "raw-data",
+                                "container": "/data",
+                                "access": "read_write",
+                            }
+                        ],
+                    },
+                    {
+                        "name": "db",
+                        "image": "postgres:16",
+                    },
+                ],
+            },
+        }
+        runtime_intent = ServiceRuntimeIntent(
+            backends=(),
+            published_ports=(),
+            telemetry_targets=(),
+            service_secrets=(),
+            service_owned_volumes=(
+                ServiceOwnedVolumeRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="web",
+                    container_index=0,
+                    volume_index=0,
+                    service_path="raw-data",
+                    vm_path="/srv/runtime-intent/raw-service/intent-data",
+                    container_path="/data",
+                    access_mode="rw",
+                ),
+            ),
+            service_data_directories=(
+                ServiceDataDirectoryRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    path="/srv/runtime-intent/raw-service/intent-data",
+                    uid=1234,
+                    gid=1235,
+                ),
+            ),
+            share_backed_volumes=(),
+            native_environment_secrets=(),
+            service_network_identities=(
+                ServiceNetworkIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    declared_service_network=None,
+                    podman_name="intent-network",
+                    isolated=True,
+                ),
+            ),
+            container_identities=(
+                ContainerIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="web",
+                    container_index=0,
+                    container_alias="intent-web",
+                    podman_name="intent-web-container",
+                    systemd_unit_name="intent-web-container.service",
+                    service_network_podman_name="intent-network",
+                ),
+                ContainerIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="db",
+                    container_index=1,
+                    container_alias="intent-db",
+                    podman_name="intent-db-container",
+                    systemd_unit_name="intent-db-container.service",
+                    service_network_podman_name="intent-network",
+                ),
+            ),
+            service_unit_orders=(
+                ServiceUnitOrderRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    start_units=("intent-db-container.service", "intent-web-container.service"),
+                    stop_units=("intent-web-container.service", "intent-db-container.service"),
+                ),
+            ),
+            diagnostics=(),
+        )
+
+        deploy_vars = quadlet_deploy_vars(
+            service,
+            {},
+            inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=runtime_intent,
+        )
+
+        self.assertEqual(
+            ["intent-network.network", "intent-web-container.container", "intent-db-container.container"],
+            [artifact["filename"] for artifact in deploy_vars["fortress_quadlet_artifacts"]],
+        )
+        self.assertEqual(
+            [{"path": "/srv/runtime-intent/raw-service/intent-data", "uid": 1234, "gid": 1235}],
+            deploy_vars["fortress_service_data_directories"],
+        )
+        self.assertEqual(["intent-network-network.service"], deploy_vars["fortress_service_network_units"])
+        self.assertEqual(
+            ["intent-db-container.service", "intent-web-container.service"],
+            deploy_vars["fortress_service_start_units"],
+        )
+        self.assertEqual(
+            ["intent-web-container.service", "intent-db-container.service"],
+            deploy_vars["fortress_service_stop_units"],
+        )
+        self.assertEqual(
+            [
+                "/etc/containers/systemd/intent-web-container.container",
+                "/etc/containers/systemd/intent-db-container.container",
+            ],
+            deploy_vars["fortress_owned_quadlet_prune_paths"],
+        )
+
+    def test_service_backend_vm_name_prefers_runtime_intent_fact(self):
+        service = {"name": "raw-service", "backend": {"vm": "raw-vm"}}
+        runtime_intent = ServiceRuntimeIntent(
+            backends=(
+                BackendRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="intent-vm",
+                    port=8080,
+                ),
+            ),
+            published_ports=(),
+            telemetry_targets=(),
+            service_secrets=(),
+            service_owned_volumes=(),
+            service_data_directories=(),
+            share_backed_volumes=(),
+            native_environment_secrets=(),
+            diagnostics=(),
+        )
+
+        self.assertEqual("intent-vm", service_backend_vm_name(service, runtime_intent=runtime_intent))
+
+    def test_service_backend_vm_name_requires_service_runtime_intent(self):
+        service = {"name": "raw-service", "backend": {"vm": "raw-vm"}}
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Service Runtime Intent is required to resolve Service Backend VM for Service raw-service",
+        ):
+            service_backend_vm_name(service)
+
+    def test_deploy_runtime_fact_helpers_require_service_runtime_intent(self):
+        service = {"name": "paperless", "deploy": {"type": "quadlet", "containers": []}}
+
+        cases = [
+            (
+                lambda: share_backed_volume_subpaths(service, {}),
+                "build Share-backed Volume deploy subpaths",
+            ),
+            (
+                lambda: service_secret_keys(service),
+                "build Service Secret deploy facts",
+            ),
+            (
+                lambda: native_environment_secret_keys(service),
+                "build Native Service Environment Secret deploy facts",
+            ),
+            (
+                lambda: quadlet_deploy_vars(service, {}),
+                "build Quadlet deploy variables",
+            ),
+        ]
+        for call, action in cases:
+            with self.subTest(action=action), self.assertRaisesRegex(
+                ValueError,
+                f"Service Runtime Intent is required to {action} for Service paperless",
+            ):
+                call()
+
     def test_service_deploy_renders_pihole_dnsmasq_d_compatibility_for_ingress_dns_targets(self):
         model = load_inventory_tree(REPO_ROOT)
         cases = [
@@ -767,7 +972,12 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 service = model.services[service_name]
                 vm = model.vms[vm_name]
 
-                deploy_vars = quadlet_deploy_vars(service, vm, inventory_root=REPO_ROOT / "inventory")
+                deploy_vars = quadlet_deploy_vars(
+                    service,
+                    vm,
+                    inventory_root=REPO_ROOT / "inventory",
+                    model=model,
+                )
                 pihole_artifact = next(
                     artifact
                     for artifact in deploy_vars["fortress_quadlet_artifacts"]
@@ -811,7 +1021,7 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
 
         self.assertIn("admin {$CADDY_ADMIN}", caddyfile)
         self.assertIn("import /etc/caddy/fortress/generated-routes.caddy", caddyfile)
-        self.assertNotIn("forgejo.fearn.cloud {", caddyfile)
+        self.assertNotIn("git.fearn.cloud {", caddyfile)
         self.assertNotIn("reverse_proxy 10.", caddyfile)
 
     def test_internal_ingress_declares_cloudflare_native_environment_secret_for_caddy(self):
@@ -860,7 +1070,12 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         model = load_inventory_tree(REPO_ROOT)
         service = model.services["internal-ingress"]
 
-        deploy_vars = native_deploy_vars(service, model.globals, inventory_root=REPO_ROOT / "inventory")
+        deploy_vars = native_deploy_vars(
+            service,
+            model.globals,
+            inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=analyze_service_runtime_intent(model),
+        )
 
         self.assertEqual(
             [

@@ -1,20 +1,231 @@
+from dataclasses import replace
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.service_runtime_intent import (
+    ContainerIdentityRuntimeFact,
+    ServiceDataDirectoryRuntimeFact,
     ServiceRuntimeIntent,
+    ServiceNetworkIdentityRuntimeFact,
+    ServiceOwnedVolumeRuntimeFact,
     ServiceSecretRuntimeFact,
+    ServiceUnitOrderRuntimeFact,
+    ShareBackedVolumeRuntimeFact,
 )
-from fortress_services.quadlet import render_quadlet_container, render_quadlet_service
+from fortress_services.quadlet import (
+    render_quadlet_container,
+    render_quadlet_service,
+    systemd_mount_unit_name,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "quadlet_rendering"
 
 
+def quadlet_runtime_intent_fixture(service, vm=None):
+    vm = vm or {}
+    service_name = service["name"]
+    vm_name = service.get("backend", {}).get("vm")
+    network_name = (
+        f"fortress-network-{service['service_network']}"
+        if service.get("service_network")
+        else f"fortress-{service_name}"
+    )
+    containers = service.get("deploy", {}).get("containers", []) or []
+    service_secrets = []
+    service_owned_volumes = []
+    share_backed_volumes = []
+    service_data_directories = []
+    seen_directories = set()
+    owner = service.get("service_data_owner") or {}
+    mount_by_name = {
+        mount.get("name"): mount
+        for mount in vm.get("mounts", []) or []
+        if mount.get("name")
+    }
+
+    for container_index, container in enumerate(containers):
+        for secret_index, secret in enumerate(container.get("secrets", []) or []):
+            secret_key = secret["secret"].split(".", 1)[-1]
+            service_secrets.append(
+                ServiceSecretRuntimeFact(
+                    service_name=service_name,
+                    container_name=container.get("name"),
+                    container_index=container_index,
+                    secret_index=secret_index,
+                    secret_key=secret_key,
+                    podman_name=f"fortress_{service_name}_{secret_key}",
+                    env=secret.get("env"),
+                    sops_extract=f'["secrets"]["{secret_key}"]["value"]',
+                    env_value_mode=secret.get("env_value", "file_path"),
+                )
+            )
+        for volume_index, volume in enumerate(container.get("volumes", []) or []):
+            if volume.get("mount"):
+                mount = mount_by_name.get(volume["mount"], {})
+                source = _share_volume_source(mount, volume)
+                share_backed_volumes.append(
+                    ShareBackedVolumeRuntimeFact(
+                        service_name=service_name,
+                        vm_name=vm_name,
+                        container_name=container.get("name"),
+                        container_index=container_index,
+                        volume_index=volume_index,
+                        mount_name=volume["mount"],
+                        dataset_name=mount.get("dataset"),
+                        vm_mount_path=mount.get("mount_point"),
+                        resolved_source_path=source,
+                        container_path=volume.get("container"),
+                        access=volume.get("access") or mount.get("access"),
+                        required_mount_unit=systemd_mount_unit_name(mount.get("mount_point")),
+                    )
+                )
+                continue
+
+            vm_path = f"/srv/services/{service_name}/{volume['service_path']}"
+            service_owned_volumes.append(
+                ServiceOwnedVolumeRuntimeFact(
+                    service_name=service_name,
+                    vm_name=vm_name,
+                    container_name=container.get("name"),
+                    container_index=container_index,
+                    volume_index=volume_index,
+                    service_path=volume["service_path"],
+                    vm_path=vm_path,
+                    container_path=volume.get("container"),
+                    access_mode="ro" if volume.get("access") == "read_only" else "rw",
+                )
+            )
+            if vm_path not in seen_directories:
+                seen_directories.add(vm_path)
+                service_data_directories.append(
+                    ServiceDataDirectoryRuntimeFact(
+                        service_name=service_name,
+                        vm_name=vm_name,
+                        path=vm_path,
+                        uid=owner.get("uid"),
+                        gid=owner.get("gid"),
+                    )
+                )
+
+    start_units = _quadlet_start_units(service_name, containers)
+    return ServiceRuntimeIntent(
+        backends=(),
+        published_ports=(),
+        telemetry_targets=(),
+        service_secrets=tuple(service_secrets),
+        service_owned_volumes=tuple(service_owned_volumes),
+        service_data_directories=tuple(service_data_directories),
+        share_backed_volumes=tuple(share_backed_volumes),
+        native_environment_secrets=(),
+        service_network_identities=(
+            ServiceNetworkIdentityRuntimeFact(
+                service_name=service_name,
+                vm_name=vm_name,
+                declared_service_network=service.get("service_network"),
+                podman_name=network_name,
+                isolated=not bool(service.get("service_network")),
+            ),
+        ),
+        container_identities=tuple(
+            ContainerIdentityRuntimeFact(
+                service_name=service_name,
+                vm_name=vm_name,
+                container_name=container.get("name"),
+                container_index=container_index,
+                container_alias=container.get("name"),
+                podman_name=f"fortress-{service_name}-{container['name']}",
+                systemd_unit_name=f"fortress-{service_name}-{container['name']}.service",
+                service_network_podman_name=network_name,
+            )
+            for container_index, container in enumerate(containers)
+        ),
+        service_unit_orders=(
+            ServiceUnitOrderRuntimeFact(
+                service_name=service_name,
+                vm_name=vm_name,
+                start_units=tuple(start_units),
+                stop_units=tuple(reversed(start_units)),
+            ),
+        ),
+        diagnostics=(),
+    )
+
+
+def _share_volume_source(mount, volume):
+    if volume.get("source") == "/":
+        return mount.get("mount_point")
+    return f"{mount.get('mount_point')}/{volume.get('source')}"
+
+
+def _quadlet_start_units(service_name, containers):
+    by_name = {container["name"]: container for container in containers}
+    ordered = []
+    visiting = set()
+    visited = set()
+
+    def visit(container_name):
+        if container_name in visited:
+            return
+        if container_name in visiting:
+            raise ValueError(f"cycle in Container Dependency graph for Service {service_name}")
+        visiting.add(container_name)
+        for dependency in by_name[container_name].get("depends_on", []) or []:
+            visit(dependency)
+        visiting.remove(container_name)
+        visited.add(container_name)
+        ordered.append(f"fortress-{service_name}-{container_name}.service")
+
+    for container in containers:
+        visit(container["name"])
+    return ordered
+
+
 class ServiceQuadletRenderingTests(unittest.TestCase):
+    def test_quadlet_rendering_requires_service_runtime_intent(self):
+        service = {
+            "name": "paperless",
+            "backend": {"vm": "media01", "port": 8000},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "web",
+                        "image": "ghcr.io/paperless-ngx/paperless-ngx:2.13.5",
+                    }
+                ],
+            },
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Service Runtime Intent is required to render Quadlet artifacts for Service paperless",
+        ):
+            render_quadlet_service(service, {})
+
+    def test_quadlet_container_rendering_requires_service_runtime_intent(self):
+        service = {
+            "name": "paperless",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "web",
+                        "image": "ghcr.io/paperless-ngx/paperless-ngx:2.13.5",
+                    }
+                ],
+            },
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Service Runtime Intent is required to render Quadlet container for Service paperless",
+        ):
+            render_quadlet_container(service, {}, service["deploy"]["containers"][0])
+
     def test_golden_service_network_multi_container_rendering(self):
         service = {
             "name": "immich",
@@ -71,7 +282,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             ]
         }
 
-        rendered = render_quadlet_service(service, vm)
+        rendered = render_quadlet_service(service, vm, runtime_intent=quadlet_runtime_intent_fixture(service, vm))
 
         self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "service_network_multi")
         self.assertEqual(
@@ -116,7 +327,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             ]
         }
 
-        rendered = render_quadlet_service(service, vm)
+        rendered = render_quadlet_service(service, vm, runtime_intent=quadlet_runtime_intent_fixture(service, vm))
 
         self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "isolated_share_root")
 
@@ -142,7 +353,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "service_secret_injection")
 
@@ -184,7 +395,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 )
             )
 
-            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assert_golden_artifacts(rendered, GOLDEN_FIXTURES / "with_fragments")
 
@@ -212,7 +423,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assertEqual(
             ["fortress-immich.network", "fortress-immich-server.container"],
@@ -263,7 +474,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
         container = rendered.artifacts_by_filename["fortress-dns-primary-pihole.container"]
 
         self.assertIn("PublishPort=0.0.0.0:53:53/tcp\n", container.content)
@@ -277,7 +488,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             with self.subTest(service=service_name):
                 service = load_inventory_tree(REPO_ROOT).services[service_name]
 
-                rendered = render_quadlet_service(service, {})
+                rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
                 container = rendered.artifacts_by_filename[f"fortress-{service_name}-pihole.container"]
 
                 secret_name = f"fortress_{service_name}_web_api_password"
@@ -301,7 +512,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             with self.subTest(service=service_name):
                 service = load_inventory_tree(REPO_ROOT).services[service_name]
 
-                rendered = render_quadlet_service(service, {})
+                rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
                 self.assertEqual(
                     [
@@ -340,7 +551,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         container = rendered.artifacts_by_filename["fortress-paperless-web.container"]
         self.assertIn("Environment=PAPERLESS_URL=https://paperless.fearn.cloud\n", container.content)
@@ -372,10 +583,8 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 ],
             },
         }
-        runtime_intent = ServiceRuntimeIntent(
-            backends=(),
-            published_ports=(),
-            telemetry_targets=(),
+        runtime_intent = replace(
+            quadlet_runtime_intent_fixture(service),
             service_secrets=(
                 ServiceSecretRuntimeFact(
                     service_name="paperless",
@@ -389,11 +598,6 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                     env_value_mode="file_path",
                 ),
             ),
-            service_owned_volumes=(),
-            service_data_directories=(),
-            share_backed_volumes=(),
-            native_environment_secrets=(),
-            diagnostics=(),
         )
 
         rendered = render_quadlet_service(service, {}, runtime_intent=runtime_intent)
@@ -406,6 +610,106 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
         )
         self.assertNotIn("raw_yaml_password", container.content)
         self.assertNotIn("RAW_YAML_PASSWORD_FILE", container.content)
+
+    def test_quadlet_artifacts_use_service_runtime_identity_facts_when_provided(self):
+        service = {
+            "name": "raw-service",
+            "backend": {"vm": "media01", "port": 8080},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "web",
+                        "image": "docker.io/library/nginx:1.27",
+                        "depends_on": ["db"],
+                        "volumes": [
+                            {
+                                "service_path": "raw-data",
+                                "container": "/data",
+                            }
+                        ],
+                    },
+                    {
+                        "name": "db",
+                        "image": "postgres:16",
+                    },
+                ],
+            },
+        }
+        runtime_intent = ServiceRuntimeIntent(
+            backends=(),
+            published_ports=(),
+            telemetry_targets=(),
+            service_secrets=(),
+            service_owned_volumes=(
+                ServiceOwnedVolumeRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="web",
+                    container_index=0,
+                    volume_index=0,
+                    service_path="intent-data",
+                    vm_path="/srv/runtime-intent/raw-service/intent-data",
+                    container_path="/data",
+                    access_mode="ro",
+                ),
+            ),
+            service_data_directories=(),
+            share_backed_volumes=(),
+            native_environment_secrets=(),
+            service_network_identities=(
+                ServiceNetworkIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    declared_service_network=None,
+                    podman_name="intent-network",
+                    isolated=True,
+                ),
+            ),
+            container_identities=(
+                ContainerIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="web",
+                    container_index=0,
+                    container_alias="intent-web",
+                    podman_name="intent-web-container",
+                    systemd_unit_name="intent-web-container.service",
+                    service_network_podman_name="intent-network",
+                ),
+                ContainerIdentityRuntimeFact(
+                    service_name="raw-service",
+                    vm_name="media01",
+                    container_name="db",
+                    container_index=1,
+                    container_alias="intent-db",
+                    podman_name="intent-db-container",
+                    systemd_unit_name="intent-db-container.service",
+                    service_network_podman_name="intent-network",
+                ),
+            ),
+            service_unit_orders=(),
+            diagnostics=(),
+        )
+
+        rendered = render_quadlet_service(service, {}, runtime_intent=runtime_intent)
+
+        self.assertEqual(
+            ["intent-network.network", "intent-web-container.container", "intent-db-container.container"],
+            [artifact.filename for artifact in rendered.artifacts],
+        )
+        network = rendered.artifacts_by_filename["intent-network.network"]
+        web = rendered.artifacts_by_filename["intent-web-container.container"]
+        self.assertIn("NetworkName=intent-network\n", network.content)
+        self.assertIn("ContainerName=intent-web-container\n", web.content)
+        self.assertIn("Network=intent-network\n", web.content)
+        self.assertIn("NetworkAlias=intent-web\n", web.content)
+        self.assertIn("Requires=intent-db-container.service\n", web.content)
+        self.assertIn("After=intent-db-container.service\n", web.content)
+        self.assertIn("BindsTo=intent-db-container.service\n", web.content)
+        self.assertIn("Volume=/srv/runtime-intent/raw-service/intent-data:/data:ro\n", web.content)
+        self.assertNotIn("fortress-raw-service", web.content)
+        self.assertNotIn("/srv/services/raw-service/raw-data", web.content)
 
     def test_container_dependencies_render_same_service_start_order_and_stop_coupling(self):
         service = {
@@ -427,7 +731,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         server = rendered.artifacts_by_filename["fortress-immich-server.container"]
         self.assertIn("Requires=fortress-immich-postgres.service\n", server.content)
@@ -453,7 +757,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assertIn("fortress-network-media.network", rendered.artifacts_by_filename)
         network = rendered.artifacts_by_filename["fortress-network-media.network"]
@@ -479,7 +783,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        rendered = render_quadlet_service(service, {})
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assertIn("fortress-seerr.network", rendered.artifacts_by_filename)
         container = rendered.artifacts_by_filename["fortress-seerr-server.container"]
@@ -524,7 +828,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             ]
         }
 
-        rendered = render_quadlet_service(service, vm)
+        rendered = render_quadlet_service(service, vm, runtime_intent=quadlet_runtime_intent_fixture(service, vm))
 
         self.assertEqual(
             [("/srv/services/immich/upload", 1000, 1000)],
@@ -567,7 +871,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             ]
         }
 
-        unit = render_quadlet_container(service, vm, service["deploy"]["containers"][0])
+        unit = render_quadlet_container(service, vm, service["deploy"]["containers"][0], runtime_intent=quadlet_runtime_intent_fixture(service, vm))
 
         self.assertIn("Requires=mnt-nas-media.mount", unit)
         self.assertIn("After=mnt-nas-media.mount", unit)
@@ -606,11 +910,73 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             ]
         }
 
-        unit = render_quadlet_container(service, vm, service["deploy"]["containers"][0])
+        unit = render_quadlet_container(service, vm, service["deploy"]["containers"][0], runtime_intent=quadlet_runtime_intent_fixture(service, vm))
 
         self.assertIn("Requires=mnt-nfs\\x2ddemo.mount", unit)
         self.assertIn("After=mnt-nfs\\x2ddemo.mount", unit)
         self.assertNotIn("mnt-nfs-demo.mount", unit)
+
+    def test_share_backed_volume_lines_use_service_runtime_intent_when_provided(self):
+        service = {
+            "name": "media",
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "web",
+                        "image": "docker.io/library/nginx:1.27",
+                        "volumes": [
+                            {
+                                "mount": "raw-media",
+                                "source": "raw-photos",
+                                "container": "/photos",
+                                "access": "read_write",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        vm = {
+            "mounts": [
+                {
+                    "name": "raw-media",
+                    "mount_point": "/mnt/raw-media",
+                    "access": "read_write",
+                }
+            ]
+        }
+        runtime_intent = replace(
+            quadlet_runtime_intent_fixture(service, vm),
+            share_backed_volumes=(
+                ShareBackedVolumeRuntimeFact(
+                    service_name="media",
+                    vm_name="media01",
+                    container_name="web",
+                    container_index=0,
+                    volume_index=0,
+                    mount_name="intent-media",
+                    dataset_name="media",
+                    vm_mount_path="/mnt/intent-media",
+                    resolved_source_path="/mnt/intent-media/intent-photos",
+                    container_path="/photos",
+                    access="read_only",
+                    required_mount_unit="mnt-intent\\x2dmedia.mount",
+                ),
+            ),
+        )
+
+        unit = render_quadlet_container(
+            service,
+            vm,
+            service["deploy"]["containers"][0],
+            runtime_intent=runtime_intent,
+        )
+
+        self.assertIn("Requires=mnt-intent\\x2dmedia.mount", unit)
+        self.assertIn("After=mnt-intent\\x2dmedia.mount", unit)
+        self.assertIn("Volume=/mnt/intent-media/intent-photos:/photos:ro", unit)
+        self.assertNotIn("/mnt/raw-media/raw-photos", unit)
 
     def test_service_owned_volume_sources_are_relative_service_paths(self):
         service = {
@@ -632,7 +998,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             },
         }
 
-        unit = render_quadlet_container(service, {}, service["deploy"]["containers"][0])
+        unit = render_quadlet_container(service, {}, service["deploy"]["containers"][0], runtime_intent=quadlet_runtime_intent_fixture(service))
 
         self.assertIn("Volume=/srv/services/immich/upload:/usr/src/app/upload:rw", unit)
 
@@ -667,7 +1033,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 )
             )
 
-            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
         container = rendered.artifacts_by_filename["fortress-immich-server.container"]
         self.assertIn("StartLimitBurst=3\n", container.content)
@@ -679,6 +1045,10 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             model.services["observability"],
             model.vms["observability-vm"],
             inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=quadlet_runtime_intent_fixture(
+                model.services["observability"],
+                model.vms["observability-vm"],
+            ),
         )
 
         prometheus = rendered.artifacts_by_filename["fortress-observability-prometheus.container"]
@@ -701,6 +1071,10 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             model.services["observability"],
             model.vms["observability-vm"],
             inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=quadlet_runtime_intent_fixture(
+                model.services["observability"],
+                model.vms["observability-vm"],
+            ),
         )
 
         grafana = rendered.artifacts_by_filename["fortress-observability-grafana.container"]
@@ -747,7 +1121,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             (fragment_dir / "stale.container").write_text("[Container]\nUser=1000\n")
 
             with self.assertRaisesRegex(ValueError, "unknown Quadlet Fragment.*stale.container"):
-                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+                render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
     def test_quadlet_fragment_rejects_invalid_ini_syntax(self):
         service = {
@@ -770,7 +1144,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             (fragment_dir / "server.container").write_text("User=1000\n")
 
             with self.assertRaisesRegex(ValueError, "invalid Quadlet Fragment INI syntax"):
-                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+                render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
     def test_quadlet_fragment_rejects_fortress_owned_generated_key(self):
         service = {
@@ -793,7 +1167,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             (fragment_dir / "server.container").write_text("[Container]\nImage=postgres:16\n")
 
             with self.assertRaisesRegex(ValueError, "fortress-owned key: Container.Image"):
-                render_quadlet_service(service, {}, inventory_root=root / "inventory")
+                render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
     def test_quadlet_fragment_rejects_reserved_install_update_and_secret_keys(self):
         service = {
@@ -822,7 +1196,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 (fragment_dir / "server.container").write_text(fragment)
 
                 with self.assertRaisesRegex(ValueError, "reserved fortress-owned key"):
-                    render_quadlet_service(service, {}, inventory_root=root / "inventory")
+                    render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
     def test_quadlet_fragment_adds_repeated_unit_dependencies_without_replacing_generated_ones(self):
         service = {
@@ -851,7 +1225,7 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 "[Unit]\nRequires=network-online.target\nAfter=network-online.target\n"
             )
 
-            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory")
+            rendered = render_quadlet_service(service, {}, inventory_root=root / "inventory", runtime_intent=quadlet_runtime_intent_fixture(service))
 
         container = rendered.artifacts_by_filename["fortress-immich-server.container"]
         self.assertIn(

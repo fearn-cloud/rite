@@ -21,6 +21,7 @@ from fortress_services.deploy import (
     preflight_service_secret_shape,
     preflight_native_environment_secret_shape,
     quadlet_deploy_vars,
+    service_backend_vm_name,
     service_secret_installations,
     service_secret_keys,
     share_backed_volume_subpaths,
@@ -52,7 +53,7 @@ def main():
             print(f"{error.code}: {error.path}: {error.message}", file=sys.stderr)
         return 1
 
-    backend_vm_name = service.get("backend", {}).get("vm")
+    backend_vm_name = service_backend_vm_name(service, runtime_intent=service_runtime_intent)
     backend_vm = model.vms[backend_vm_name]
     vm_sops = repo_root / "inventory" / "vms" / f"{backend_vm_name}.sops.yaml"
     if not vm_sops.is_file():

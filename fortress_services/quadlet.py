@@ -4,7 +4,6 @@ from pathlib import PurePosixPath
 
 from fortress_inventory.service_runtime_intent import (
     service_runtime_intent_for_service,
-    service_secret_runtime_facts_for_service,
 )
 
 
@@ -66,7 +65,12 @@ def render_quadlet_service(
     service_data_directories=None,
     runtime_intent=None,
 ):
-    network_name = _service_network_name(service)
+    service_intent = _required_service_runtime_intent_view(
+        service,
+        runtime_intent,
+        "render Quadlet artifacts",
+    )
+    network_name = _service_network_name(service, service_intent=service_intent)
     fragments = _quadlet_fragments(service, inventory_root)
     artifacts = [
         _artifact_with_fragment(
@@ -85,7 +89,12 @@ def render_quadlet_service(
         )
     ]
     for container_index, container in enumerate(service["deploy"]["containers"]):
-        runtime_name = _container_runtime_name(service, container)
+        runtime_name = _container_runtime_name(
+            service,
+            container,
+            container_index=container_index,
+            service_intent=service_intent,
+        )
         artifacts.append(
             _artifact_with_fragment(
                 filename=f"{runtime_name}.container",
@@ -104,7 +113,14 @@ def render_quadlet_service(
         service_data_directories=(
             tuple(service_data_directories)
             if service_data_directories is not None
-            else tuple(_service_data_directories(service))
+            else tuple(
+                ServiceDataDirectory(
+                    path=directory.path,
+                    uid=directory.uid,
+                    gid=directory.gid,
+                )
+                for directory in service_intent.service_data_directories
+            )
         ),
         service_data_files=tuple(_service_data_files(service)),
     )
@@ -113,16 +129,17 @@ def render_quadlet_service(
 def render_quadlet_container(service, vm, container, container_index=None, runtime_intent=None):
     if container_index is None:
         container_index = _container_index(service, container)
-    mount_by_name = {
-        mount.get("name"): mount
-        for mount in vm.get("mounts", []) or []
-        if mount.get("name")
-    }
+    service_intent = _required_service_runtime_intent_view(
+        service,
+        runtime_intent,
+        "render Quadlet container",
+    )
+    container_identity = _container_identity(service_intent, container_index)
     required_units = []
     ordered_after_units = []
     bound_units = []
     for dependency in container.get("depends_on", []) or []:
-        dependency_unit = f"fortress-{service['name']}-{dependency}.service"
+        dependency_unit = _dependency_unit_name(service, dependency, service_intent)
         required_units.append(dependency_unit)
         ordered_after_units.append(dependency_unit)
         bound_units.append(dependency_unit)
@@ -131,10 +148,10 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
         f"Description=Fortress Service {service['name']} container {container['name']}",
         "",
         "[Container]",
-        f"ContainerName={_container_runtime_name(service, container)}",
+        f"ContainerName={_container_runtime_name(service, container, container_index, service_intent)}",
         f"Image={container['image']}",
-        f"Network={_service_network_name(service)}",
-        f"NetworkAlias={container['name']}",
+        f"Network={_container_network_name(service, container_identity, service_intent)}",
+        f"NetworkAlias={_container_alias(container, container_identity)}",
     ]
 
     for published_port in container.get("published_ports", []) or []:
@@ -147,7 +164,7 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
     service_secret_facts = _service_secret_facts_for_container(
         service,
         container_index,
-        runtime_intent=runtime_intent,
+        service_intent=service_intent,
     )
     for secret_fact in service_secret_facts:
         lines.append(f"Secret={secret_fact.podman_name}")
@@ -155,14 +172,16 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
             f"Environment={secret_fact.env}={_service_secret_env_value(secret_fact)}"
         )
 
-    share_backed_volume_by_index = {}
-    if runtime_intent is not None:
-        service_intent = _service_runtime_intent_view(service, runtime_intent)
-        share_backed_volume_by_index = {
-            volume.volume_index: volume
-            for volume in service_intent.share_backed_volumes
-            if volume.container_index == container_index
-        }
+    share_backed_volume_by_index = {
+        volume.volume_index: volume
+        for volume in service_intent.share_backed_volumes
+        if volume.container_index == container_index
+    } if service_intent is not None else {}
+    service_owned_volume_by_index = {
+        volume.volume_index: volume
+        for volume in service_intent.service_owned_volumes
+        if volume.container_index == container_index
+    } if service_intent is not None else {}
     for volume_index, volume in enumerate(container.get("volumes", []) or []):
         if volume.get("mount"):
             share_backed_volume = share_backed_volume_by_index.get(volume_index)
@@ -171,10 +190,12 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
                 mount_unit = share_backed_volume.required_mount_unit
                 mode = "ro" if share_backed_volume.access == "read_only" else "rw"
             else:
-                mount = mount_by_name[volume["mount"]]
-                source = _share_backed_volume_source(mount, volume)
-                mount_unit = systemd_mount_unit_name(mount["mount_point"])
-                mode = _volume_mode(volume, mount)
+                raise _missing_runtime_intent_fact_error(
+                    service,
+                    "Share-backed Volume",
+                    container_index,
+                    volume_index,
+                )
             required_units.append(mount_unit)
             ordered_after_units.append(mount_unit)
             lines.append(
@@ -182,9 +203,21 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
                 f"{volume['container']}:{mode}"
             )
         else:
+            service_owned_volume = service_owned_volume_by_index.get(volume_index)
+            if service_owned_volume is not None:
+                source = service_owned_volume.vm_path
+                container_path = service_owned_volume.container_path or volume["container"]
+                mode = service_owned_volume.access_mode
+            else:
+                raise _missing_runtime_intent_fact_error(
+                    service,
+                    "Service-owned Volume",
+                    container_index,
+                    volume_index,
+                )
             lines.append(
-                f"Volume={_service_owned_volume_source(service, volume)}:"
-                f"{volume['container']}:{_volume_mode(volume)}"
+                f"Volume={source}:"
+                f"{container_path}:{mode}"
             )
 
     unit_lines = []
@@ -205,11 +238,21 @@ def _service_runtime_intent_view(service, runtime_intent):
     return service_runtime_intent_for_service(runtime_intent, service["name"])
 
 
-def _service_secret_facts_for_container(service, container_index, runtime_intent=None):
-    if runtime_intent is not None:
-        service_secret_facts = _service_runtime_intent_view(service, runtime_intent).service_secrets
-    else:
-        service_secret_facts = service_secret_runtime_facts_for_service(service)
+def _required_service_runtime_intent_view(service, runtime_intent, action):
+    if runtime_intent is None:
+        raise ValueError(
+            "Service Runtime Intent is required to "
+            f"{action} for Service {service['name']}"
+        )
+    return _service_runtime_intent_view(service, runtime_intent)
+
+
+def _service_secret_facts_for_container(service, container_index, service_intent=None):
+    service_secret_facts = (
+        service_intent.service_secrets
+        if service_intent is not None
+        else ()
+    )
     return [
         secret_fact
         for secret_fact in service_secret_facts
@@ -241,14 +284,85 @@ def _escape_systemd_path_char(char, at_start):
     return "".join(f"\\x{byte:02x}" for byte in char.encode())
 
 
-def _service_network_name(service):
-    if service.get("service_network"):
-        return f"fortress-network-{service['service_network']}"
-    return f"fortress-{service['name']}"
+def _service_network_name(service, service_intent=None):
+    network_identity = _service_network_identity(service_intent)
+    if network_identity is not None:
+        return network_identity.podman_name
+    raise _missing_runtime_intent_fact_error(service, "Service Network Identity")
 
 
-def _container_runtime_name(service, container):
-    return f"fortress-{service['name']}-{container['name']}"
+def _container_runtime_name(service, container, container_index=None, service_intent=None):
+    container_identity = _container_identity(service_intent, container_index)
+    if container_identity is not None and container_identity.podman_name is not None:
+        return container_identity.podman_name
+    raise _missing_runtime_intent_fact_error(
+        service,
+        "Container Identity",
+        container_index,
+    )
+
+
+def _container_network_name(service, container_identity, service_intent):
+    if container_identity is not None:
+        return container_identity.service_network_podman_name
+    raise _missing_runtime_intent_fact_error(service, "Container Identity")
+
+
+def _container_alias(container, container_identity):
+    if container_identity is not None and container_identity.container_alias is not None:
+        return container_identity.container_alias
+    raise ValueError("Service Runtime Intent is missing Container Identity alias")
+
+
+def _dependency_unit_name(service, dependency, service_intent):
+    container_identity = _container_identity_by_name(service_intent, dependency)
+    if container_identity is not None and container_identity.systemd_unit_name is not None:
+        return container_identity.systemd_unit_name
+    raise ValueError(
+        "Service Runtime Intent is missing Container Identity systemd unit "
+        f"for Service {service['name']} dependency {dependency}"
+    )
+
+
+def _missing_runtime_intent_fact_error(service, fact_name, container_index=None, item_index=None):
+    location = f" for Service {service['name']}"
+    if container_index is not None:
+        location += f" container index {container_index}"
+    if item_index is not None:
+        location += f" item index {item_index}"
+    return ValueError(f"Service Runtime Intent is missing {fact_name}{location}")
+
+
+def _service_network_identity(service_intent):
+    if service_intent is None:
+        return None
+    return next(iter(service_intent.service_network_identities), None)
+
+
+def _container_identity(service_intent, container_index):
+    if service_intent is None:
+        return None
+    return next(
+        (
+            container_identity
+            for container_identity in service_intent.container_identities
+            if container_identity.container_index == container_index
+        ),
+        None,
+    )
+
+
+def _container_identity_by_name(service_intent, container_name):
+    if service_intent is None:
+        return None
+    return next(
+        (
+            container_identity
+            for container_identity in service_intent.container_identities
+            if container_identity.container_name == container_name
+        ),
+        None,
+    )
 
 
 def _container_index(service, selected_container):
@@ -290,45 +404,6 @@ def _service_secret_env_value(secret_fact):
 
 def _unique_units(units):
     return " ".join(dict.fromkeys(units))
-
-
-def _share_backed_volume_source(mount, volume):
-    if volume["source"] == "/":
-        return mount["mount_point"]
-    return str(PurePosixPath(mount["mount_point"]) / volume["source"])
-
-
-def _service_owned_volume_source(service, volume):
-    return str(PurePosixPath("/srv/services") / service["name"] / volume["service_path"])
-
-
-def _volume_mode(volume, mount=None):
-    access = volume.get("access")
-    if access is None and mount is not None:
-        access = mount.get("access")
-    return "ro" if access == "read_only" else "rw"
-
-
-def _service_data_directories(service):
-    owner = service.get("service_data_owner") or {}
-    directories = []
-    seen = set()
-    for container in service.get("deploy", {}).get("containers", []) or []:
-        for volume in container.get("volumes", []) or []:
-            if "service_path" not in volume:
-                continue
-            path = _service_owned_volume_source(service, volume)
-            if path in seen:
-                continue
-            seen.add(path)
-            directories.append(
-                ServiceDataDirectory(
-                    path=path,
-                    uid=owner.get("uid"),
-                    gid=owner.get("gid"),
-                )
-            )
-    return directories
 
 
 def _service_data_files(service):

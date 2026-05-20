@@ -314,7 +314,7 @@ class IngressGenerationTests(unittest.TestCase):
                 "address=/dns-primary.fearn.cloud/10.40.0.16",
                 "address=/dns-secondary.fearn.cloud/10.40.0.16",
                 "address=/files.fearn.cloud/10.40.0.16",
-                "address=/forgejo.fearn.cloud/10.40.0.16",
+                "address=/git.fearn.cloud/10.40.0.16",
                 "address=/grafana.fearn.cloud/10.40.0.16",
                 "address=/headscale.fearn.cloud/10.40.0.16",
                 "address=/jellyfin.fearn.cloud/10.40.0.16",

@@ -261,7 +261,7 @@ The resumable Host-level operator workflow that proves a Host has completed all 
 _Avoid_: Host Prepare, host setup, first class wrapper.
 
 **VM Lifecycle Convergence**:
-The VM workflow that uses Prepare, OpenTofu-managed VM resources, and VM Configure to move a declared VM toward its desired state.
+The resumable VM workflow that uses Prepare, OpenTofu-managed VM resources, and VM Configure to move a declared VM toward its desired state.
 _Avoid_: VM Reconcile, VM sync.
 
 **Service Deploy**:
@@ -607,6 +607,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The **Operator Workflow Runner** owns confirmation gate handling and rich diagnostic output because those are part of the operator-facing workflow contract.
 - **Host Readiness** treats an already-completed **Bootstrap** as a satisfied prerequisite while preserving **Bootstrap** itself as a one-shot workflow.
 - **Host Readiness** requires an already-bootstrapped **Host** to prove SSH reachability with its stored per-Host credential before continuing.
+- **VM Lifecycle Convergence** treats an already-completed **Prepare** as a satisfied prerequisite when the prepared VM credential is internally consistent, while preserving **Prepare** itself as a one-shot workflow.
+- **Prepare** satisfaction checks structural presence of the stored VM private key without decrypting it; VM private-key decryption belongs to later VM access workflows such as **VM Configure**.
 - **Host Readiness** runs the full **Host Configure** scope for the selected **Host**.
 - **Host Readiness** builds and verifies every **Template** declared for the selected **Host**.
 - **Host Readiness** runs selected **Acceptance Tests** for every declared **Template** and every selected **NAS Endpoint**.

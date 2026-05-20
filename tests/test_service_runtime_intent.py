@@ -109,6 +109,18 @@ class ServiceRuntimeIntentTests(unittest.TestCase):
             tuple(fact for fact in fleet_intent.share_backed_volumes if fact.service_name == "jellyfin"),
             service_intent.share_backed_volumes,
         )
+        self.assertEqual(
+            tuple(fact for fact in fleet_intent.service_network_identities if fact.service_name == "jellyfin"),
+            service_intent.service_network_identities,
+        )
+        self.assertEqual(
+            tuple(fact for fact in fleet_intent.container_identities if fact.service_name == "jellyfin"),
+            service_intent.container_identities,
+        )
+        self.assertEqual(
+            tuple(fact for fact in fleet_intent.service_unit_orders if fact.service_name == "jellyfin"),
+            service_intent.service_unit_orders,
+        )
         self.assertEqual((), service_intent.native_environment_secrets)
         self.assertEqual(
             tuple(
@@ -137,6 +149,261 @@ class ServiceRuntimeIntentTests(unittest.TestCase):
             [
                 (backend.service_name, backend.vm_name, backend.port)
                 for backend in adapter_view(fleet_intent, "photos").backends
+            ],
+        )
+
+    def test_fleet_analysis_resolves_isolated_service_network_identity(self):
+        model = InventoryStub(
+            vms={"media01": {}},
+            services={
+                "paperless": {
+                    "backend": {"vm": "media01", "port": 8000},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "web",
+                                "image": "ghcr.io/paperless-ngx/paperless-ngx:2.14.7",
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual((), intent.diagnostics)
+        self.assertEqual(
+            [("paperless", "media01", None, "fortress-paperless", True)],
+            [
+                (
+                    network.service_name,
+                    network.vm_name,
+                    network.declared_service_network,
+                    network.podman_name,
+                    network.isolated,
+                )
+                for network in intent.service_network_identities
+            ],
+        )
+
+    def test_fleet_analysis_resolves_shared_service_network_identity(self):
+        model = InventoryStub(
+            vms={"media01": {}},
+            services={
+                "immich": {
+                    "service_network": "media",
+                    "backend": {"vm": "media01", "port": 2283},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "server",
+                                "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual(
+            [("immich", "media01", "media", "fortress-network-media", False)],
+            [
+                (
+                    network.service_name,
+                    network.vm_name,
+                    network.declared_service_network,
+                    network.podman_name,
+                    network.isolated,
+                )
+                for network in intent.service_network_identities
+            ],
+        )
+
+    def test_fleet_analysis_resolves_container_runtime_identity(self):
+        model = InventoryStub(
+            vms={"media01": {}},
+            services={
+                "immich": {
+                    "service_network": "media",
+                    "backend": {"vm": "media01", "port": 2283},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "server",
+                                "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                            },
+                            {
+                                "name": "postgres",
+                                "image": "postgres:16",
+                            },
+                        ],
+                    },
+                }
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual(
+            [
+                (
+                    "immich",
+                    "media01",
+                    "server",
+                    0,
+                    "server",
+                    "fortress-immich-server",
+                    "fortress-immich-server.service",
+                    "fortress-network-media",
+                ),
+                (
+                    "immich",
+                    "media01",
+                    "postgres",
+                    1,
+                    "postgres",
+                    "fortress-immich-postgres",
+                    "fortress-immich-postgres.service",
+                    "fortress-network-media",
+                ),
+            ],
+            [
+                (
+                    container.service_name,
+                    container.vm_name,
+                    container.container_name,
+                    container.container_index,
+                    container.container_alias,
+                    container.podman_name,
+                    container.systemd_unit_name,
+                    container.service_network_podman_name,
+                )
+                for container in intent.container_identities
+            ],
+        )
+
+    def test_fleet_analysis_resolves_ordered_start_and_stop_units(self):
+        model = InventoryStub(
+            vms={"media01": {}},
+            services={
+                "immich": {
+                    "backend": {"vm": "media01", "port": 2283},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "server",
+                                "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                                "depends_on": ["postgres", "redis"],
+                            },
+                            {
+                                "name": "postgres",
+                                "image": "postgres:16",
+                            },
+                            {
+                                "name": "redis",
+                                "image": "redis:7",
+                                "depends_on": ["postgres"],
+                            },
+                        ],
+                    },
+                }
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual((), intent.diagnostics)
+        self.assertEqual(
+            [
+                (
+                    "immich",
+                    "media01",
+                    (
+                        "fortress-immich-postgres.service",
+                        "fortress-immich-redis.service",
+                        "fortress-immich-server.service",
+                    ),
+                    (
+                        "fortress-immich-server.service",
+                        "fortress-immich-redis.service",
+                        "fortress-immich-postgres.service",
+                    ),
+                )
+            ],
+            [
+                (
+                    unit_order.service_name,
+                    unit_order.vm_name,
+                    unit_order.start_units,
+                    unit_order.stop_units,
+                )
+                for unit_order in intent.service_unit_orders
+            ],
+        )
+
+    def test_fleet_analysis_diagnoses_container_dependency_errors(self):
+        model = InventoryStub(
+            vms={"media01": {}},
+            services={
+                "immich": {
+                    "backend": {"vm": "media01", "port": 2283},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "server",
+                                "image": "ghcr.io/immich-app/immich-server:v1.120.0",
+                                "depends_on": ["missing-postgres"],
+                            },
+                        ],
+                    },
+                },
+                "paperless": {
+                    "backend": {"vm": "media01", "port": 8000},
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "web",
+                                "image": "ghcr.io/paperless-ngx/paperless-ngx:2.14.7",
+                                "depends_on": ["db"],
+                            },
+                            {
+                                "name": "db",
+                                "image": "postgres:16",
+                                "depends_on": ["web"],
+                            },
+                        ],
+                    },
+                },
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual(
+            [
+                (
+                    "missing_container_dependency",
+                    "inventory/services/immich.yaml.deploy.containers[0].depends_on",
+                    "Service immich container server depends on missing same-Service container missing-postgres",
+                ),
+                (
+                    "container_dependency_cycle",
+                    "inventory/services/paperless.yaml.deploy.containers",
+                    "Service paperless has a Container Dependency cycle",
+                ),
+            ],
+            [
+                (diagnostic.code, diagnostic.path, diagnostic.message)
+                for diagnostic in intent.diagnostics
             ],
         )
 

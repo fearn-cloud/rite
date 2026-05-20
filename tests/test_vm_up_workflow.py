@@ -125,6 +125,88 @@ class VMUpWorkflowTests(unittest.TestCase):
                 calls_log.read_text().splitlines(),
             )
 
+    def test_vm_up_uses_satisfied_prepare_when_vm_ssh_material_already_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            (root / "inventory" / "vms" / "media01.sops.yaml").write_text(
+                "ssh_keys:\n"
+                "  bootstrap:\n"
+                "    public_key: ENC[public]\n"
+                "    private_key: ENC[private]\n"
+            )
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-up"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                input="apply media01\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                [
+                    "vm-prepare-satisfied media01",
+                    f"tofu-wrap plan -var selected_vm=media01 {MEDIA01_TARGETS}",
+                    f"tofu-wrap apply -var selected_vm=media01 {MEDIA01_TARGETS} -auto-approve",
+                    "vm-configure media01",
+                ],
+                calls_log.read_text().splitlines(),
+            )
+            self.assertNotIn("vm-prepare media01", calls_log.read_text())
+
+    def test_vm_up_runs_prepare_when_vm_sibling_sops_file_has_only_non_ssh_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            (root / "inventory" / "vms" / "media01.sops.yaml").write_text(
+                "tailnet:\n"
+                "  auth_key:\n"
+                "    value: ENC[auth]\n"
+            )
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-up"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                input="apply media01\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual("vm-prepare media01", calls_log.read_text().splitlines()[0])
+
+    def test_vm_up_stops_when_satisfied_prepare_probe_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            (root / "inventory" / "vms" / "media01.sops.yaml").write_text(
+                "ssh_keys:\n"
+                "  bootstrap:\n"
+                "    public_key: ENC[public]\n"
+                "    private_key: ENC[private]\n"
+            )
+            env = self._workflow_env(root, calls_log)
+            env["FORTRESS_FAIL_PHASE"] = "vm-prepare-satisfied"
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-up"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                input="apply media01\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 42)
+            self.assertIn("Prepare satisfaction failed for VM media01", result.stderr)
+            self.assertEqual(["vm-prepare-satisfied media01"], calls_log.read_text().splitlines())
+
     def test_vm_up_shows_selected_plan_output_before_approval(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _calls_log = self._workflow_fixture(tmp)
@@ -290,7 +372,7 @@ class VMUpWorkflowTests(unittest.TestCase):
             "  host: wintermute\n"
         )
         calls_log = root / "calls.log"
-        for name in ["vm-prepare", "tofu-wrap", "vm-configure"]:
+        for name in ["vm-prepare", "vm-prepare-satisfied", "tofu-wrap", "vm-configure"]:
             script = scripts_dir / name
             script.write_text(
                 "#!/usr/bin/env bash\n"

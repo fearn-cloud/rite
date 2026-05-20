@@ -10,10 +10,11 @@ Required fields are defined by `inventory/services/_schema.json`; at minimum the
 
 The naming planes are separate:
 
-- `name` is the Service identity in Inventory and the prefix for fortress-owned Quadlet artifacts.
+- `name` is the Service identity in Inventory. Service Runtime Intent derives Service Runtime Identity from Inventory, including fortress-owned runtime names and paths such as the Service Network name, Podman container names, systemd unit names, Service Secret names, Service Data Directory paths, and required mount unit names.
 - `backend.vm` is the Backend VM where containers run.
 - `backend.port` is the VM-local Backend TCP port used by Ingress.
 - `hostname` is the public Ingress hostname. If it is absent, future Ingress regeneration may derive one from the Service name; keep it explicit when the name matters.
+- Quadlet filenames, rendered Quadlet text, Service Deploy Ansible variable names, systemd commands, and application-specific configuration are adapter output, not Inventory identity.
 
 Ingress defaults are intentionally small in issue 07. `ingress.enabled: true` means Ingress should route the Service hostname to `backend.vm:backend.port`; `ingress.exposure`, `ingress.tls`, and `ingress.auth` are optional policy fields for later Ingress work. A Service with Ingress enabled must mark exactly the Published Port that backs the Ingress path with `ingress: true`.
 

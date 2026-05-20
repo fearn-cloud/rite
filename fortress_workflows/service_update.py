@@ -6,7 +6,10 @@ from pathlib import Path
 
 from fortress_inventory.entity_graph import InventoryEntityGraph
 from fortress_inventory.model import load_inventory_tree
-from fortress_services.deploy import service_start_units
+from fortress_inventory.service_runtime_intent import (
+    analyze_service_runtime_intent,
+    service_runtime_intent_for_service,
+)
 from fortress_workflows.runner import CommandPhase, ConfirmationGate, OperatorWorkflowPlan, WorkflowResult
 
 
@@ -23,7 +26,8 @@ def build_service_update_plan(repo_root: Path, service: str) -> OperatorWorkflow
     if backend_vm_name not in model.vms:
         raise ValueError(f"Backend VM {backend_vm_name!r} for Service {service!r} is not declared")
 
-    units = service_update_units(selected_service)
+    runtime_intent = analyze_service_runtime_intent(model)
+    units = service_update_units(selected_service, runtime_intent=runtime_intent)
     if not units:
         raise ValueError(f"Service {service!r} has no fortress-owned systemd units to update")
 
@@ -76,12 +80,21 @@ def build_service_update_plan(repo_root: Path, service: str) -> OperatorWorkflow
     )
 
 
-def service_update_units(service: dict) -> list[str]:
+def service_update_units(service: dict, runtime_intent=None) -> list[str]:
     deploy = service.get("deploy", {})
     if deploy.get("type") == "native":
         unit = deploy.get("service_name")
         return [unit] if unit else []
-    return service_start_units(service)
+    if runtime_intent is None:
+        raise ValueError(
+            "Service Runtime Intent is required to resolve Service Update units "
+            f"for Service {service['name']}"
+        )
+    service_intent = service_runtime_intent_for_service(runtime_intent, service["name"])
+    unit_order = next(iter(service_intent.service_unit_orders), None)
+    if unit_order is None:
+        return []
+    return list(unit_order.start_units)
 
 
 def service_units_active_check_command(units: list[str]) -> str:

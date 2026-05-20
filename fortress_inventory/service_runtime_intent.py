@@ -107,6 +107,35 @@ class NativeEnvironmentSecretRuntimeFact:
 
 
 @dataclass(frozen=True)
+class ServiceNetworkIdentityRuntimeFact:
+    service_name: str
+    vm_name: str | None
+    declared_service_network: str | None
+    podman_name: str
+    isolated: bool
+
+
+@dataclass(frozen=True)
+class ContainerIdentityRuntimeFact:
+    service_name: str
+    vm_name: str | None
+    container_name: str | None
+    container_index: int
+    container_alias: str | None
+    podman_name: str | None
+    systemd_unit_name: str | None
+    service_network_podman_name: str
+
+
+@dataclass(frozen=True)
+class ServiceUnitOrderRuntimeFact:
+    service_name: str
+    vm_name: str | None
+    start_units: tuple[str, ...]
+    stop_units: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ServiceRuntimeIntent:
     backends: tuple[BackendRuntimeFact, ...]
     published_ports: tuple[PublishedPortRuntimeFact, ...]
@@ -117,6 +146,9 @@ class ServiceRuntimeIntent:
     share_backed_volumes: tuple[ShareBackedVolumeRuntimeFact, ...]
     native_environment_secrets: tuple[NativeEnvironmentSecretRuntimeFact, ...]
     diagnostics: tuple[RuntimeDiagnostic, ...]
+    service_network_identities: tuple[ServiceNetworkIdentityRuntimeFact, ...] = ()
+    container_identities: tuple[ContainerIdentityRuntimeFact, ...] = ()
+    service_unit_orders: tuple[ServiceUnitOrderRuntimeFact, ...] = ()
 
 
 def service_runtime_intent_for_service(runtime_intent, service_name):
@@ -129,6 +161,18 @@ def service_runtime_intent_for_service(runtime_intent, service_name):
         service_data_directories=_facts_for_service(runtime_intent.service_data_directories, service_name),
         share_backed_volumes=_facts_for_service(runtime_intent.share_backed_volumes, service_name),
         native_environment_secrets=_facts_for_service(runtime_intent.native_environment_secrets, service_name),
+        service_network_identities=_facts_for_service(
+            runtime_intent.service_network_identities,
+            service_name,
+        ),
+        container_identities=_facts_for_service(
+            runtime_intent.container_identities,
+            service_name,
+        ),
+        service_unit_orders=_facts_for_service(
+            runtime_intent.service_unit_orders,
+            service_name,
+        ),
         diagnostics=tuple(
             diagnostic
             for diagnostic in runtime_intent.diagnostics
@@ -155,6 +199,9 @@ def analyze_service_runtime_intent(model):
     seen_service_data_directories = set()
     share_backed_volumes = []
     native_environment_secrets = []
+    service_network_identities = []
+    container_identities = []
+    service_unit_orders = []
     diagnostics = []
     seen_backend_ports = {}
     seen_published_ports = {}
@@ -199,13 +246,48 @@ def analyze_service_runtime_intent(model):
         ingress_backend_matches = []
         deploy_type = service.get("deploy", {}).get("type")
         if deploy_type == "quadlet":
+            service_network_podman_name = _service_network_podman_name(
+                service_name,
+                service.get("service_network"),
+            )
+            service_network_identities.append(
+                ServiceNetworkIdentityRuntimeFact(
+                    service_name=service_name,
+                    vm_name=vm_name,
+                    declared_service_network=service.get("service_network"),
+                    podman_name=service_network_podman_name,
+                    isolated=not bool(service.get("service_network")),
+                )
+            )
             backend_vm = model.vms.get(vm_name) if vm_name else None
             mount_by_name = {
                 mount.get("name"): mount
                 for mount in (backend_vm or {}).get("mounts", []) or []
                 if mount.get("name")
             }
+            ordered_units, dependency_diagnostics = _service_unit_order(service_name, vm_name, service)
+            diagnostics.extend(dependency_diagnostics)
+            service_unit_orders.append(
+                ServiceUnitOrderRuntimeFact(
+                    service_name=service_name,
+                    vm_name=vm_name,
+                    start_units=ordered_units,
+                    stop_units=tuple(reversed(ordered_units)),
+                )
+            )
             for container_index, container in enumerate(service.get("deploy", {}).get("containers", []) or []):
+                container_identities.append(
+                    ContainerIdentityRuntimeFact(
+                        service_name=service_name,
+                        vm_name=vm_name,
+                        container_name=container.get("name"),
+                        container_index=container_index,
+                        container_alias=container.get("name"),
+                        podman_name=_container_podman_name(service_name, container.get("name")),
+                        systemd_unit_name=_container_systemd_unit_name(service_name, container.get("name")),
+                        service_network_podman_name=service_network_podman_name,
+                    )
+                )
                 owner = service.get("service_data_owner") or {}
                 for volume_index, volume in enumerate(container.get("volumes", []) or []):
                     if volume.get("mount"):
@@ -433,8 +515,78 @@ def analyze_service_runtime_intent(model):
         service_data_directories=tuple(service_data_directories),
         share_backed_volumes=tuple(share_backed_volumes),
         native_environment_secrets=tuple(native_environment_secrets),
+        service_network_identities=tuple(service_network_identities),
+        container_identities=tuple(container_identities),
+        service_unit_orders=tuple(service_unit_orders),
         diagnostics=tuple(diagnostics),
     )
+
+
+def _service_network_podman_name(service_name, service_network):
+    if service_network:
+        return f"fortress-network-{service_network}"
+    return f"fortress-{service_name}"
+
+
+def _container_podman_name(service_name, container_name):
+    if not container_name:
+        return None
+    return f"fortress-{service_name}-{container_name}"
+
+
+def _container_systemd_unit_name(service_name, container_name):
+    podman_name = _container_podman_name(service_name, container_name)
+    if podman_name is None:
+        return None
+    return f"{podman_name}.service"
+
+
+def _service_unit_order(service_name, vm_name, service):
+    containers = {
+        container.get("name"): (container_index, container)
+        for container_index, container in enumerate(service.get("deploy", {}).get("containers", []) or [])
+        if container.get("name")
+    }
+    ordered = []
+    diagnostics = []
+    visiting = set()
+    visited = set()
+
+    def visit(container_name):
+        if container_name in visited:
+            return
+        if container_name in visiting:
+            diagnostics.append(
+                RuntimeDiagnostic(
+                    "container_dependency_cycle",
+                    f"inventory/services/{service_name}.yaml.deploy.containers",
+                    f"Service {service_name} has a Container Dependency cycle",
+                )
+            )
+            return
+        visiting.add(container_name)
+        container_index, container = containers[container_name]
+        for dependency in container.get("depends_on", []) or []:
+            if dependency not in containers:
+                diagnostics.append(
+                    RuntimeDiagnostic(
+                        "missing_container_dependency",
+                        f"inventory/services/{service_name}.yaml.deploy.containers[{container_index}].depends_on",
+                        f"Service {service_name} container {container_name} depends on missing "
+                        f"same-Service container {dependency}",
+                    )
+                )
+                continue
+            visit(dependency)
+        visiting.remove(container_name)
+        visited.add(container_name)
+        unit_name = _container_systemd_unit_name(service_name, container_name)
+        if unit_name is not None:
+            ordered.append(unit_name)
+
+    for container_name in containers:
+        visit(container_name)
+    return tuple(ordered), tuple(diagnostics)
 
 
 def _published_port_protocols(protocol):

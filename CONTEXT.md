@@ -1,6 +1,6 @@
 # Rite
 
-A single-operator control plane for declaring, validating, and safely converging a personal Proxmox fleet through explicit Operator Workflows.
+An operator-first control plane for declaring, validating, and safely converging small self-owned fleets through explicit Operator Workflows. Its current design center is a single Operator managing standalone Proxmox Hosts.
 
 ## Language
 

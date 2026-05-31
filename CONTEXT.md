@@ -79,7 +79,7 @@ A named reusable view shape that Rite can generate from compatible Instrumentati
 _Avoid_: dashboard template, panel preset, Grafana model.
 
 **Media VM**:
-The Apps VLAN VM that runs media playback, request, catalog, and indexer Services such as Jellyfin, Seerr, Sonarr, Radarr, Prowlarr, and Bazarr.
+The Apps VLAN VM that runs media playback, request, catalog, and indexer Services such as Jellyfin, Seerr, Sonarr, Radarr, Radarr Anime, Prowlarr, and Bazarr.
 _Avoid_: media automation VM, Jellyfin VM.
 
 **Download VM**:
@@ -736,7 +736,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - Trusted-only **Host Ingress Route** source ranges are declared policy in **Inventory**, not hardcoded in the generator.
 - Known, IoT, Guest, and DMZ clients must not reach Proxmox web UI **Host Ingress Routes** through the **Ingress**.
 - A Proxmox web UI **Host Ingress Route** relies on Proxmox authentication for the first slice; additional **Ingress Auth** for Host management is deferred.
-- **Ingress** terminates TLS and proxies to **Backends** and Proxmox web UI **Host Ingress Routes** over plain HTTP unless a future backend transport model says otherwise.
+- **Ingress** terminates public TLS, proxies ordinary **Backends** over plain HTTP, and proxies Proxmox web UI **Host Ingress Routes** to the Host management address over HTTPS with self-signed upstream certificate verification skipped.
 - **Ingress Regeneration** requires unambiguous static IPv4 addresses for the **Ingress** **VM** and every **Backend** **VM** it routes to.
 - **Ingress** TLS for internal Service hostnames uses Let's Encrypt DNS-01 when `ingress.tls` is `letsencrypt_dns`.
 - A **Service** needs a hostname only when **Ingress** is enabled.
@@ -981,7 +981,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Group Launch declaration**: Resolved. A launchable **Service Group** is declared on its shared **Backend** **VM**; the VM declaration and member **Service** declarations must agree on group membership.
 - **Service Group Launch declaration validation**: Resolved. A VM-declared **Service Group Launch Order** must list existing group member **Services** for that VM exactly once, and a launchable **Service Group** must not be declared on more than one **VM**.
 - **Service Group Launch Backend scope**: Resolved. Same-Backend membership is a **Service Group Launch** constraint, not part of the general **Service Group** definition.
-- **Service Group Launch ordering**: Resolved. Service Group Launch uses an explicit order for every **Service** in the group; the first media order is Prowlarr, Sonarr, Radarr, Bazarr, Jellyfin, then Seerr.
+- **Service Group Launch ordering**: Resolved. Service Group Launch uses an explicit order for every **Service** in the group; the first media order is Prowlarr, Sonarr, Radarr, Radarr Anime, Bazarr, Jellyfin, then Seerr.
 - **Service Group Update**: Deferred. **Service Update** updates only one named **Service**; coordinated **Service Group** maintenance will be modeled when a real group-level update need appears.
 - **Service health checks**: Deferred. **Service Update** proves systemd unit activation; application-level health semantics require an explicit future Service health contract.
 - **Service Runtime Intent edge**: Resolved. **Service Runtime Intent** owns fortress-owned Service runtime meaning, including **Service Runtime Identity**, not rendered artifacts; Quadlet files, Ansible variable names, systemd commands, Grafana JSON, and application-specific configuration remain Adapter concerns.
@@ -996,16 +996,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Multi-interface NAS clients**: Deferred. Mount-bearing VMs currently require a static IP address; selecting among multiple VM client addresses will be modeled when multi-interface VMs need NAS access.
 - **Arr stack configuration ownership**: Resolved. Fortress owns VM placement, Service boundaries, Mounts, Share-backed Volumes, Published Ports, secrets wiring, and install/deploy ceremony; Sonarr/Radarr/Prowlarr/Bazarr/Jellyfin/Seerr/downloader settings are **Application Configuration Artifacts**, not first-party fortress schema.
 - **Quadlet application configuration deployment**: Resolved. Quadlet **Services** may declare **Application Configuration Templates** rendered by **Service Deploy** into their own **Service Data Directory**; app-specific settings remain native config content, not fortress schema fields.
-- **Arr stack Service boundaries**: Resolved. Jellyfin, Seerr, Sonarr, Radarr, Prowlarr, and Bazarr are separate **Services** in the `media` **Service Group** on the **Media VM**; qBittorrent and SABnzbd are separate **Services** on the **Download VM**. Lidarr and NZBGet are deferred until explicitly needed.
+- **Arr stack Service boundaries**: Resolved. Jellyfin, Seerr, Sonarr, Radarr, Radarr Anime, Prowlarr, and Bazarr are separate **Services** in the `media` **Service Group** on the **Media VM**; qBittorrent and SABnzbd are separate **Services** on the **Download VM**. Lidarr and NZBGet are deferred until explicitly needed.
 - **Downloader VPN policy**: Resolved. Fortress does not model VPN-bound downloader components; downloader egress policy is handled at the router level.
 - **Downloader Service set**: Resolved. qBittorrent and SABnzbd are both active first-pass downloader **Services**.
-- **Arr stack storage layout**: Resolved. Sonarr and Radarr receive the full `/data` **Container Media Root** read-write; qBittorrent receives `/data/torrents` read-write; SABnzbd receives `/data/usenet` read-write; Bazarr receives `/data/media` read-write; Jellyfin receives `/data/media` read-only; Seerr receives no media Dataset mount by default.
+- **Arr stack storage layout**: Resolved. Sonarr and Radarr instances receive the full `/data` **Container Media Root** read-write; qBittorrent receives `/data/torrents` read-write; SABnzbd receives `/data/usenet` read-write; Bazarr receives `/data/media` read-write; Jellyfin receives `/data/media` read-only; Seerr receives no media Dataset mount by default.
 - **Arr stack media subpaths**: Resolved. Fortress expects the TRaSH-aligned media, torrent, and Usenet subpaths under the adopted media Dataset to already exist; fortress does not model a creation workflow for those paths.
 - **Arr stack ingress**: Resolved. Arr stack browser UIs use LAN-only internal **Ingress** hostnames through the **Ingress** **VM**; direct Backend access is reserved for Trusted-only recovery or administration paths.
 - **Seerr hostname**: Resolved. The Seerr **Service** uses `seerr.fearn.cloud`; friendly request aliases are deferred until hostname aliases are explicitly modeled.
 - **Arr stack image pinning**: Resolved. Checked-in arr stack **Service** Inventory uses exact image version tags, not `latest`, `develop`, `nightly`, or rolling channel tags.
 - **Arr stack image publishers**: Resolved. Arr stack **Services** prefer official images where they are the strongest current distribution path, and LinuxServer images where uniform operations matter for arr and downloader Services.
 - **Jellyfin GPU acceleration**: Deferred. First-pass Jellyfin runs CPU-only; GPU acceleration requires an explicit VM device and container device model before it is represented in fortress Inventory.
-- **Arr stack hostnames and ports**: Resolved. First-pass Services use `jellyfin.fearn.cloud:8096`, `seerr.fearn.cloud:5055`, `sonarr.fearn.cloud:8989`, `radarr.fearn.cloud:7878`, `prowlarr.fearn.cloud:9696`, `bazarr.fearn.cloud:6767`, `qbittorrent.fearn.cloud:8080`, and `sabnzbd.fearn.cloud:8081` with SABnzbd container port `8080`.
+- **Arr stack hostnames and ports**: Resolved. First-pass Services use `jellyfin.fearn.cloud:8096`, `seerr.fearn.cloud:5055`, `sonarr.fearn.cloud:8989`, `radarr.fearn.cloud:7878`, `radarr-anime.fearn.cloud:7879`, `prowlarr.fearn.cloud:9696`, `bazarr.fearn.cloud:6767`, `qbittorrent.fearn.cloud:8080`, and `sabnzbd.fearn.cloud:8081` with SABnzbd container port `8080`.
 - **Arr stack runtime owner**: Resolved. First-pass arr and downloader **Services** use UID/GID `1001:1001`, matching the adopted media Dataset owner.
 - **Arr stack first-run credentials**: Resolved. First-pass arr stack Inventory does not pre-model app credentials or generated API keys as **Service Secrets**; app-native first-run setup owns them until explicit automated configuration is added.

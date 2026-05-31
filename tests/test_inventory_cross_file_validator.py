@@ -76,7 +76,16 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             [
                 {
                     "name": "media",
-                    "launch_order": ["prowlarr", "sonarr", "radarr", "bazarr", "jellyfin", "seerr"],
+                    "launch_order": [
+                        "prowlarr",
+                        "sonarr",
+                        "radarr",
+                        "radarr-anime",
+                        "bazarr",
+                        "jellyfin",
+                        "seerr",
+                        "media-file-browser",
+                    ],
                 }
             ],
             model.vms["media-vm"].get("launchable_service_groups"),

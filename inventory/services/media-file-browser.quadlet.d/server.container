@@ -1,0 +1,4 @@
+[Container]
+User=1001:1001
+Environment=FB_DATABASE=/database/filebrowser.db
+Environment=FB_PORT=8080

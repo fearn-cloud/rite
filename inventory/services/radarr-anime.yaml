@@ -1,13 +1,13 @@
-name: sabnzbd
-hostname: sabnzbd.fearn.cloud
-service_group: download
-service_network: download
+name: radarr-anime
+hostname: radarr-anime.fearn.cloud
+service_group: media
+service_network: media
 service_data_owner:
   uid: 1001
   gid: 1001
 backend:
-  vm: download-vm
-  port: 8081
+  vm: media-vm
+  port: 7879
 ingress:
   enabled: true
   exposure: lan_only
@@ -17,12 +17,12 @@ ingress:
 deploy:
   type: quadlet
   containers:
-    - name: sabnzbd
-      image: lscr.io/linuxserver/sabnzbd:5.0.3-ls254
+    - name: radarr-anime
+      image: lscr.io/linuxserver/radarr:6.1.1.10360-ls302
       published_ports:
         - bind: 0.0.0.0
-          host: 8081
-          container: 8080
+          host: 7879
+          container: 7878
           ingress: true
       env:
         PUID: 1001
@@ -33,6 +33,6 @@ deploy:
           container: /config
           access: read_write
         - mount: media
-          source: usernet
-          container: /data/usernet
+          source: /
+          container: /data
           access: read_write

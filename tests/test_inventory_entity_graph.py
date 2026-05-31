@@ -710,7 +710,16 @@ class InventoryEntityGraphTests(unittest.TestCase):
             ServiceGroupLaunchIntent(
                 service_group_name="media",
                 backend_vm_name="media-vm",
-                service_names=("prowlarr", "sonarr", "radarr", "bazarr", "jellyfin", "seerr"),
+                service_names=(
+                    "prowlarr",
+                    "sonarr",
+                    "radarr",
+                    "radarr-anime",
+                    "bazarr",
+                    "jellyfin",
+                    "seerr",
+                    "media-file-browser",
+                ),
                 requires_ingress_regeneration=True,
             ),
             graph.service_group_launch_intent("media"),

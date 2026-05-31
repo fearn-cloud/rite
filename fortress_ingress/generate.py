@@ -100,7 +100,7 @@ def _host_ingress_routes(model, graph):
             {
                 "kind": "host",
                 "hostname": route.get("hostname"),
-                "target": _http_target(
+                "target": _https_target(
                     _required_host_management_ipv4_address(
                         graph,
                         host_name,
@@ -108,6 +108,7 @@ def _host_ingress_routes(model, graph):
                     ),
                     route.get("port", 8006),
                 ),
+                "transport": "tls_insecure_skip_verify",
                 "trusted_source_ranges": trusted_source_ranges,
                 "owner": host_name,
                 "tls": route.get("tls", "letsencrypt_dns"),
@@ -125,7 +126,7 @@ def _render_caddy_route(route):
                 _render_tls(route),
                 f"\t@trusted remote_ip {source_ranges}",
                 "\thandle @trusted {",
-                f"\t\treverse_proxy {route['target']}",
+                _render_reverse_proxy(route, indent="\t\t"),
                 "\t}",
                 "\trespond 403",
                 "}",
@@ -136,10 +137,24 @@ def _render_caddy_route(route):
         [
             f"{route['hostname']} {{",
             _render_tls(route),
-            f"\treverse_proxy {route['target']}",
+            _render_reverse_proxy(route, indent="\t"),
             "}",
         ]
     )
+
+
+def _render_reverse_proxy(route, indent):
+    if route.get("transport") == "tls_insecure_skip_verify":
+        return "\n".join(
+            [
+                f"{indent}reverse_proxy {route['target']} {{",
+                f"{indent}\ttransport http {{",
+                f"{indent}\t\ttls_insecure_skip_verify",
+                f"{indent}\t}}",
+                f"{indent}}}",
+            ]
+        )
+    return f"{indent}reverse_proxy {route['target']}"
 
 
 def _render_tls(route):
@@ -156,6 +171,10 @@ def _render_tls(route):
 
 def _http_target(address, port):
     return f"http://{address}:{port}"
+
+
+def _https_target(address, port):
+    return f"https://{address}:{port}"
 
 
 def _trusted_source_ranges(model):

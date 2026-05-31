@@ -1,0 +1,37 @@
+name: media-file-browser
+hostname: media-files.fearn.cloud
+service_group: media
+service_network: media
+service_data_owner:
+  uid: 1001
+  gid: 1001
+backend:
+  vm: media-vm
+  port: 8082
+ingress:
+  enabled: true
+  exposure: lan_only
+  tls: letsencrypt_dns
+  auth:
+    type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: server
+      image: docker.io/filebrowser/filebrowser:v2.32.0
+      published_ports:
+        - bind: 0.0.0.0
+          host: 8082
+          container: 8080
+          ingress: true
+      volumes:
+        - mount: media
+          source: /
+          container: /srv
+          access: read_write
+        - service_path: database
+          container: /database
+          access: read_write
+        - service_path: config
+          container: /config
+          access: read_write

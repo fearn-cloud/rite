@@ -55,6 +55,7 @@ declared in service inventory:
 ```yaml
 FTLCONF_dns_upstreams: unbound
 FTLCONF_dns_listeningMode: all
+FTLCONF_dns_cache_optimizer: "-1"
 ```
 
 This keeps LAN-facing filtering and recursive resolution separate while still
@@ -67,6 +68,11 @@ Caddy.
 `FTLCONF_dns_listeningMode: all` is required for Pi-hole v6 in this container
 topology so queries from routed LAN clients are accepted instead of being
 treated as non-local Docker-network traffic.
+
+`FTLCONF_dns_cache_optimizer: "-1"` disables serving expired cache entries.
+The DNS Services rely on fresh upstream answers for load-balanced names such as
+AWS sign-in endpoints, where stale A records can point clients at backends with
+certificates for unrelated hostnames.
 
 ## Pi-hole web/API password
 
@@ -250,6 +256,7 @@ If clients cannot resolve through the VM, check in this order:
    active.
 3. Pi-hole is configured with `FTLCONF_dns_upstreams: unbound`.
 4. Pi-hole is configured with `FTLCONF_dns_listeningMode: all`.
-5. Firewall rules include `DNS-001-ALLOW-INTERNAL-RESOLUTION` for the client
+5. Pi-hole is configured with `FTLCONF_dns_cache_optimizer: "-1"`.
+6. Firewall rules include `DNS-001-ALLOW-INTERNAL-RESOLUTION` for the client
    VLAN and `DNS-003-ALLOW-DNS-UPSTREAM` for resolver egress.
-6. The test client is not on Guest, because Guest must not use internal DNS.
+7. The test client is not on Guest, because Guest must not use internal DNS.

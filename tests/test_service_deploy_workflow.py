@@ -985,6 +985,7 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 )
 
                 self.assertIn("Environment=FTLCONF_misc_etc_dnsmasq_d=true\n", pihole_artifact["content"])
+                self.assertIn("Environment=FTLCONF_dns_cache_optimizer=-1\n", pihole_artifact["content"])
                 self.assertIn(
                     f"Volume=/srv/services/{service_name}/pihole/etc-dnsmasq.d:/etc/dnsmasq.d:rw\n",
                     pihole_artifact["content"],

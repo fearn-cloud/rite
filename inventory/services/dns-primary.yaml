@@ -33,6 +33,7 @@ deploy:
         TZ: UTC
         FTLCONF_dns_upstreams: unbound
         FTLCONF_dns_listeningMode: all
+        FTLCONF_dns_cache_optimizer: "-1"
       secrets:
         - secret: secrets.web_api_password
           env: WEBPASSWORD_FILE

@@ -36,6 +36,7 @@ class DNSArchitectureRunbookTests(unittest.TestCase):
             "secrets.web_api_password.value",
             "FTLCONF_dns_upstreams: unbound",
             "FTLCONF_dns_listeningMode: all",
+            'FTLCONF_dns_cache_optimizer: "-1"',
             "/srv/services/dns-primary/pihole/etc-dnsmasq.d/99-fortress-ingress.conf",
             "/srv/services/dns-secondary/pihole/etc-dnsmasq.d/99-fortress-ingress.conf",
             "/etc/dnsmasq.d/99-fortress-ingress.conf",

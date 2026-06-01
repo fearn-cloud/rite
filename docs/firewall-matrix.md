@@ -57,7 +57,7 @@ Forgejo runners must not run on `forgejo-vm`. Add a separate runner VM when runn
 | --- | --- | --- | --- | --- |
 | `vaultwarden-vm` | `10.50.0.11` | `neuromancer` | Vaultwarden | VM-local primary data, PBS-backed |
 | `immich-vm` | `10.50.0.12` | `neuromancer` | Immich application containers, Postgres, Redis | NFS `tank/immich` for library storage; database/cache VM-local |
-| `media-vm` | `10.50.0.13` | `neuromancer` | Jellyfin, Seerr, Sonarr, Radarr, Radarr Anime, Prowlarr, Bazarr | NFS `tank/media` |
+| `media-vm` | `10.50.0.13` | `neuromancer` | Jellyfin, Seerr, Sonarr, Radarr, Radarr Anime, Prowlarr, Bazarr, Clonarr | NFS `tank/media` |
 | `download-vm` | `10.50.0.14` | `neuromancer` | qBittorrent, SABnzbd | NFS `tank/media` |
 | `file-browser-vm` | `10.50.0.15` | `neuromancer` | File Browser | NFS `tank/personal-media` |
 

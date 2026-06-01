@@ -1,0 +1,34 @@
+name: clonarr
+hostname: clonarr.fearn.cloud
+service_group: media
+service_network: media
+service_data_owner:
+  uid: 1001
+  gid: 1001
+backend:
+  vm: media-vm
+  port: 6060
+ingress:
+  enabled: true
+  exposure: lan_only
+  tls: letsencrypt_dns
+  auth:
+    type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: clonarr
+      image: ghcr.io/prophetse7en/clonarr:v2.5.9
+      published_ports:
+        - bind: 0.0.0.0
+          host: 6060
+          container: 6060
+          ingress: true
+      env:
+        PUID: 1001
+        PGID: 1001
+        TZ: UTC
+      volumes:
+        - service_path: config
+          container: /config
+          access: read_write

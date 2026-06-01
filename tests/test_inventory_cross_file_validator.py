@@ -81,6 +81,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                         "sonarr",
                         "radarr",
                         "radarr-anime",
+                        "clonarr",
                         "bazarr",
                         "jellyfin",
                         "seerr",

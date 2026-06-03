@@ -79,6 +79,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                     "launch_order": [
                         "prowlarr",
                         "sonarr",
+                        "sonarr-anime",
                         "radarr",
                         "radarr-anime",
                         "clonarr",

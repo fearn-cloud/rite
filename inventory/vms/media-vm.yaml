@@ -29,6 +29,7 @@ launchable_service_groups:
     launch_order:
       - prowlarr
       - sonarr
+      - sonarr-anime
       - radarr
       - radarr-anime
       - clonarr

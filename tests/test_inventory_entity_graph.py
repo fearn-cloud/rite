@@ -713,6 +713,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 service_names=(
                     "prowlarr",
                     "sonarr",
+                    "sonarr-anime",
                     "radarr",
                     "radarr-anime",
                     "clonarr",

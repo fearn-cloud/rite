@@ -1,5 +1,5 @@
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .simple_yaml import load_yaml
@@ -17,6 +17,8 @@ class InventoryModel:
     template_verification_policy: dict
     acceptance_policies: dict
     globals: dict
+    backup_policy_file_exists: bool = False
+    backup_policies: dict = field(default_factory=dict)
 
 
 def load_inventory_tree(root):
@@ -32,6 +34,8 @@ def load_inventory_tree(root):
         nas_endpoints=_load_entity_dir(inventory_root / "nas"),
         templates=_load_entity_dir(inventory_root / "templates"),
         template_verification_policy=_load_optional_yaml(inventory_root / "template-verification-policy.yaml"),
+        backup_policy_file_exists=(inventory_root / "backup-policies.yaml").is_file(),
+        backup_policies=_load_optional_yaml(inventory_root / "backup-policies.yaml").get("policies", {}),
         acceptance_policies=_load_entity_dir(inventory_root / "acceptance"),
         globals=_load_optional_yaml(inventory_root / "group_vars" / "all.yaml"),
     )
@@ -68,6 +72,10 @@ def _default_vm(vm):
         instrumentation = dict(vm.get("instrumentation") or {})
         instrumentation.setdefault("enabled", True)
         vm["instrumentation"] = instrumentation
+    backup = dict(vm.get("backup") or {})
+    if backup.get("enabled") is True:
+        backup.setdefault("policy", "default")
+        vm["backup"] = backup
     return vm
 
 

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # PBS Availability And Configuration
 
@@ -10,14 +10,14 @@ This slice owns substrate availability and configuration, not per-VM Backup Job 
 
 ## Acceptance criteria
 
-- [ ] The operator has a workflow or validation path that verifies `pbs-vm` exists in Inventory as the PBS VM and is placed on its declared Host.
-- [ ] The PBS Service is represented as the service that configures and runs Proxmox Backup Server on `pbs-vm`.
-- [ ] The Primary Datastore used by Backup Targets is discoverable from Inventory or derived model state.
-- [ ] PBS configuration verifies that the Primary Datastore path is present and usable for Backup Runs.
-- [ ] PBS encryption Recovery Secret availability is verified without exposing secret material in normal output.
-- [ ] `pbs-vm` is explicitly treated as an Unprotected VM because local PBS does not back up itself.
-- [ ] Operator output clearly distinguishes PBS substrate readiness from Backup Target readiness.
-- [ ] Tests cover PBS VM identity, PBS Service configuration expectations, Primary Datastore discovery, Recovery Secret availability, and the `pbs-vm` unprotected exception.
+- [x] The operator has a workflow or validation path that verifies `pbs-vm` exists in Inventory as the PBS VM and is placed on its declared Host.
+- [x] The PBS Service is represented as the service that configures and runs Proxmox Backup Server on `pbs-vm`.
+- [x] The Primary Datastore used by Backup Targets is discoverable from Inventory or derived model state.
+- [x] PBS configuration verifies that the Primary Datastore path is present and usable for Backup Runs.
+- [x] PBS encryption Recovery Secret availability is verified without exposing secret material in normal output.
+- [x] `pbs-vm` is explicitly treated as an Unprotected VM because local PBS does not back up itself.
+- [x] Operator output clearly distinguishes PBS substrate readiness from Backup Target readiness.
+- [x] Tests cover PBS VM identity, PBS Service configuration expectations, Primary Datastore discovery, Recovery Secret availability, and the `pbs-vm` unprotected exception.
 
 ## Blocked by
 

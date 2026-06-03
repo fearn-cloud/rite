@@ -68,6 +68,30 @@ service-update service auto_confirm="false":
 instrumentation-converge:
     @./scripts/instrumentation-converge
 
+# Plan host-scoped Backup Job reconciliation; use host=all for fleet iteration.
+backup-configure-plan host observed_jobs_json="" output="text":
+    @if [ "{{observed_jobs_json}}" = "" ]; then ./scripts/backup-configure-plan {{host}} --output {{output}}; else ./scripts/backup-configure-plan {{host}} --observed-jobs-json {{observed_jobs_json}} --output {{output}}; fi
+
+# Apply a previously inspected host-scoped Backup Configure plan JSON file.
+backup-configure-apply plan_json auto_confirm_prune="false":
+    @if [ "{{auto_confirm_prune}}" = "true" ] || [ "{{auto_confirm_prune}}" = "auto_confirm_prune=true" ]; then ./scripts/backup-configure-apply --plan-json {{plan_json}} --auto-confirm-prune; else ./scripts/backup-configure-apply --plan-json {{plan_json}}; fi
+
+# Explicitly submit initial Backup Run(s) from a host-scoped Backup Configure plan JSON file.
+backup-initial-run plan_json target="":
+    @if [ "{{target}}" = "" ]; then ./scripts/backup-initial-run --plan-json {{plan_json}}; else ./scripts/backup-initial-run --plan-json {{plan_json}} --target {{target}}; fi
+
+# Report Backup Health from restore-point facts.
+backup-health restore_points_json now target="":
+    @if [ "{{target}}" = "" ]; then ./scripts/backup-health --restore-points-json {{restore_points_json}} --now {{now}}; else ./scripts/backup-health --restore-points-json {{restore_points_json}} --now {{now}} --target {{target}}; fi
+
+# Plan a read-only Restore Drill for a selected Backup Target restore point.
+restore-drill-plan target snapshot_id completed_at host storage:
+    @./scripts/restore-drill-plan --target {{target}} --snapshot-id {{snapshot_id}} --completed-at {{completed_at}} --host {{host}} --storage {{storage}}
+
+# Execute an approved Restore Drill plan JSON file.
+restore-drill-execute plan_json keep_on_fail="false":
+    @if [ "{{keep_on_fail}}" = "true" ] || [ "{{keep_on_fail}}" = "keep_on_fail=true" ]; then ./scripts/restore-drill-execute --plan-json {{plan_json}} --keep-on-fail; else ./scripts/restore-drill-execute --plan-json {{plan_json}}; fi
+
 # Plan NAS Dataset and Share changes against a captured reality JSON file.
 nas-reconcile-plan reality_json:
     @./scripts/nas-reconcile-plan --reality-json {{reality_json}}

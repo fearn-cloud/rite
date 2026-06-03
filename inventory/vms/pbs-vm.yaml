@@ -26,3 +26,4 @@ mounts:
     access: read_write
 backup:
   enabled: false
+  reason: PBS itself is recovered from Inventory, the Primary Datastore, and Recovery Secrets, not from the local PBS instance.

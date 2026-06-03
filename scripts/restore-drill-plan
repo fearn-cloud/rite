@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+import argparse
+import datetime as dt
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree
+from fortress_restore_drill.plan import (
+    SelectedRestorePoint,
+    plan_restore_drill,
+    render_restore_drill_plan,
+)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Plan a read-only Restore Drill")
+    parser.add_argument("--target", required=True)
+    parser.add_argument("--snapshot-id", required=True)
+    parser.add_argument("--completed-at", required=True)
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--storage", required=True)
+    args = parser.parse_args()
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    restore_point = SelectedRestorePoint(
+        backup_target_vm_name=args.target,
+        snapshot_id=args.snapshot_id,
+        completed_at=dt.datetime.fromisoformat(args.completed_at),
+    )
+    try:
+        plan = plan_restore_drill(
+            load_inventory_tree(repo_root),
+            restore_point,
+            placement={"host": args.host, "storage": args.storage},
+        )
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    print(render_restore_drill_plan(plan), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

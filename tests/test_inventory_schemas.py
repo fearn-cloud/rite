@@ -19,6 +19,7 @@ SCHEMA_CASES = [
         "inventory/template-verification-policy.schema.json",
         "tests/fixtures/schema/template_verification_policy",
     ),
+    ("Backup Policies", "inventory/backup-policies.schema.json", "tests/fixtures/schema/backup_policies"),
     ("global vars", "inventory/group_vars/all.schema.json", "tests/fixtures/schema/group_vars"),
 ]
 
@@ -49,6 +50,7 @@ class InventorySchemaTests(unittest.TestCase):
             "nas": "management_address",
             "templates": "source",
             "template_verification_policy": "storage_by_host",
+            "backup_policies": "schedule",
             "group_vars": "nas",
         }
 
@@ -252,6 +254,29 @@ class InventorySchemaTests(unittest.TestCase):
             result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_vm_schema_rejects_malformed_backup_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vm_yaml = Path(tmp) / "media01.yaml"
+            vm_yaml.write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+                "backup:\n"
+                "  policy: default\n"
+            )
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backup", result.stdout + result.stderr)
 
     def test_vm_schema_accepts_dataset_backed_mounts_and_requires_access(self):
         with tempfile.TemporaryDirectory() as tmp:

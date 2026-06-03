@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # PBS Boundary In Operator Surfaces
 
@@ -10,13 +10,13 @@ This slice turns that boundary into visible operator language across validation,
 
 ## Acceptance criteria
 
-- [ ] Operator-facing Backup Policy or validation output describes PBS protection as VM recoverability and VM-local state.
-- [ ] Backup Readiness output does not imply NAS-backed Dataset history is protected by PBS.
-- [ ] Backup Health output does not imply point-in-time consistency with NAS-backed Datasets.
-- [ ] `pbs-vm` output clearly says local PBS does not back up itself.
-- [ ] Restore-related planning language warns when a Backup Target has NAS-backed Datasets that require care during recovery or drills.
-- [ ] Documentation or runbook updates use the domain terms PBS, Backup Target, Unprotected VM, Dataset, Backup Readiness, Backup Health, PBS Restore, and Restore Drill consistently.
-- [ ] Tests or documentation checks cover the operator-facing boundary language where practical.
+- [x] Operator-facing Backup Policy or validation output describes PBS protection as VM recoverability and VM-local state.
+- [x] Backup Readiness output does not imply NAS-backed Dataset history is protected by PBS.
+- [x] Backup Health output does not imply point-in-time consistency with NAS-backed Datasets.
+- [x] `pbs-vm` output clearly says local PBS does not back up itself.
+- [x] Restore-related planning language warns when a Backup Target has NAS-backed Datasets that require care during recovery or drills.
+- [x] Documentation or runbook updates use the domain terms PBS, Backup Target, Unprotected VM, Dataset, Backup Readiness, Backup Health, PBS Restore, and Restore Drill consistently.
+- [x] Tests or documentation checks cover the operator-facing boundary language where practical.
 
 ## Blocked by
 

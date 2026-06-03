@@ -38,6 +38,23 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
             self.assertEqual("Ingress Regeneration", ingress_regeneration.display_name)
             self.assertEqual([str(root / "scripts" / "ingress-regenerate")], list(ingress_regeneration.command))
 
+    def test_service_launch_checks_backup_readiness_before_launch_phases_for_backup_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text() + "backup:\n  enabled: true\n")
+
+            plan = build_service_launch_plan(root, "immich", auto_confirm=True)
+
+            self.assertEqual(
+                ["backup-readiness", "vm-lifecycle", "service-deploy", "ingress-regeneration"],
+                [step.id for step in plan.steps],
+            )
+            self.assertEqual(
+                [str(root / "scripts" / "backup-readiness"), "--target", "media01"],
+                list(plan.steps[0].command),
+            )
+
     def test_service_launch_plan_skips_ingress_and_does_not_pass_auto_confirm_to_deploy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _calls_log = self._workflow_fixture(tmp)
@@ -223,6 +240,27 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertFalse(calls_log.exists())
 
+    def test_service_launch_blocks_before_launch_commands_when_backup_readiness_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text() + "backup:\n  enabled: true\n")
+            env = self._workflow_env(root, calls_log)
+            env["FORTRESS_FAIL_PHASE"] = "backup-readiness"
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-launch"), "immich"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 42)
+            self.assertIn("Backup Readiness failed for Service immich", result.stderr)
+            self.assertEqual(["backup-readiness --target media01"], calls_log.read_text().splitlines())
+
     def test_service_launch_skips_ingress_regenerate_when_ingress_is_not_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, calls_log = self._workflow_fixture(tmp)
@@ -356,7 +394,7 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
         )
         self._write_service(root, "immich", "media01", ingress_enabled=True)
         calls_log = root / "calls.log"
-        for name in ["vm-up", "service-deploy", "service-update", "ingress-regenerate"]:
+        for name in ["backup-readiness", "vm-up", "service-deploy", "service-update", "ingress-regenerate"]:
             script = root / "scripts" / name
             script.write_text(
                 "#!/usr/bin/env bash\n"

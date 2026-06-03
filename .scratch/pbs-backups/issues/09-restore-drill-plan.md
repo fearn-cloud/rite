@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Restore Drill Plan
 
@@ -10,17 +10,17 @@ The plan selects placement per drill, defaults the Restored Drill VM to a Drill 
 
 ## Acceptance criteria
 
-- [ ] Restore Drill planning is distinct from Acceptance Test planning and language.
-- [ ] A Restore Drill plan targets a Backup Target restore point, not declared intent alone.
-- [ ] Restored Drill VMs are modeled as generated disposable VMs rather than durable production Inventory entities.
-- [ ] Placement is selected per Restore Drill.
-- [ ] Drill Network is the default network for Restored Drill VMs.
-- [ ] Plans reject or warn on production VM identity collisions.
-- [ ] Plans avoid production ingress and DNS exposure.
-- [ ] Plans avoid mutating production NAS-backed Datasets.
-- [ ] Plans make operator-only access explicit because restored production secrets may be present.
-- [ ] Restore Drill planning is isolated from execution so identity, network, NAS, and cleanup safety are testable.
-- [ ] Tests cover normal planning, placement selection, Drill Network defaulting, identity collision prevention, ingress/DNS avoidance, NAS mutation avoidance, and operator-only access.
+- [x] Restore Drill planning is distinct from Acceptance Test planning and language.
+- [x] A Restore Drill plan targets a Backup Target restore point, not declared intent alone.
+- [x] Restored Drill VMs are modeled as generated disposable VMs rather than durable production Inventory entities.
+- [x] Placement is selected per Restore Drill.
+- [x] Drill Network is the default network for Restored Drill VMs.
+- [x] Plans reject or warn on production VM identity collisions.
+- [x] Plans avoid production ingress and DNS exposure.
+- [x] Plans avoid mutating production NAS-backed Datasets.
+- [x] Plans make operator-only access explicit because restored production secrets may be present.
+- [x] Restore Drill planning is isolated from execution so identity, network, NAS, and cleanup safety are testable.
+- [x] Tests cover normal planning, placement selection, Drill Network defaulting, identity collision prevention, ingress/DNS avoidance, NAS mutation avoidance, and operator-only access.
 
 ## Blocked by
 

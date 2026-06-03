@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Restore Drill Execution And Cleanup
 
@@ -8,16 +8,16 @@ Execute a planned Restore Drill against PBS backup reality. The workflow creates
 
 ## Acceptance criteria
 
-- [ ] A Restore Drill can execute from an approved Restore Drill plan.
-- [ ] Execution restores a Backup Target restore point into a disposable Restored Drill VM.
-- [ ] The Restored Drill VM uses the planned placement and Drill Network.
-- [ ] Execution preserves production secrets inside the restored VM while keeping access operator-only.
-- [ ] Execution does not expose production ingress or DNS for the Restored Drill VM.
-- [ ] Execution does not mutate production NAS-backed Datasets.
-- [ ] Successful Restore Drills destroy the Restored Drill VM by default.
-- [ ] Failed Restore Drills destroy the Restored Drill VM by default unless keep-on-fail is explicitly requested.
-- [ ] Output distinguishes drill verification from production Service health.
-- [ ] Tests cover successful execution, cleanup by default, keep-on-fail, containment boundaries, NAS mutation prevention, and failure reporting.
+- [x] A Restore Drill can execute from an approved Restore Drill plan.
+- [x] Execution restores a Backup Target restore point into a disposable Restored Drill VM.
+- [x] The Restored Drill VM uses the planned placement and Drill Network.
+- [x] Execution preserves production secrets inside the restored VM while keeping access operator-only.
+- [x] Execution does not expose production ingress or DNS for the Restored Drill VM.
+- [x] Execution does not mutate production NAS-backed Datasets.
+- [x] Successful Restore Drills destroy the Restored Drill VM by default.
+- [x] Failed Restore Drills destroy the Restored Drill VM by default unless keep-on-fail is explicitly requested.
+- [x] Output distinguishes drill verification from production Service health.
+- [x] Tests cover successful execution, cleanup by default, keep-on-fail, containment boundaries, NAS mutation prevention, and failure reporting.
 
 ## Blocked by
 

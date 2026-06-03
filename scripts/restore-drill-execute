@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_restore_drill.execute import (  # noqa: E402
+    JsonLogRestoreDrillClient,
+    PveshRestoreDrillClient,
+    execute_restore_drill,
+)
+from fortress_restore_drill.plan import restore_drill_plan_from_dict  # noqa: E402
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    with Path(args.plan_json).open() as handle:
+        plan = restore_drill_plan_from_dict(json.load(handle))
+    client = make_client(plan)
+    result = execute_restore_drill(
+        plan,
+        client,
+        keep_on_fail=args.keep_on_fail,
+        keep_on_success=args.keep_on_success,
+    )
+    print(result.render(), end="")
+    return 0 if result.success else 1
+
+
+def parse_args(args):
+    parser = argparse.ArgumentParser(description="Execute an approved Restore Drill plan")
+    parser.add_argument("--plan-json", required=True)
+    parser.add_argument("--keep-on-fail", action="store_true")
+    parser.add_argument("--keep-on-success", action="store_true")
+    return parser.parse_args(args)
+
+
+def make_client(plan):
+    fake_log = os.environ.get("FORTRESS_TEST_RESTORE_DRILL_LOG")
+    if fake_log:
+        return JsonLogRestoreDrillClient(fake_log, fail_on=os.environ.get("FORTRESS_TEST_RESTORE_DRILL_FAIL_ON"))
+    return PveshRestoreDrillClient(plan.restored_vm.placement["host"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

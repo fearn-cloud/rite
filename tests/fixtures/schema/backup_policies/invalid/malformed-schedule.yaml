@@ -1,0 +1,11 @@
+policies:
+  default:
+    schedule:
+      cadence: hourly
+      time: "3:30"
+      timezone: MST
+      stagger: sixty minutes
+    retention:
+      daily: 14
+      weekly: 8
+      monthly: 12

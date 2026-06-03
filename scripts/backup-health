@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+import argparse
+import datetime as dt
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.backup_health import evaluate_backup_health, render_backup_health_report  # noqa: E402
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+from fortress_inventory.pbs_restore_points import load_restore_point_facts_json  # noqa: E402
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Report Backup Health from PBS restore-point freshness")
+    parser.add_argument("--target")
+    parser.add_argument("--restore-points-json")
+    parser.add_argument("--now", required=True)
+    args = parser.parse_args()
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    report = evaluate_backup_health(
+        model,
+        restore_points=load_restore_point_facts_json(args.restore_points_json),
+        now=dt.datetime.fromisoformat(args.now),
+    )
+    print(render_backup_health_report(report, target=args.target), end="")
+
+    if args.target:
+        target = report.targets_by_vm.get(args.target)
+        return 0 if target is None or target.status != "unhealthy" else 1
+    return 0 if report.fleet.status != "unhealthy" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

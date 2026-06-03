@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Backup Readiness Gate
 
@@ -10,16 +10,16 @@ Service Launch treats Backup Readiness as a prerequisite for Backup Targets with
 
 ## Acceptance criteria
 
-- [ ] Backup Readiness evaluates each Backup Target independently.
-- [ ] Backup Readiness includes selected Backup Policy validity.
-- [ ] Backup Readiness includes usable Primary Datastore path verification.
-- [ ] Backup Readiness includes PBS encryption Recovery Secret availability.
-- [ ] Backup Readiness includes expected Backup Job presence.
-- [ ] Backup Readiness requires at least one successful Backup Run.
-- [ ] Unprotected VMs are excluded from Backup Readiness gating with their reason visible.
-- [ ] Service Launch blocks production readiness for Backup Targets that fail Backup Readiness.
-- [ ] Service Launch does not run Backup Configure or trigger Backup Runs as part of the gate.
-- [ ] Tests cover passing readiness, each failed prerequisite, Unprotected VM exclusion, and Service Launch gating behavior.
+- [x] Backup Readiness evaluates each Backup Target independently.
+- [x] Backup Readiness includes selected Backup Policy validity.
+- [x] Backup Readiness includes usable Primary Datastore path verification.
+- [x] Backup Readiness includes PBS encryption Recovery Secret availability.
+- [x] Backup Readiness includes expected Backup Job presence.
+- [x] Backup Readiness requires at least one successful Backup Run.
+- [x] Unprotected VMs are excluded from Backup Readiness gating with their reason visible.
+- [x] Service Launch blocks production readiness for Backup Targets that fail Backup Readiness.
+- [x] Service Launch does not run Backup Configure or trigger Backup Runs as part of the gate.
+- [x] Tests cover passing readiness, each failed prerequisite, Unprotected VM exclusion, and Service Launch gating behavior.
 
 ## Blocked by
 

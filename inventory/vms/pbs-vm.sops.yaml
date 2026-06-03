@@ -1,0 +1,18 @@
+recovery_secrets:
+    pbs_encryption_key:
+        value: ENC[AES256_GCM,data:VzX7qGSvPo+RgBLCWOMySB4qA41PMnKg2qub0tfLqmmOSlT/,iv:bBJOSyogweC1aC1K6iu4dy6JNHKdsXIMjaGdgDXAMaw=,tag:BZWb2a+zZmQ+nG/7r1w6Fg==,type:str]
+sops:
+    age:
+        - recipient: age1uy27rg7l9ql0z5uze4m969sarzl3dhjlzsty9g6xsl4542kh9yzqsleu5l
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSA4L1haMnBIRDk5SjFFQ20r
+            Wjg2cTRwa082eHBGNEdjZFZjaTZTM05BMFRvCnQwd1JJemRNKytYZ1JoM2FCNFRP
+            cnRJdWNtUElCWkNVOU5vYUwyVHlydlEKLS0tIGtJQUFvVlBFQi9iUzNqaFBIM05p
+            dXBYTE9pcDAxSER0Rmp3QVI5Zm9jZ2cKnz7YZ3G9U+Dq78cOLqpJwKRWeV0VcYkt
+            bzwd8v2fGIoNvszuc0vt3tlIR2KH7cAfemJHbdvoXRnx0LWKWTxB2Q==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-06-03T22:06:43Z"
+    mac: ENC[AES256_GCM,data:HJg/b6BLo0Amj6VuIDj0l3p5EB9/QaIpTRYEIigx3UJPQgJf5IITPP25JpjVQyQv9szzCsYdG7A7lBvkav48uuaaMke7wpj7MaGiUL50LYQHAt476nxHQm8frz4rRIxFWCqB9hzfOALfJhknx2QwLjV4BpCuaWZoMETDmP/PkgU=,iv:g9aSA/cTA/yTuTjEuKHMOfADtvuRn+0/K7TmGi+IXq8=,tag:Veo7kmQ5M1f44kegd7vDsg==,type:str]
+    encrypted_regex: ^(value)$
+    version: 3.12.2

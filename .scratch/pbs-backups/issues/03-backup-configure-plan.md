@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Backup Configure Plan
 
@@ -10,16 +10,16 @@ Each Backup Target gets one PVE-side Backup Job. Plans show the Backup Target VM
 
 ## Acceptance criteria
 
-- [ ] Backup Configure has a plan-only mode for one Host.
-- [ ] Fleet Backup Configure planning iterates Hosts without changing the host-scoped ownership boundary.
-- [ ] The plan creates one desired Backup Job per Backup Target on the selected Host.
-- [ ] Backup Job names are deterministic from Backup Target and Backup Policy.
-- [ ] Backup Job scheduled times are deterministically staggered from Backup Target identity within the policy stagger band.
-- [ ] Plan output includes VM, policy, Primary Datastore, action, deterministic job name, and derived scheduled time.
-- [ ] Planning detects create, update, no-op, and obsolete fortress-owned prune actions.
-- [ ] Planning leaves manual PVE jobs alone.
-- [ ] Planning reports Backup Targets that still need a first successful Backup Run.
-- [ ] Unit tests cover deterministic staggering stability, schedule bounds, create/update/no-op/prune planning, and manual job preservation.
+- [x] Backup Configure has a plan-only mode for one Host.
+- [x] Fleet Backup Configure planning iterates Hosts without changing the host-scoped ownership boundary.
+- [x] The plan creates one desired Backup Job per Backup Target on the selected Host.
+- [x] Backup Job names are deterministic from Backup Target and Backup Policy.
+- [x] Backup Job scheduled times are deterministically staggered from Backup Target identity within the policy stagger band.
+- [x] Plan output includes VM, policy, Primary Datastore, action, deterministic job name, and derived scheduled time.
+- [x] Planning detects create, update, no-op, and obsolete fortress-owned prune actions.
+- [x] Planning leaves manual PVE jobs alone.
+- [x] Planning reports Backup Targets that still need a first successful Backup Run.
+- [x] Unit tests cover deterministic staggering stability, schedule bounds, create/update/no-op/prune planning, and manual job preservation.
 
 ## Blocked by
 

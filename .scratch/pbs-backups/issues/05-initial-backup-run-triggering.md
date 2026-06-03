@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Initial Backup Run Triggering
 
@@ -10,13 +10,13 @@ Job creation alone must still be reported as not yet protected until a successfu
 
 ## Acceptance criteria
 
-- [ ] The operator can explicitly trigger an initial Backup Run for one Backup Target.
-- [ ] The operator can explicitly trigger initial Backup Runs for a Host-scoped set of Backup Targets.
-- [ ] Initial Backup Run triggering is never implicit in normal Backup Configure apply.
-- [ ] Explicit initial Backup Runs ignore scheduled stagger.
-- [ ] Output reports which Backup Targets have pending first successful Backup Runs.
-- [ ] Output distinguishes successful trigger submission from proven backup protection.
-- [ ] Tests cover single-target triggering, host-scoped triggering, no implicit triggering, stagger bypass, and pending-first-run reporting.
+- [x] The operator can explicitly trigger an initial Backup Run for one Backup Target.
+- [x] The operator can explicitly trigger initial Backup Runs for a Host-scoped set of Backup Targets.
+- [x] Initial Backup Run triggering is never implicit in normal Backup Configure apply.
+- [x] Explicit initial Backup Runs ignore scheduled stagger.
+- [x] Output reports which Backup Targets have pending first successful Backup Runs.
+- [x] Output distinguishes successful trigger submission from proven backup protection.
+- [x] Tests cover single-target triggering, host-scoped triggering, no implicit triggering, stagger bypass, and pending-first-run reporting.
 
 ## Blocked by
 

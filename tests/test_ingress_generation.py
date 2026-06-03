@@ -433,6 +433,8 @@ class IngressGenerationTests(unittest.TestCase):
                 "  interfaces:\n"
                 "    - bridge: vmbr0\n"
                 "      address: 10.40.0.11/24\n"
+                "backup:\n"
+                "  enabled: true\n"
             )
             (root / "inventory" / "vms" / "dns-secondary-vm.yaml").write_text(
                 "vmid: 1007\n"
@@ -444,6 +446,8 @@ class IngressGenerationTests(unittest.TestCase):
                 "  interfaces:\n"
                 "    - bridge: vmbr0\n"
                 "      address: 10.40.0.18/24\n"
+                "backup:\n"
+                "  enabled: true\n"
             )
             (root / "inventory" / "services" / "dns-primary.yaml").write_text(
                 self._pihole_dns_target_service_yaml("dns-primary", "dns-primary-vm")
@@ -553,6 +557,8 @@ class IngressGenerationTests(unittest.TestCase):
             "  interfaces:\n"
             "    - bridge: vmbr0\n"
             "      address: 10.40.0.16/24\n"
+            "backup:\n"
+            "  enabled: true\n"
         )
         (root / "inventory" / "services" / "internal-ingress.yaml").write_text(
             "name: internal-ingress\n"

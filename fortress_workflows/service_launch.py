@@ -18,7 +18,20 @@ def build_service_launch_plan(repo_root: Path, service: str, auto_confirm: bool 
     if auto_confirm:
         vm_lifecycle_command.append("--auto-confirm")
 
-    steps = [
+    steps = []
+    backend_vm = model.vms[intent.backend_vm_name]
+    if (backend_vm.get("backup") or {}).get("enabled") is True:
+        steps.append(
+            CommandPhase(
+                id="backup-readiness",
+                display_name="Backup Readiness",
+                command=[str(repo_root / "scripts" / "backup-readiness"), "--target", intent.backend_vm_name],
+                diagnostic_label=f"Backup Readiness failed for Service {service}",
+                streaming=True,
+            )
+        )
+
+    steps.extend([
         CommandPhase(
             id="vm-lifecycle",
             display_name="VM Lifecycle Convergence",
@@ -33,7 +46,7 @@ def build_service_launch_plan(repo_root: Path, service: str, auto_confirm: bool 
             diagnostic_label=f"Service Deploy failed for Service {service}",
             streaming=True,
         ),
-    ]
+    ])
     if service_declares_application_instrumentation(model.services[service]):
         steps.append(
             CommandPhase(

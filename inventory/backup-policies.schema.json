@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policies"],
+  "properties": {
+    "policies": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["schedule", "retention"],
+        "properties": {
+          "schedule": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["cadence", "time", "timezone", "stagger"],
+            "properties": {
+              "cadence": { "enum": ["daily"] },
+              "time": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+              "timezone": { "type": "string", "pattern": "^[A-Za-z_]+/[A-Za-z_]+$" },
+              "stagger": { "type": "string", "pattern": "^[1-9][0-9]*m$" }
+            }
+          },
+          "retention": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["daily", "weekly", "monthly"],
+            "properties": {
+              "daily": { "type": "integer", "minimum": 1 },
+              "weekly": { "type": "integer", "minimum": 1 },
+              "monthly": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

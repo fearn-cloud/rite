@@ -1,0 +1,11 @@
+policies:
+  default:
+    schedule:
+      cadence: daily
+      time: "03:30"
+      timezone: America/Denver
+      stagger: 60m
+    retention:
+      daily: 14
+      weekly: 8
+      monthly: 12

@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Backup Configure Apply
 
@@ -10,14 +10,14 @@ This slice turns the tested plan into live PVE mutation while preserving plan-on
 
 ## Acceptance criteria
 
-- [ ] Backup Configure can apply a previously inspectable host-scoped plan.
-- [ ] Apply creates missing fortress-owned Backup Jobs for Backup Targets.
-- [ ] Apply updates drifted fortress-owned Backup Jobs to match the current Backup Policy and target identity.
-- [ ] Apply prunes obsolete fortress-owned Backup Jobs only after operator confirmation.
-- [ ] Apply supports explicit auto-confirm behavior for pruning when requested by the operator.
-- [ ] Apply never deletes or mutates manual PVE jobs.
-- [ ] Failures are reported with enough context to identify the Host, Backup Target, Backup Job, and action.
-- [ ] Tests cover create, update, prune confirmation, prune refusal, auto-confirm pruning, manual job preservation, and failure reporting.
+- [x] Backup Configure can apply a previously inspectable host-scoped plan.
+- [x] Apply creates missing fortress-owned Backup Jobs for Backup Targets.
+- [x] Apply updates drifted fortress-owned Backup Jobs to match the current Backup Policy and target identity.
+- [x] Apply prunes obsolete fortress-owned Backup Jobs only after operator confirmation.
+- [x] Apply supports explicit auto-confirm behavior for pruning when requested by the operator.
+- [x] Apply never deletes or mutates manual PVE jobs.
+- [x] Failures are reported with enough context to identify the Host, Backup Target, Backup Job, and action.
+- [x] Tests cover create, update, prune confirmation, prune refusal, auto-confirm pruning, manual job preservation, and failure reporting.
 
 ## Blocked by
 

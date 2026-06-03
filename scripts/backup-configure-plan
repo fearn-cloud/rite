@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.backup_configure_plan import (  # noqa: E402
+    ObservedBackupJob,
+    backup_configure_plan_to_dict,
+    plan_fleet_backup_configure,
+    plan_host_backup_configure,
+    render_backup_configure_plan,
+)
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    inventory = load_inventory_tree(repo_root)
+    observed_jobs_by_host = load_observed_jobs(args.observed_jobs_json) if args.observed_jobs_json else {}
+    host_name = args.host.removeprefix("host=")
+    if host_name == "all":
+        plans = plan_fleet_backup_configure(inventory, observed_jobs_by_host=observed_jobs_by_host)
+        if args.output == "json":
+            print(json.dumps([backup_configure_plan_to_dict(plan) for plan in plans], indent=2))
+            return 0
+        for index, plan in enumerate(plans):
+            if index:
+                print()
+            print(render_backup_configure_plan(plan), end="")
+        return 0
+
+    if host_name not in inventory.hosts:
+        print(f"Host {host_name!r} is not declared in Inventory", file=sys.stderr)
+        return 1
+
+    plan = plan_host_backup_configure(inventory, host_name, observed_jobs=observed_jobs_by_host.get(host_name, []))
+    if args.output == "json":
+        print(json.dumps(backup_configure_plan_to_dict(plan), indent=2))
+        return 0
+    print(render_backup_configure_plan(plan), end="")
+    return 0
+
+
+def parse_args(args):
+    parser = argparse.ArgumentParser(prog="scripts/backup-configure-plan")
+    parser.add_argument("host", help="Host to plan, or host=all for fleet iteration")
+    parser.add_argument(
+        "--observed-jobs-json",
+        help="JSON object keyed by Host containing observed PVE Backup Jobs",
+    )
+    parser.add_argument("--output", choices=("text", "json"), default="text")
+    return parser.parse_args(args)
+
+
+def load_observed_jobs(path):
+    with Path(path).open() as handle:
+        raw = json.load(handle)
+    return {
+        host_name: [
+            ObservedBackupJob(
+                name=job["name"],
+                vmid=job["vmid"],
+                datastore=job.get("datastore"),
+                scheduled_time=dt.time.fromisoformat(job["scheduled_time"]),
+                fortress_owned=job.get("fortress_owned", False),
+            )
+            for job in jobs
+        ]
+        for host_name, jobs in raw.items()
+    }
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

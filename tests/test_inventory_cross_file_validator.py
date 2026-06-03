@@ -24,6 +24,164 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
         self.assertEqual(model.template_verification_policy["vmid"], 8901)
 
+    def test_inventory_model_loads_backup_policies(self):
+        model = load_inventory_tree(FIXTURES / "inventory_valid")
+
+        self.assertEqual(
+            {
+                "schedule": {
+                    "cadence": "daily",
+                    "time": "03:30",
+                    "timezone": "America/Denver",
+                    "stagger": "60m",
+                },
+                "retention": {
+                    "daily": 14,
+                    "weekly": 8,
+                    "monthly": 12,
+                },
+            },
+            model.backup_policies["default"],
+        )
+
+    def test_backup_policy_file_is_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "backup-policies.yaml").unlink()
+
+            self.assertIn("missing_backup_policy_file", {error.code for error in validate_inventory_tree(root)})
+
+    def test_backup_policies_require_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "backup-policies.yaml").write_text(
+                "policies:\n"
+                "  nightly:\n"
+                "    schedule:\n"
+                "      cadence: daily\n"
+                "      time: \"03:30\"\n"
+                "      timezone: America/Denver\n"
+                "      stagger: 60m\n"
+                "    retention:\n"
+                "      daily: 14\n"
+                "      weekly: 8\n"
+                "      monthly: 12\n"
+            )
+
+            self.assertIn("missing_default_backup_policy", {error.code for error in validate_inventory_tree(root)})
+
+    def test_backup_policy_schedule_and_retention_must_be_well_formed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "backup-policies.yaml").write_text(
+                "policies:\n"
+                "  default:\n"
+                "    schedule:\n"
+                "      cadence: hourly\n"
+                "      time: \"3:30\"\n"
+                "      timezone: MST\n"
+                "      stagger: sixty minutes\n"
+                "    retention:\n"
+                "      daily: 0\n"
+                "      weekly: many\n"
+            )
+
+            self.assertIn("malformed_backup_policy", {error.code for error in validate_inventory_tree(root)})
+
+    def test_backup_target_policy_reference_must_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(
+                vm_path.read_text()
+                + "backup:\n"
+                + "  enabled: true\n"
+                + "  policy: missing-policy\n"
+            )
+
+            self.assertIn("missing_backup_policy", {error.code for error in validate_inventory_tree(root)})
+
+    def test_inventory_model_defaults_backup_target_policy_to_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text() + "backup:\n  enabled: true\n")
+
+            model = load_inventory_tree(root)
+
+            self.assertEqual({"enabled": True, "policy": "default"}, model.vms["media01"]["backup"])
+
+    def test_production_vm_requires_backup_declaration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text().replace("backup:\n  enabled: true\n", ""))
+
+            self.assertIn("missing_production_backup_declaration", {error.code for error in validate_inventory_tree(root)})
+
+    def test_unprotected_production_vm_requires_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(vm_path.read_text().replace("backup:\n  enabled: true\n", "backup:\n  enabled: false\n"))
+
+            self.assertIn("missing_unprotected_vm_reason", {error.code for error in validate_inventory_tree(root)})
+
+    def test_generated_vm_is_exempt_from_backup_declaration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(
+                vm_path.read_text()
+                .replace("vmid: 101\n", "vmid: 8901\nlifecycle:\n  kind: operational\n  generated: true\n")
+                .replace("backup:\n  enabled: true\n", "")
+            )
+
+            self.assertNotIn(
+                "missing_production_backup_declaration",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_repo_inventory_contains_only_initial_default_backup_policy(self):
+        model = load_inventory_tree(REPO_ROOT)
+
+        self.assertEqual(["default"], sorted(model.backup_policies))
+        self.assertEqual(
+            {
+                "schedule": {
+                    "cadence": "daily",
+                    "time": "03:30",
+                    "timezone": "America/Denver",
+                    "stagger": "60m",
+                },
+                "retention": {
+                    "daily": 14,
+                    "weekly": 8,
+                    "monthly": 12,
+                },
+            },
+            model.backup_policies["default"],
+        )
+
+    def test_repo_inventory_migrates_current_production_vms_to_backup_contract(self):
+        model = load_inventory_tree(REPO_ROOT)
+
+        backup_by_vm = {vm_name: vm.get("backup") for vm_name, vm in model.vms.items()}
+        self.assertEqual({"enabled": False, "reason": backup_by_vm["pbs-vm"]["reason"]}, backup_by_vm["pbs-vm"])
+        self.assertGreater(len(backup_by_vm["pbs-vm"]["reason"]), 0)
+        for vm_name, backup in backup_by_vm.items():
+            if vm_name == "pbs-vm":
+                continue
+            self.assertEqual({"enabled": True, "policy": "default"}, backup, vm_name)
+
     def test_inventory_model_loads_datasets(self):
         model = load_inventory_tree(FIXTURES / "inventory_valid")
 

@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import argparse
+import datetime as dt
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.backup_configure_plan import ObservedBackupJob
+from fortress_inventory.backup_readiness import evaluate_backup_readiness, render_backup_readiness_report
+from fortress_inventory.model import load_inventory_tree
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Evaluate live Backup Readiness")
+    parser.add_argument("--target")
+    parser.add_argument("--observed-jobs-json")
+    parser.add_argument("--successful-runs-json")
+    args = parser.parse_args()
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    report = evaluate_backup_readiness(
+        model,
+        observed_jobs_by_host=load_observed_jobs(args.observed_jobs_json),
+        successful_backup_runs_by_host=load_successful_runs(args.successful_runs_json),
+    )
+    print(render_backup_readiness_report(report, target=args.target), end="")
+
+    results = report.results_by_vm
+    if args.target:
+        result = results.get(args.target)
+        return 0 if result is None or result.status != "blocked" else 1
+    return 0 if report.ready else 1
+
+
+def load_observed_jobs(path):
+    if not path:
+        return {}
+    raw = json.loads(Path(path).read_text())
+    return {
+        host_name: tuple(
+            ObservedBackupJob(
+                name=job["name"],
+                vmid=job["vmid"],
+                datastore=job.get("datastore"),
+                scheduled_time=dt.time.fromisoformat(job["scheduled_time"]),
+                fortress_owned=job["fortress_owned"],
+            )
+            for job in jobs
+        )
+        for host_name, jobs in raw.items()
+    }
+
+
+def load_successful_runs(path):
+    if not path:
+        return {}
+    raw = json.loads(Path(path).read_text())
+    return {host_name: set(vm_names) for host_name, vm_names in raw.items()}
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

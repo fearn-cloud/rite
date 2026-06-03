@@ -1,6 +1,8 @@
 from .model import load_inventory_tree
+from .pbs_substrate import validate_pbs_substrate
 from .service_runtime_intent import analyze_service_runtime_intent
 from .validation.acceptance import validate_acceptance_policy_host_coverage
+from .validation.backups import validate_backup_policies
 from .validation.datasets import (
     validate_dataset_lifecycle_policy,
     validate_dataset_names,
@@ -51,6 +53,8 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(validate_vm_inventory_policy(model))
     errors.extend(validate_vm_refs(model))
     errors.extend(validate_vm_launchable_service_groups(model))
+    errors.extend(validate_backup_policies(model))
+    errors.extend(validate_pbs_substrate(model))
     errors.extend(validate_dataset_names(model))
     errors.extend(validate_dataset_nas_refs(model))
     errors.extend(

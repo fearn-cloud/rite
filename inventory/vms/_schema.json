@@ -131,7 +131,16 @@
         "auth_key_extract": { "type": "string", "minLength": 1 }
       }
     },
-    "backup": { "type": "object" },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "policy": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "ssh_public_key": { "type": "string" }
   }
 }

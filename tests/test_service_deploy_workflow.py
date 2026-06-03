@@ -153,6 +153,8 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 "network:\n"
                 "  interfaces:\n"
                 "    - address: 10.0.10.102/24\n"
+                "backup:\n"
+                "  enabled: true\n"
             )
             (root / "inventory" / "vms" / "observability-vm.sops.yaml").write_text("encrypted vm material\n")
             (root / "inventory" / "services" / "observability.yaml").write_text(

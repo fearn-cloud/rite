@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: ready-for-human
 
 # Backup Health Reporting
 
@@ -10,14 +10,14 @@ The PBS query layer is isolated from reporting and rollup logic so future diagno
 
 ## Acceptance criteria
 
-- [ ] Backup Health is derived from PBS restore-point freshness.
-- [ ] Each Backup Target receives an explicit health status.
-- [ ] Default Backup Targets become unhealthy after 36 hours without a fresh successful restore point.
-- [ ] Host-level Backup Health rollups summarize Backup Target statuses for that Host.
-- [ ] Fleet-level Backup Health rollups summarize all Hosts.
-- [ ] Unprotected VMs appear in reports as excluded with their reason visible.
-- [ ] PBS querying is isolated from health evaluation and operator output formatting.
-- [ ] Tests cover fresh restore points, stale restore points, missing restore points, Host rollups, fleet rollups, and Unprotected VM exclusion.
+- [x] Backup Health is derived from PBS restore-point freshness.
+- [x] Each Backup Target receives an explicit health status.
+- [x] Default Backup Targets become unhealthy after 36 hours without a fresh successful restore point.
+- [x] Host-level Backup Health rollups summarize Backup Target statuses for that Host.
+- [x] Fleet-level Backup Health rollups summarize all Hosts.
+- [x] Unprotected VMs appear in reports as excluded with their reason visible.
+- [x] PBS querying is isolated from health evaluation and operator output formatting.
+- [x] Tests cover fresh restore points, stale restore points, missing restore points, Host rollups, fleet rollups, and Unprotected VM exclusion.
 
 ## Blocked by
 

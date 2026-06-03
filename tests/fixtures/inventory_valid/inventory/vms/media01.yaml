@@ -18,3 +18,5 @@ mounts:
     protocol: nfs
     mount_point: /mnt/nas/media
     access: read_write
+backup:
+  enabled: true

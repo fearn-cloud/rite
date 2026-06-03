@@ -28,10 +28,4 @@ mounts:
     options_extra: [ro]
 backup:
   enabled: true
-  schedule: daily
-  retention:
-    keep_daily: 7
-    keep_weekly: 4
-    keep_monthly: 6
-  datastore: main
 ssh_public_key: ssh-ed25519 AAAA...

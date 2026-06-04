@@ -170,6 +170,15 @@
       loop: "{{ fortress_service_start_units | default([]) }}"
       when: fortress_service_deploy_type == "quadlet"
 
+    - name: Disable conflicting Native Service apt sources
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ fortress_native_apt_repo.disabled_sources | default([]) }}"
+      when:
+        - fortress_service_deploy_type == "native"
+        - fortress_native_apt_repo | default(none) is not none
+
     - name: Ensure Native Service apt repository tooling is installed
       ansible.builtin.apt:
         name: gnupg

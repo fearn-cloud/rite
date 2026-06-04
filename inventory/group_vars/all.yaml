@@ -25,3 +25,6 @@ apt_repos:
   proxmox_backup_no_subscription:
     url: http://download.proxmox.com/debian/pbs
     repo: deb [trusted=yes] http://download.proxmox.com/debian/pbs trixie pbs-no-subscription
+    disabled_sources:
+      - /etc/apt/sources.list.d/pbs-enterprise.sources
+      - /etc/apt/sources.list.d/pbs-enterprise.list

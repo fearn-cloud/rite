@@ -38,6 +38,22 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         self.assertIn("service-deploy service:", justfile)
         self.assertIn("./scripts/service-deploy {{service}}", justfile)
 
+    def test_declared_native_service_config_templates_exist(self):
+        model = load_inventory_tree(REPO_ROOT)
+
+        missing_templates = []
+        for service_name, service in sorted(model.services.items()):
+            deploy = service.get("deploy", {})
+            if deploy.get("type") != "native":
+                continue
+            template_root = REPO_ROOT / "inventory" / "services" / f"{service_name}.native.d"
+            for config_file in deploy.get("config_files", []) or []:
+                template_path = template_root / config_file["template"]
+                if not template_path.is_file():
+                    missing_templates.append(str(template_path.relative_to(REPO_ROOT)))
+
+        self.assertEqual([], missing_templates)
+
     def test_service_deploy_passes_share_backed_subpaths_to_playbook(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1107,6 +1123,8 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 "apt_repos:\n"
                 "  caddy_official:\n"
                 "    url: https://dl.cloudsmith.io/public/caddy/stable/deb/debian\n"
+                "    disabled_sources:\n"
+                "      - /etc/apt/sources.list.d/caddy-stale.list\n"
             )
             (root / "inventory" / "vms" / "media01.sops.yaml").write_text("encrypted vm material\n")
             template_dir = root / "inventory" / "services" / "caddy.native.d"
@@ -1155,6 +1173,7 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 {
                     "name": "caddy_official",
                     "url": "https://dl.cloudsmith.io/public/caddy/stable/deb/debian",
+                    "disabled_sources": ["/etc/apt/sources.list.d/caddy-stale.list"],
                 },
                 extra_vars["fortress_native_apt_repo"],
             )
@@ -1221,6 +1240,8 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         playbook = (REPO_ROOT / "ansible" / "playbooks" / "service-deploy.yml").read_text()
 
         self.assertIn("name: Configure Native Service apt repository", playbook)
+        self.assertIn("name: Disable conflicting Native Service apt sources", playbook)
+        self.assertIn("fortress_native_apt_repo.disabled_sources | default([])", playbook)
         self.assertIn("name: Ensure Native Service apt repository tooling is installed", playbook)
         self.assertIn("name: gnupg", playbook)
         self.assertIn("fortress_native_apt_repo", playbook)
@@ -1241,6 +1262,10 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         self.assertIn("systemctl reload {{ fortress_native_systemd_unit }}", playbook)
         self.assertIn("selectattr('item.action', 'equalto', 'restart')", playbook)
         self.assertIn("selectattr('item.action', 'equalto', 'reload')", playbook)
+        self.assertLess(
+            playbook.index("name: Disable conflicting Native Service apt sources"),
+            playbook.index("name: Ensure Native Service apt repository tooling is installed"),
+        )
         self.assertLess(
             playbook.index("name: Ensure Native Service apt repository tooling is installed"),
             playbook.index("name: Configure Native Service apt repository"),

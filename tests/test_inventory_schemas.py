@@ -136,6 +136,26 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_nas_schema_accepts_web_ui_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nas_yaml = Path(tmp) / "truenas.yaml"
+            nas_yaml.write_text(
+                "name: truenas\n"
+                "management_address: 10.10.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "tls_verify: false\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+                "    scheme: http\n"
+                "    port: 80\n"
+            )
+
+            result = self.run_schema("inventory/nas/_schema.json", str(nas_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_service_schema_accepts_explicit_service_network(self):
         with tempfile.TemporaryDirectory() as tmp:
             service_yaml = Path(tmp) / "immich.yaml"

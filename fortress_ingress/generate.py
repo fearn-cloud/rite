@@ -11,6 +11,7 @@ def build_caddy_route_model(model):
     routes = []
     routes.extend(_service_routes(model, graph))
     routes.extend(_host_ingress_routes(model, graph))
+    routes.extend(_nas_ingress_routes(model, graph))
     routes = sorted(routes, key=lambda route: route["hostname"])
     return {
         "ingress_address": _ingress_address(model, graph) if routes else None,
@@ -117,8 +118,35 @@ def _host_ingress_routes(model, graph):
     return routes
 
 
+def _nas_ingress_routes(model, graph):
+    routes = []
+    trusted_source_ranges = _trusted_source_ranges(model)
+    for endpoint_name in graph.nas_ingress_route_names():
+        endpoint = model.nas_endpoints[endpoint_name]
+        route = endpoint.get("ingress", {}).get("web_ui", {})
+        routes.append(
+            {
+                "kind": "nas",
+                "hostname": route.get("hostname"),
+                "target": _target(
+                    route.get("scheme", "http"),
+                    _required_nas_management_ipv4_address(
+                        graph,
+                        endpoint_name,
+                        f"NAS Ingress Route {endpoint_name}",
+                    ),
+                    route.get("port", 80),
+                ),
+                "trusted_source_ranges": trusted_source_ranges,
+                "owner": endpoint_name,
+                "tls": route.get("tls", "letsencrypt_dns"),
+            }
+        )
+    return routes
+
+
 def _render_caddy_route(route):
-    if route["kind"] == "host":
+    if route.get("trusted_source_ranges"):
         source_ranges = " ".join(route["trusted_source_ranges"])
         return "\n".join(
             [
@@ -177,6 +205,10 @@ def _https_target(address, port):
     return f"https://{address}:{port}"
 
 
+def _target(scheme, address, port):
+    return f"{scheme}://{address}:{port}"
+
+
 def _trusted_source_ranges(model):
     return list((model.globals.get("ingress") or {}).get("trusted_source_ranges") or [])
 
@@ -198,6 +230,13 @@ def _required_vm_static_ipv4_address(graph, vm_name, label):
 
 def _required_host_management_ipv4_address(graph, host_name, label):
     address = graph.host_management_ipv4_address(host_name)
+    if not address:
+        raise InventoryEntityGraphError(f"{label} must declare a management IPv4 address")
+    return address
+
+
+def _required_nas_management_ipv4_address(graph, endpoint_name, label):
+    address = graph.nas_management_ipv4_address(endpoint_name)
     if not address:
         raise InventoryEntityGraphError(f"{label} must declare a management IPv4 address")
     return address

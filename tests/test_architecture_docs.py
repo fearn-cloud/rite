@@ -61,6 +61,7 @@ class ArchitectureDocsTests(unittest.TestCase):
         for phrase in [
             "Service Ingress",
             "Host Ingress Routes",
+            "NAS Ingress Routes",
             "Caddy generated-route ownership",
             "generated DNS ownership",
             "just ingress-regenerate",

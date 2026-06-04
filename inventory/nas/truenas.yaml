@@ -2,3 +2,9 @@ name: truenas
 management_address: 10.10.0.15
 share_address: 10.40.0.15
 tls_verify: false
+ingress:
+  web_ui:
+    enabled: true
+    hostname: truenas.fearn.cloud
+    scheme: http
+    port: 80

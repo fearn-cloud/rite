@@ -1424,6 +1424,10 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 "photos": {"ingress": {"enabled": True}},
                 "private": {"ingress": {"enabled": False}},
             },
+            nas_endpoints={
+                "truenas": {"ingress": {"web_ui": {"enabled": True}}},
+                "backup": {},
+            },
         )
 
         graph = InventoryEntityGraph(model)
@@ -1433,6 +1437,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
         self.assertEqual(("photos", "private"), graph.service_names())
         self.assertEqual(("photos",), graph.ingress_enabled_service_names())
         self.assertEqual(("wintermute",), graph.host_ingress_route_names())
+        self.assertEqual(("truenas",), graph.nas_ingress_route_names())
 
 
 if __name__ == "__main__":

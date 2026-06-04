@@ -1,7 +1,7 @@
 """Inventory Entity Graph queries over the loaded Inventory model."""
 
 from dataclasses import dataclass
-from ipaddress import ip_interface, ip_network
+from ipaddress import ip_address, ip_interface, ip_network
 from pathlib import PurePosixPath
 
 from fortress_inventory.service_runtime_intent import analyze_service_runtime_intent
@@ -208,6 +208,13 @@ class InventoryEntityGraph:
             host_name
             for host_name, host in self._model.hosts.items()
             if host.get("ingress", {}).get("proxmox_web_ui", {}).get("enabled")
+        )
+
+    def nas_ingress_route_names(self):
+        return tuple(
+            endpoint_name
+            for endpoint_name, endpoint in self._model.nas_endpoints.items()
+            if endpoint.get("ingress", {}).get("web_ui", {}).get("enabled")
         )
 
     def service_backend_vm_name(self, service_name):
@@ -624,6 +631,25 @@ class InventoryEntityGraph:
                 f"Host {host_name} must declare network.management_address as an IPv4 address"
             )
         return str(parsed.ip)
+
+    def nas_management_ipv4_address(self, endpoint_name):
+        endpoint = self._model.nas_endpoints.get(endpoint_name)
+        if not endpoint:
+            return None
+        address = endpoint.get("management_address")
+        if not address:
+            return None
+        try:
+            parsed = ip_address(address)
+        except ValueError as error:
+            raise InventoryEntityGraphError(
+                f"NAS Endpoint {endpoint_name} must declare management_address as an IPv4 address"
+            ) from error
+        if parsed.version != 4:
+            raise InventoryEntityGraphError(
+                f"NAS Endpoint {endpoint_name} must declare management_address as an IPv4 address"
+            )
+        return str(parsed)
 
     def host_bridge_name_matching_address(self, host_name, address):
         bridge = self.host_bridge_matching_address(host_name, address)

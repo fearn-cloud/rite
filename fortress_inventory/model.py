@@ -31,7 +31,7 @@ def load_inventory_tree(root):
         vms=_default_vms(_load_entity_dir(inventory_root / "vms")),
         services=_default_services(services),
         datasets=_load_entity_dir(inventory_root / "datasets"),
-        nas_endpoints=_load_entity_dir(inventory_root / "nas"),
+        nas_endpoints=_default_nas_endpoints(_load_entity_dir(inventory_root / "nas")),
         templates=_load_entity_dir(inventory_root / "templates"),
         template_verification_policy=_load_optional_yaml(inventory_root / "template-verification-policy.yaml"),
         backup_policy_file_exists=(inventory_root / "backup-policies.yaml").is_file(),
@@ -101,3 +101,27 @@ def _default_service(service):
             published_port.setdefault("bind", "127.0.0.1")
             published_port.setdefault("protocol", "tcp")
     return service
+
+
+def _default_nas_endpoints(nas_endpoints):
+    return {
+        endpoint_name: _default_nas_endpoint(endpoint)
+        for endpoint_name, endpoint in nas_endpoints.items()
+    }
+
+
+def _default_nas_endpoint(endpoint):
+    endpoint = deepcopy(endpoint)
+    ingress = dict(endpoint.get("ingress") or {})
+    web_ui = dict(ingress.get("web_ui") or {})
+    if web_ui.get("enabled"):
+        web_ui.setdefault("exposure", "trusted_only")
+        web_ui.setdefault("tls", "letsencrypt_dns")
+        web_ui.setdefault("auth", {"type": "none"})
+        web_ui.setdefault("scheme", "http")
+        web_ui.setdefault("port", 80)
+    if web_ui:
+        ingress["web_ui"] = web_ui
+    if ingress:
+        endpoint["ingress"] = ingress
+    return endpoint

@@ -27,3 +27,4 @@ mounts:
 backup:
   enabled: false
   reason: PBS itself is recovered from Inventory, the Primary Datastore, and Recovery Secrets, not from the local PBS instance.
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEhi78GpGN7KEGRf9nJWxT1/mOErpZQZGAqxwffukKCo fortress-vm-prepare:pbs-vm:2026-06-04T03:06:51Z

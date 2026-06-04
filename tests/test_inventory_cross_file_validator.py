@@ -686,6 +686,166 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    def test_nas_ingress_routes_require_trusted_source_range_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+
+            self.assertIn(
+                "missing_nas_ingress_trusted_source_ranges",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_valid_nas_ingress_route_uses_endpoint_name_and_management_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "tls_verify: false\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+
+            self.assertEqual(validate_inventory_tree(root), [])
+
+    def test_nas_ingress_route_hostname_must_match_endpoint_domain_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: storage.fearn.cloud\n"
+            )
+
+            self.assertIn(
+                "nas_ingress_hostname_mismatch",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_nas_ingress_route_hostname_alone_does_not_enable_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: false\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+
+            self.assertIn(
+                "nas_ingress_hostname_without_enabled",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_nas_ingress_route_hostname_shares_service_and_host_ingress_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "network:\n"
+                "  management_address: 10.0.0.10\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: false\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+
+            self.assertIn(
+                "duplicate_ingress_hostname",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_nas_ingress_route_requires_management_address_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+            )
+
+            self.assertIn(
+                "missing_nas_ingress_management_address",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
     def test_service_backend_is_singular_for_issue_07(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

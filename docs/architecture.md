@@ -550,11 +550,13 @@ deploy:
 
 ### 10.5. Ingress
 
-Single Caddy VM. Caddy terminates TLS for internal HTTP-family routes and reverse-proxies to declared Service Backends and Host Ingress Routes. One TLS cert store, one stable Caddy scaffold, and one generated route import live on the Ingress VM.
+Single Caddy VM. Caddy terminates TLS for internal HTTP-family routes and reverse-proxies to declared Service Backends, Host Ingress Routes, and NAS Ingress Routes. One TLS cert store, one stable Caddy scaffold, and one generated route import live on the Ingress VM.
 
 Service Ingress is declared on Service inventory with an explicit hostname, `ingress.enabled: true`, and exactly one TCP-capable Published Port marked `ingress: true`. The generated route proxies that hostname to the Service Backend VM's static address and Backend port.
 
 Host Ingress Routes are declared on Host inventory, not as synthetic Services. They share hostname collision checks, TLS, generated DNS, and Ingress Regeneration with Service Ingress, but they target the Host `network.management_address` for Proxmox web UI access. Caddy enforces Trusted-only source ranges for Host Ingress Routes because Service routes and Host management routes share the same Ingress VM address.
+
+NAS Ingress Routes are declared on NAS Endpoint inventory under `ingress.web_ui`, not as synthetic Services or Host Ingress Routes. They share the same generated ingress hostname namespace and Trusted-only Caddy enforcement, but target the NAS Endpoint `management_address` using an explicit browser UI upstream scheme and port.
 
 Caddy generated-route ownership is split from Caddy installation. `service-deploy internal-ingress` owns the Native Service, base Caddyfile, Cloudflare environment, repo-owned Caddy package extension for `github.com/caddy-dns/cloudflare` / `dns.providers.cloudflare`, and import of the generated route file. `just ingress-regenerate` owns only the generated Caddy routes, installs them on the Ingress VM, and reloads Caddy.
 
@@ -564,7 +566,7 @@ The Cloudflare DNS provider module is declared in `inventory/services/internal-i
 
 Pi-hole + Unbound on a separate VM (DNS appliance, different criticality and lifecycle from ingress). Pi-hole serves LAN DNS; Unbound is the recursive backend so Pi-hole doesn't query upstream.
 
-Generated DNS ownership belongs to Ingress Regeneration. Ingress DNS Records are generated per declared Service Ingress hostname and per declared Host Ingress Route hostname. Each record points to the Ingress VM address, not to the Backend VM or Host management address.
+Generated DNS ownership belongs to Ingress Regeneration. Ingress DNS Records are generated per declared Service Ingress hostname, per declared Host Ingress Route hostname, and per declared NAS Ingress Route hostname. Each record points to the Ingress VM address, not to the Backend VM, Host management address, or NAS management address.
 
 Ingress DNS Targets are DNS Services that opt into receiving the generated record set through `capabilities.ingress_records`. The first provider is Pi-hole's dnsmasq compatibility surface, rendered as `99-fortress-ingress.conf` in the Service-owned dnsmasq directory mounted at `/etc/dnsmasq.d` inside the Pi-hole container. Ingress Regeneration authoritatively replaces that generated file and restarts every target Pi-hole DNS Service so FTL rereads dnsmasq config.
 

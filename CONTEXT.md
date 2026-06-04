@@ -747,7 +747,6 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **NAS Ingress Route** must be explicitly enabled per **NAS Endpoint**; a hostname alone does not create management ingress.
 - A **NAS Ingress Route** declares its browser UI upstream scheme independently from NAS Reconcile API TLS policy.
 - A **NAS Ingress Route** defaults to Trusted-only exposure, Let's Encrypt DNS-01 TLS, no additional Ingress Auth, HTTP upstream scheme, and TCP port 80.
-- A TrueNAS web UI **NAS Ingress Route** defaults to Trusted-only exposure, Let's Encrypt DNS-01 TLS, and no additional Ingress Auth.
 - Caddy enforces Trusted-only access for TrueNAS web UI **NAS Ingress Routes** at the route level, because ordinary Service routes and NAS management routes share the same **Ingress** **VM** address.
 - Known, IoT, Guest, and DMZ clients must not reach TrueNAS web UI **NAS Ingress Routes** through the **Ingress**.
 - **Ingress** terminates public TLS, proxies ordinary **Backends** over plain HTTP, and proxies Proxmox web UI **Host Ingress Routes** to the Host management address over HTTPS with self-signed upstream certificate verification skipped.

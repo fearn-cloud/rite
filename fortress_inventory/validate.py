@@ -14,6 +14,7 @@ from .validation.hosts import (
     validate_host_proxmox_endpoints,
     validate_vm_host_resources,
 )
+from .validation.nas import validate_nas_ingress_routes
 from .validation.services import (
     validate_ingress_dns_targets,
     validate_native_services,
@@ -47,6 +48,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(validate_service_hostnames(model))
     errors.extend(validate_host_proxmox_endpoints(model))
     errors.extend(validate_host_ingress_routes(model))
+    errors.extend(validate_nas_ingress_routes(model))
     errors.extend(validate_quadlet_services(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_native_services(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_service_share_backed_volumes(model, runtime_intent=service_runtime_intent))

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fortress_inventory.backup_configure_apply import backup_configure_plan_from_dict  # noqa: E402
+from fortress_inventory.backup_configure_apply import backup_configure_plans_from_dict  # noqa: E402
 from fortress_inventory.initial_backup_run import (  # noqa: E402
     JsonLogInitialBackupRunClient,
     PveshInitialBackupRunClient,
@@ -18,17 +18,30 @@ from fortress_inventory.initial_backup_run import (  # noqa: E402
 def main():
     args = parse_args(sys.argv[1:])
     with Path(args.plan_json).open() as handle:
-        plan = backup_configure_plan_from_dict(json.load(handle))
+        plans = backup_configure_plans_from_dict(json.load(handle))
 
-    client = make_client(plan.host_name)
-    result = trigger_initial_backup_runs(plan, client, target_name=args.target or None)
-    print(result.render(), end="")
-    return 0 if result.success else 1
+    matched_target = False
+    for plan in plans:
+        if args.target and args.target not in plan.pending_first_successful_runs:
+            continue
+        matched_target = matched_target or bool(args.target)
+        result = trigger_initial_backup_runs(
+            plan,
+            make_client(plan.host_name),
+            target_name=args.target or None,
+        )
+        print(result.render(), end="")
+        if not result.success:
+            return 1
+    if args.target and not matched_target:
+        print(f"Backup Target {args.target} does not have a pending first successful Backup Run")
+        return 1
+    return 0
 
 
 def parse_args(args):
     parser = argparse.ArgumentParser(prog="scripts/backup-initial-run")
-    parser.add_argument("--plan-json", required=True, help="Host-scoped Backup Configure plan JSON")
+    parser.add_argument("--plan-json", required=True, help="Host-scoped or fleet Backup Configure plan JSON")
     parser.add_argument("--target", default="", help="Backup Target to trigger; omit for all pending targets on the Host")
     return parser.parse_args(args)
 

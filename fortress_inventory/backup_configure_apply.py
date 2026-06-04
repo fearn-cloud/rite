@@ -15,7 +15,14 @@ class BackupConfigureApplyResult:
     applied_actions: tuple[str, ...] = ()
 
 
-def apply_backup_configure_plan(plan, client, confirm_prune=None, auto_confirm_prune=False):
+def apply_backup_configure_plan(
+    plan,
+    client,
+    confirm_prune=None,
+    auto_confirm_prune=False,
+    reporter=None,
+):
+    _report(reporter, f"Applying Backup Configure plan for Host {plan.host_name} ({len(plan.actions)} action(s))")
     prune_actions = tuple(action for action in plan.actions if action.action == "prune")
     prune_confirmed = (
         not prune_actions
@@ -23,22 +30,44 @@ def apply_backup_configure_plan(plan, client, confirm_prune=None, auto_confirm_p
         or (confirm_prune and confirm_prune(plan, prune_actions))
     )
     if prune_actions and not prune_confirmed:
+        _report(reporter, f"Host {plan.host_name}: prune refused by operator")
         return BackupConfigureApplyResult(
             success=False,
             message=f"Prune refused for Host {plan.host_name}",
         )
     applied_actions = []
+    if not plan.actions:
+        _report(reporter, f"Host {plan.host_name}: no Backup Configure actions")
     for action in plan.actions:
         try:
+            completed_action = action.action
+            _report(reporter, f"Host {plan.host_name}: {action.action} {_action_summary(action)}")
             if action.action == "create":
-                client.create_backup_job(
-                    job_name=action.job_name,
-                    vmid=action.vmid,
-                    datastore=action.primary_datastore,
-                    scheduled_time=action.scheduled_time,
-                    retention=action.retention,
-                )
-                applied_actions.append(action.action)
+                try:
+                    client.create_backup_job(
+                        job_name=action.job_name,
+                        vmid=action.vmid,
+                        datastore=action.primary_datastore,
+                        scheduled_time=action.scheduled_time,
+                        retention=action.retention,
+                    )
+                    applied_actions.append(action.action)
+                except Exception as error:
+                    if not _backup_job_already_exists(error, action.job_name):
+                        raise
+                    _report(
+                        reporter,
+                        f"Host {plan.host_name}: Backup Job {action.job_name} already exists; updating instead",
+                    )
+                    client.update_backup_job(
+                        job_name=action.job_name,
+                        vmid=action.vmid,
+                        datastore=action.primary_datastore,
+                        scheduled_time=action.scheduled_time,
+                        retention=action.retention,
+                    )
+                    applied_actions.append("update")
+                    completed_action = "update"
             if action.action == "update":
                 client.update_backup_job(
                     job_name=action.job_name,
@@ -51,7 +80,9 @@ def apply_backup_configure_plan(plan, client, confirm_prune=None, auto_confirm_p
             if action.action == "prune" and prune_confirmed:
                 client.delete_backup_job(job_name=action.job_name)
                 applied_actions.append(action.action)
+            _report(reporter, f"Host {plan.host_name}: {completed_action} complete for Backup Job {action.job_name}")
         except Exception as error:
+            _report(reporter, f"Host {plan.host_name}: {action.action} failed for Backup Job {action.job_name}")
             return BackupConfigureApplyResult(
                 success=False,
                 message=(
@@ -62,6 +93,7 @@ def apply_backup_configure_plan(plan, client, confirm_prune=None, auto_confirm_p
                 ),
                 applied_actions=tuple(applied_actions),
             )
+    _report(reporter, f"Backup Configure apply complete for Host {plan.host_name}")
     return BackupConfigureApplyResult(success=True, applied_actions=tuple(applied_actions))
 
 
@@ -117,7 +149,6 @@ class PveshBackupJobClient:
                 str(self.repo_root / "scripts" / "host-shell"),
                 self.host_name,
                 "--",
-                "sudo",
                 *command,
             ],
             text=True,
@@ -149,8 +180,14 @@ def backup_configure_plan_from_dict(raw):
     )
 
 
+def backup_configure_plans_from_dict(raw):
+    if isinstance(raw, list):
+        return tuple(backup_configure_plan_from_dict(plan) for plan in raw)
+    return (backup_configure_plan_from_dict(raw),)
+
+
 def _pve_schedule(scheduled_time):
-    return f"daily {scheduled_time.strftime('%H:%M')}"
+    return scheduled_time.strftime("%H:%M")
 
 
 def _pve_retention_args(retention):
@@ -158,3 +195,23 @@ def _pve_retention_args(retention):
     for key, value in sorted(retention.items()):
         keep_parts.append(f"keep-{key}={value}")
     return ["--prune-backups", ",".join(keep_parts)]
+
+
+def _backup_job_already_exists(error, job_name):
+    return f"Job '{job_name}' already exists" in str(error)
+
+
+def _report(reporter, message):
+    if reporter:
+        reporter(message)
+
+
+def _action_summary(action):
+    target = action.vm_name or f"VMID {action.vmid}"
+    scheduled = action.scheduled_time.strftime("%H:%M")
+    return (
+        f"Backup Target {target}; "
+        f"Backup Job {action.job_name}; "
+        f"datastore={action.primary_datastore}; "
+        f"schedule={scheduled}"
+    )

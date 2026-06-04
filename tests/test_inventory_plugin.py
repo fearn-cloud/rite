@@ -264,6 +264,58 @@ class FortressInventoryPluginTests(unittest.TestCase):
             self.assertIn('["ssh_keys"]["bootstrap"]["public_key"]', sops_log.read_text())
             self.assertNotIn('["ssh_keys"]["bootstrap"]["private_key"]', sops_log.read_text())
 
+    def test_inventory_plugin_allows_sibling_sops_file_without_ssh_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            vm_dir = root / "inventory" / "vms"
+            vm_dir.mkdir(parents=True)
+            (root / "inventory" / "hosts").mkdir()
+            (root / "inventory" / "services").mkdir()
+            (root / "inventory" / "templates").mkdir()
+            (root / "inventory" / "group_vars").mkdir()
+            (root / "fortress.yaml").write_text("plugin: fortress\nroot: .\n")
+            (vm_dir / "pbs-vm.yaml").write_text(
+                "vmid: 1200\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - address: 10.0.10.120/24\n"
+            )
+            (vm_dir / "pbs-vm.sops.yaml").write_text("recovery_secrets:\n  pbs_encryption_key:\n    value: encrypted\n")
+
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            fake_sops = bin_dir / "sops"
+            sops_log = root / "sops.log"
+            fake_sops.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$SOPS_LOG\"\n"
+                "printf 'error truncating tree: component ['\\''ssh_keys'\\''] not found\\n' >&2\n"
+                "exit 1\n"
+            )
+            fake_sops.chmod(fake_sops.stat().st_mode | stat.S_IXUSR)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["FORTRESS_KEY_DIR"] = str(root / "tmpfs")
+            env["SOPS_LOG"] = str(sops_log)
+
+            result = subprocess.run(
+                ["ansible-inventory", "-i", str(root / "fortress.yaml"), "--list"],
+                cwd=REPO_ROOT,
+                env=env,
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            hostvars = ansible_value(json.loads(result.stdout)["_meta"]["hostvars"])
+
+            self.assertEqual(hostvars["pbs-vm"]["ansible_host"], "10.0.10.120")
+            self.assertNotIn("fortress_sibling_ssh_keys", hostvars["pbs-vm"])
+            self.assertNotIn("ansible_ssh_private_key_file", hostvars["pbs-vm"])
+
     def test_inventory_plugin_sets_host_connection_from_management_address(self):
         inventory = self.load_inventory()
         wintermute = ansible_value(inventory["_meta"]["hostvars"]["wintermute"])

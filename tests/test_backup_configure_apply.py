@@ -1,8 +1,14 @@
 import datetime as dt
+import subprocess
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from fortress_inventory.backup_configure_apply import apply_backup_configure_plan
+from fortress_inventory.backup_configure_apply import (
+    PveshBackupJobClient,
+    apply_backup_configure_plan,
+    backup_configure_plans_from_dict,
+)
 from fortress_inventory.backup_configure_plan import (
     BackupConfigureAction,
     BackupConfigurePlan,
@@ -37,10 +43,24 @@ class BackupConfigureApplyTests(unittest.TestCase):
             ),
         )
         client = FakeBackupJobClient()
+        logs = []
 
-        result = apply_backup_configure_plan(plan, client)
+        result = apply_backup_configure_plan(plan, client, reporter=logs.append)
 
         self.assertTrue(result.success)
+        self.assertEqual(
+            [
+                "Applying Backup Configure plan for Host neuromancer (1 action(s))",
+                (
+                    "Host neuromancer: create Backup Target media-vm; "
+                    "Backup Job fortress-backup-media-vm-default; "
+                    "datastore=pbs-datastore; schedule=03:42"
+                ),
+                "Host neuromancer: create complete for Backup Job fortress-backup-media-vm-default",
+                "Backup Configure apply complete for Host neuromancer",
+            ],
+            logs,
+        )
         self.assertEqual(
             [
                 (
@@ -56,6 +76,65 @@ class BackupConfigureApplyTests(unittest.TestCase):
             ],
             client.calls,
         )
+
+    def test_fleet_plan_json_deserializes_as_host_scoped_apply_plans(self):
+        plans = backup_configure_plans_from_dict(
+            [
+                {
+                    "host_name": "molly",
+                    "actions": [
+                        {
+                            "action": "create",
+                            "vm_name": "dns-secondary-vm",
+                            "vmid": 1008,
+                            "policy_name": "default",
+                            "primary_datastore": "pbs-datastore",
+                            "job_name": "fortress-backup-dns-secondary-vm-default",
+                            "scheduled_time": "03:50",
+                            "retention": {"daily": 14, "weekly": 8},
+                        }
+                    ],
+                    "pending_first_successful_runs": ["dns-secondary-vm"],
+                },
+                {
+                    "host_name": "neuromancer",
+                    "actions": [],
+                    "pending_first_successful_runs": [],
+                },
+            ]
+        )
+
+        self.assertEqual(("molly", "neuromancer"), tuple(plan.host_name for plan in plans))
+        self.assertEqual("dns-secondary-vm", plans[0].actions[0].vm_name)
+        self.assertEqual(dt.time(3, 50), plans[0].actions[0].scheduled_time)
+        self.assertEqual(("dns-secondary-vm",), plans[0].pending_first_successful_runs)
+
+    def test_pvesh_client_runs_pvesh_directly_through_host_shell(self):
+        with patch("fortress_inventory.backup_configure_apply.subprocess.run") as run:
+            run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+            PveshBackupJobClient("molly", repo_root=Path("/repo")).create_backup_job(
+                job_name="fortress-backup-dns-secondary-vm-default",
+                vmid=1008,
+                datastore="pbs-datastore",
+                scheduled_time=dt.time(3, 50),
+                retention={"daily": 14},
+            )
+
+        command = run.call_args.args[0]
+        self.assertEqual(
+            [
+                "/repo/scripts/host-shell",
+                "molly",
+                "--",
+                "pvesh",
+                "create",
+                "/cluster/backup",
+            ],
+            command[:6],
+        )
+        self.assertNotIn("sudo", command)
+        self.assertEqual("03:50", command[command.index("--schedule") + 1])
 
     def test_apply_updates_drifted_fortress_owned_backup_jobs(self):
         plan = BackupConfigurePlan(
@@ -87,6 +166,53 @@ class BackupConfigureApplyTests(unittest.TestCase):
                         "vmid": 1103,
                         "datastore": "pbs-datastore",
                         "scheduled_time": dt.time(3, 42),
+                        "retention": {"daily": 14, "weekly": 8},
+                    },
+                )
+            ],
+            client.calls,
+        )
+
+    def test_apply_converges_create_when_fortress_owned_backup_job_already_exists(self):
+        plan = BackupConfigurePlan(
+            host_name="molly",
+            actions=(
+                BackupConfigureAction(
+                    action="create",
+                    vm_name="dns-secondary-vm",
+                    vmid=1008,
+                    policy_name="default",
+                    primary_datastore="pbs-datastore",
+                    job_name="fortress-backup-dns-secondary-vm-default",
+                    scheduled_time=dt.time(3, 50),
+                    retention={"daily": 14, "weekly": 8},
+                ),
+            ),
+        )
+        client = FakeBackupJobClient(fail_on="create_already_exists")
+        logs = []
+
+        result = apply_backup_configure_plan(plan, client, reporter=logs.append)
+
+        self.assertTrue(result.success)
+        self.assertEqual(("update",), result.applied_actions)
+        self.assertIn(
+            "Host molly: Backup Job fortress-backup-dns-secondary-vm-default already exists; updating instead",
+            logs,
+        )
+        self.assertIn(
+            "Host molly: update complete for Backup Job fortress-backup-dns-secondary-vm-default",
+            logs,
+        )
+        self.assertEqual(
+            [
+                (
+                    "update",
+                    {
+                        "job_name": "fortress-backup-dns-secondary-vm-default",
+                        "vmid": 1008,
+                        "datastore": "pbs-datastore",
+                        "scheduled_time": dt.time(3, 50),
                         "retention": {"daily": 14, "weekly": 8},
                     },
                 )
@@ -259,6 +385,8 @@ class FakeBackupJobClient:
     def create_backup_job(self, *, job_name, vmid, datastore, scheduled_time, retention=None):
         if self.fail_on == "create":
             raise RuntimeError("pve create failed")
+        if self.fail_on == "create_already_exists":
+            raise RuntimeError(f"Job '{job_name}' already exists")
         self.calls.append(
             (
                 "create",

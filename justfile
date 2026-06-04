@@ -132,6 +132,10 @@ acceptance-nfs-shared-mount host template endpoint auto_confirm="false" keep_on_
 acceptance-service-layer host template endpoint auto_confirm="false" keep_on_fail="false":
     @host="{{host}}"; template="{{template}}"; endpoint="{{endpoint}}"; auto_confirm="{{auto_confirm}}"; keep_on_fail="{{keep_on_fail}}"; ./scripts/acceptance-service-layer host="${host#host=}" template="${template#template=}" endpoint="${endpoint#endpoint=}" auto_confirm="${auto_confirm#auto_confirm=}" keep_on_fail="${keep_on_fail#keep_on_fail=}"
 
+# Run live PBS backup/restore acceptance with generated disposable Operational VMs.
+acceptance-pbs-backup-restore host template auto_confirm="false" keep_on_fail="false":
+    @host="{{host}}"; template="{{template}}"; auto_confirm="{{auto_confirm}}"; keep_on_fail="{{keep_on_fail}}"; ./scripts/acceptance-pbs-backup-restore host="${host#host=}" template="${template#template=}" auto_confirm="${auto_confirm#auto_confirm=}" keep_on_fail="${keep_on_fail#keep_on_fail=}"
+
 # Prove the primary DNS VM and Pi-hole + Unbound Service against live LAN DNS.
 acceptance-dns-primary provision="false" auto_confirm="false" external="example.com" internal="":
     @provision="{{provision}}"; auto_confirm="{{auto_confirm}}"; external="{{external}}"; internal="{{internal}}"; ./scripts/acceptance-dns-primary provision="${provision#provision=}" auto_confirm="${auto_confirm#auto_confirm=}" external="${external#external=}" internal="${internal#internal=}"

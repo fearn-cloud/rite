@@ -372,6 +372,10 @@ _Avoid_: DNS peer, DNS VM target.
 A management-plane Ingress route from a hostname to a physical Host's management address and web UI port.
 _Avoid_: Service, Backend, VM route.
 
+**NAS Ingress Route**:
+A management-plane Ingress route from a hostname to a NAS Endpoint's Management Address and web UI upstream.
+_Avoid_: Service, Backend, Host Ingress Route, NAS Endpoint Ingress Route.
+
 **DNS Capability**:
 A Service-level DNS behavior declaration on a DNS Service, such as accepting generated Ingress DNS Records.
 _Avoid_: VM role, inferred DNS feature.
@@ -736,6 +740,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - Trusted-only **Host Ingress Route** source ranges are declared policy in **Inventory**, not hardcoded in the generator.
 - Known, IoT, Guest, and DMZ clients must not reach Proxmox web UI **Host Ingress Routes** through the **Ingress**.
 - A Proxmox web UI **Host Ingress Route** relies on Proxmox authentication for the first slice; additional **Ingress Auth** for Host management is deferred.
+- A TrueNAS web UI **NAS Ingress Route** hostname is explicitly written in NAS Endpoint inventory and must equal `<nas-endpoint>.<domain>` using the **NAS Endpoint** name.
+- A TrueNAS web UI **NAS Ingress Route** targets the NAS Endpoint's **Management Address** and defaults to HTTP on TCP port 80.
+- **NAS Ingress Routes** are declared on NAS Endpoint inventory under `ingress.web_ui`, not as TrueNAS-specific inventory shape.
+- A NAS Endpoint may declare at most one **NAS Ingress Route**.
+- A **NAS Ingress Route** must be explicitly enabled per **NAS Endpoint**; a hostname alone does not create management ingress.
+- A **NAS Ingress Route** declares its browser UI upstream scheme independently from NAS Reconcile API TLS policy.
+- A **NAS Ingress Route** defaults to Trusted-only exposure, Let's Encrypt DNS-01 TLS, no additional Ingress Auth, HTTP upstream scheme, and TCP port 80.
+- A TrueNAS web UI **NAS Ingress Route** defaults to Trusted-only exposure, Let's Encrypt DNS-01 TLS, and no additional Ingress Auth.
+- Caddy enforces Trusted-only access for TrueNAS web UI **NAS Ingress Routes** at the route level, because ordinary Service routes and NAS management routes share the same **Ingress** **VM** address.
+- Known, IoT, Guest, and DMZ clients must not reach TrueNAS web UI **NAS Ingress Routes** through the **Ingress**.
 - **Ingress** terminates public TLS, proxies ordinary **Backends** over plain HTTP, and proxies Proxmox web UI **Host Ingress Routes** to the Host management address over HTTPS with self-signed upstream certificate verification skipped.
 - **Ingress Regeneration** requires unambiguous static IPv4 addresses for the **Ingress** **VM** and every **Backend** **VM** it routes to.
 - **Ingress** TLS for internal Service hostnames uses Let's Encrypt DNS-01 when `ingress.tls` is `letsencrypt_dns`.
@@ -748,9 +762,10 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - When a mixed-protocol **Service** enables **Ingress**, its **Backend** port is the HTTP-family port used by **Ingress**; non-HTTP **Published Ports** remain direct VM exposure.
 - **Ingress DNS Records** are generated only for **Services** with **Ingress** enabled.
 - **Ingress DNS Records** are also generated for declared **Host Ingress Routes**.
+- **Ingress DNS Records** are also generated for declared **NAS Ingress Routes**.
 - **Ingress DNS Records** are not generated for VMs merely because they exist, including the **Ingress** **VM** itself.
 - The internal **Ingress DNS Record Set** includes only **Services** whose **Exposure** is `lan_only`.
-- **Service** hostnames and **Host Ingress Route** hostnames share one generated **Ingress** hostname namespace and must not collide.
+- **Service** hostnames, **Host Ingress Route** hostnames, and **NAS Ingress Route** hostnames share one generated **Ingress** hostname namespace and must not collide.
 - **Ingress DNS Records** are generated per declared **Service** hostname; fortress does not create a wildcard internal record by default.
 - **Ingress DNS Records** are IPv4 A records; IPv6 records are deferred until IPv6 VM addressing is modeled.
 - An **Ingress DNS Record** points to the **Ingress** **VM**, not the route's target **Backend** **VM** or **Host**.

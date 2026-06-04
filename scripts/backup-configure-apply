@@ -9,29 +9,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fortress_inventory.backup_configure_apply import (  # noqa: E402
     PveshBackupJobClient,
     apply_backup_configure_plan,
-    backup_configure_plan_from_dict,
+    backup_configure_plans_from_dict,
 )
 
 
 def main():
     args = parse_args(sys.argv[1:])
     with Path(args.plan_json).open() as handle:
-        plan = backup_configure_plan_from_dict(json.load(handle))
+        plans = backup_configure_plans_from_dict(json.load(handle))
 
-    result = apply_backup_configure_plan(
-        plan,
-        PveshBackupJobClient(plan.host_name),
-        confirm_prune=confirm_prune,
-        auto_confirm_prune=args.auto_confirm_prune,
-    )
-    if result.message:
-        print(result.message, file=sys.stderr)
-    return 0 if result.success else 1
+    for plan in plans:
+        result = apply_backup_configure_plan(
+            plan,
+            PveshBackupJobClient(plan.host_name),
+            confirm_prune=confirm_prune,
+            auto_confirm_prune=args.auto_confirm_prune,
+            reporter=report,
+        )
+        if result.message:
+            print(result.message, file=sys.stderr)
+        if not result.success:
+            return 1
+    return 0
 
 
 def parse_args(args):
     parser = argparse.ArgumentParser(prog="scripts/backup-configure-apply")
-    parser.add_argument("--plan-json", required=True, help="Host-scoped Backup Configure plan JSON")
+    parser.add_argument("--plan-json", required=True, help="Host-scoped or fleet Backup Configure plan JSON")
     parser.add_argument(
         "--auto-confirm-prune",
         action="store_true",
@@ -43,6 +47,10 @@ def parse_args(args):
 def confirm_prune(plan, actions):
     print(f"Prune {len(actions)} obsolete fortress-owned Backup Job(s) on Host {plan.host_name}? Type prune: ", end="", flush=True)
     return sys.stdin.readline().strip() == "prune"
+
+
+def report(message):
+    print(message, flush=True)
 
 
 if __name__ == "__main__":

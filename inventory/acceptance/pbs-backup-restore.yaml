@@ -1,0 +1,26 @@
+hardware:
+  cores: 1
+  memory: 1024
+  disk_size: 8G
+storage_by_host:
+  molly: local-lvm
+  neuromancer: fast
+  straylight: fast
+  wintermute: fast
+vms:
+  source:
+    name: tmp-pbs-source
+    vmid: 8931
+    address_by_host:
+      molly: 10.10.0.247/24
+      neuromancer: 10.10.0.245/24
+      straylight: 10.10.0.243/24
+      wintermute: 10.10.0.241/24
+  restored:
+    name: tmp-pbs-restored
+    vmid: 8932
+    address_by_host:
+      molly: 10.10.0.248/24
+      neuromancer: 10.10.0.246/24
+      straylight: 10.10.0.244/24
+      wintermute: 10.10.0.242/24

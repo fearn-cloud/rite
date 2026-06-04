@@ -443,6 +443,14 @@ def acceptance_artifact_lifecycle(workflow):
                 marker_purpose,
             )
         return lifecycle
+    if workflow == "pbs-backup-restore":
+        return AcceptanceTestLifecycle(
+            policy_name="pbs-backup-restore",
+            artifact_label="PBS backup/restore Acceptance",
+            purpose="pbs-backup-restore-acceptance",
+            roles=("source", "restored"),
+            bridge_error_label="PBS backup/restore Acceptance",
+        )
     raise ValueError(f"unsupported workflow {workflow}")
 
 
@@ -519,6 +527,7 @@ def has_generated_dataset_marker(path, purpose):
     markers = {
         "nfs-shared-mount-acceptance": "# Generated NFS shared-mount Acceptance Dataset. Do not edit by hand.",
         "service-layer-acceptance": "# Generated Service-layer Acceptance Dataset. Do not edit by hand.",
+        "pbs-backup-restore-acceptance": "# Generated PBS backup/restore Acceptance Dataset. Do not edit by hand.",
     }
     return first_line[0] == markers.get(purpose)
 

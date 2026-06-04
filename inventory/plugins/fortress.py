@@ -99,10 +99,13 @@ class InventoryModule(BaseInventoryPlugin):
     def _set_sibling_ssh_key_var(self, entity_name, sops_path):
         if not sops_path.is_file():
             return
+        public_key = self._decrypt_optional_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["public_key"]')
+        if public_key is None:
+            return
         self.inventory.set_variable(
             entity_name,
             "fortress_sibling_ssh_keys",
-            {"bootstrap": {"public_key": self._decrypt_sops_value(sops_path, '["ssh_keys"]["bootstrap"]["public_key"]')}},
+            {"bootstrap": {"public_key": public_key}},
         )
         key_dir = Path(os.environ.get("FORTRESS_KEY_DIR", "/dev/shm/fortress"))
         key_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -126,6 +129,19 @@ class InventoryModule(BaseInventoryPlugin):
         if strip:
             return result.stdout.strip()
         return result.stdout
+
+    def _decrypt_optional_sops_value(self, sops_path, extract):
+        result = subprocess.run(
+            ["sops", "--decrypt", "--extract", extract, str(sops_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        if "component ['ssh_keys'] not found" in result.stderr:
+            return None
+        raise AnsibleParserError(f"failed to decrypt {sops_path}: {result.stderr.strip()}")
 
 
 def _first_vm_address(vm):

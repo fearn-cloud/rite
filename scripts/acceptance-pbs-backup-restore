@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_acceptance.pbs_backup_restore import (  # noqa: E402
+    JsonLogPbsBackupRestoreAcceptanceClient,
+    PveshPbsBackupRestoreAcceptanceClient,
+    execute_pbs_backup_restore_acceptance,
+    plan_pbs_backup_restore_acceptance,
+    pbs_backup_restore_acceptance_plan_from_dict,
+)
+from fortress_inventory.model import load_inventory_tree  # noqa: E402
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    if args.plan_json:
+        with Path(args.plan_json).open() as handle:
+            plan = pbs_backup_restore_acceptance_plan_from_dict(json.load(handle))
+    else:
+        repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+        inventory = load_inventory_tree(repo_root)
+        plan = plan_pbs_backup_restore_acceptance(
+            repo_root,
+            host=args.host,
+            template=args.template,
+            inventory=inventory,
+        )
+        print_intent(plan)
+        if not args.auto_confirm and not confirm():
+            print("pbs backup/restore acceptance: cancelled")
+            return 1
+    fake_log = os.environ.get("FORTRESS_TEST_PBS_ACCEPTANCE_LOG")
+    if fake_log:
+        client = JsonLogPbsBackupRestoreAcceptanceClient(
+            fake_log,
+            fail_on=os.environ.get("FORTRESS_TEST_PBS_ACCEPTANCE_FAIL_ON"),
+        )
+    else:
+        client = PveshPbsBackupRestoreAcceptanceClient(plan.host)
+    result = execute_pbs_backup_restore_acceptance(plan, client, keep_on_fail=args.keep_on_fail)
+    print(result.render(), end="")
+    return 0 if result.success else 1
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(prog="scripts/acceptance-pbs-backup-restore")
+    parser.add_argument("pairs", nargs="*", help="host=<host> template=<template> [auto_confirm=<true|false>] [keep_on_fail=<true|false>]")
+    parser.add_argument("--plan-json")
+    parser.add_argument("--keep-on-fail", action="store_true")
+    parsed = parser.parse_args(argv)
+    values = {}
+    for pair in parsed.pairs:
+        if "=" not in pair:
+            parser.error(f"expected key=value argument, got {pair!r}")
+        key, value = pair.split("=", 1)
+        if key not in {"host", "template", "auto_confirm", "keep_on_fail"}:
+            parser.error(f"unsupported argument {key!r}")
+        values[key] = value.strip('"')
+    if parsed.plan_json:
+        if values:
+            parser.error("key=value arguments cannot be combined with --plan-json")
+        return parsed
+    if not {"host", "template"} <= set(values):
+        parser.error("host=<host> and template=<template> are required without --plan-json")
+    parsed.host = values["host"]
+    parsed.template = values["template"]
+    parsed.auto_confirm = _bool_arg(parser, "auto_confirm", values.get("auto_confirm", "false"))
+    parsed.keep_on_fail = parsed.keep_on_fail or _bool_arg(parser, "keep_on_fail", values.get("keep_on_fail", "false"))
+    return parsed
+
+
+def _bool_arg(parser, name, value):
+    normalized = value.lower()
+    if normalized not in ("true", "false"):
+        parser.error(f"{name} must be true or false")
+    return normalized == "true"
+
+
+def print_intent(plan):
+    print("PBS backup/restore Acceptance Test intent")
+    print(f"Host: {plan.host}")
+    print(f"Template: {plan.template}")
+    print(f"Source Acceptance VM: {plan.source_vm.name} VMID {plan.source_vm.vmid}")
+    print(f"Restored Acceptance VM: {plan.restored_vm.name} VMID {plan.restored_vm.vmid}")
+    print(f"Temporary Backup Job: {plan.backup_job_name}")
+    print("Restored VM containment: isolated, operator-only, no production DNS, ingress, or NAS-backed Dataset mutation")
+
+
+def confirm():
+    response = input("Type 'acceptance pbs backup restore' to continue: ")
+    return response == "acceptance pbs backup restore"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

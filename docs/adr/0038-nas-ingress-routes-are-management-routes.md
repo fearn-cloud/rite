@@ -1,0 +1,3 @@
+# NAS ingress routes are management routes
+
+NAS web UI ingress is modeled as NAS Ingress Routes declared on NAS Endpoint inventory, not as synthetic Services or Host Ingress Routes. NAS management routes share Ingress Regeneration, DNS generation, TLS policy, hostname collision checks, and Trusted-only Caddy enforcement with other internal ingress routes, but they target a NAS Endpoint's Management Address and declare their browser UI upstream scheme independently from NAS Reconcile API TLS policy; keeping this boundary preserves the Service model and avoids treating a NAS Endpoint as a Proxmox Host.

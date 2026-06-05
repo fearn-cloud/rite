@@ -1,0 +1,3 @@
+# Backup Configure owns PBS Storage Registration
+
+General Proxmox storage registration remains operator-controlled as recorded in ADR 0013, because pool and disk storage mistakes can be destructive. PBS Storage Registration is a narrow carve-out: Backup Configure may create or update the fortress-owned PVE storage entry `rite-pbs` on Hosts that have Backup Targets, after verifying it points at the PBS Service and Primary Datastore declared by the Backup Substrate. Backup Jobs target `rite-pbs`, while `rite-pbs` points at the PBS Datastore; conflicting existing storage entries with the same ID must fail loudly rather than being overwritten.

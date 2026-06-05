@@ -429,6 +429,14 @@ _Avoid_: backup pool.
 The NAS-backed Datastore used for normal Backup Targets and longer retention.
 _Avoid_: main backup pool, NAS backup folder.
 
+**Backup Substrate**:
+The fleet-level backup foundation required before Hosts can run Backup Jobs. It includes the PBS Service, PBS Storage Registration, Primary Datastore, PBS trust material, and backup credential references.
+_Avoid_: backup config, PBS settings.
+
+**PBS Storage Registration**:
+The PVE-side storage entry on a Host that points Backup Jobs at PBS. Distinct from a PBS Datastore and from Host storage used for VM disks.
+_Avoid_: host storage, backup host storage.
+
 **Backup Run**:
 One PBS backup execution for one Backup Target.
 _Avoid_: backup policy, backup schedule.
@@ -438,8 +446,12 @@ A PVE-side scheduled job for one Backup Target.
 _Avoid_: host backup group, PBS schedule.
 
 **Backup Configure**:
-The operator workflow that reconciles fortress-owned Backup Jobs.
-_Avoid_: host configure, PBS configure.
+The operator workflow that reconciles fortress-owned PBS Storage Registration and Backup Jobs.
+_Avoid_: host configure, PBS configure, storage configure.
+
+**PBS Configure**:
+The operator workflow that reconciles PBS-side configuration such as PBS identities and Datastores. Distinct from Backup Configure, which reconciles PVE-side backup prerequisites on Hosts.
+_Avoid_: backup configure, host configure.
 
 **Backup Health**:
 The operator-facing status of Backup Runs and restore-point freshness for Backup Targets.
@@ -905,8 +917,10 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Backup Health** is based first on PBS restore-point freshness.
 - **Backup Health** is evaluated per **Backup Target** and rolled up by Host and fleet.
 - An **Unprotected VM** appears in Backup Health reporting as excluded.
+- The **Backup Substrate** requires the local **PBS** Service backend VM to be an **Unprotected VM**.
+- **Backup Substrate** validation checks backup secret references structurally; secret decryption belongs to the workflow that consumes the secret.
 - **Backup Readiness** gates production readiness for **Backup Targets**.
-- **Backup Readiness** requires valid policy, usable datastore path, encryption **Recovery Secret** availability, and at least one successful Backup Run.
+- **Backup Readiness** requires valid policy, usable datastore path, valid **PBS Storage Registration**, encryption **Recovery Secret** availability, and at least one successful Backup Run.
 - A **Restore Drill** first proves each **Backup Policy** shape, then rotates through individual **Backup Targets**.
 - A **Restore Drill** must not collide with production VM identity or mutate production NAS-backed **Datasets**.
 - A **Restore Drill** proves recovery from backup reality; an **Acceptance Test** proves creation from declared intent.

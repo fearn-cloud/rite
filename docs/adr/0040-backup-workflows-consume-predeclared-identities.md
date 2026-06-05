@@ -1,0 +1,3 @@
+# Backup workflows consume predeclared identities
+
+Backup Configure consumes credentials created by narrower owner workflows instead of minting them itself. Host Configure owns the PVE backup identity and token for each Host, PBS Configure owns per-Host PBS API tokens and PBS TLS trust material, and Backup Configure consumes both to reconcile PBS Storage Registration and Backup Jobs. In steady state Backup Configure must fail when these prerequisites are missing rather than falling back to root SSH, VM lifecycle credentials, or shared PBS tokens, because backup mutation, PVE identity lifecycle, and PBS identity lifecycle have different trust and rotation boundaries.

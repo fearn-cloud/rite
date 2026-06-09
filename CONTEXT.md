@@ -18,6 +18,10 @@ _Avoid_: substituting "node" for "host"; reserve "node" for the PVE-internal ide
 A guest declared in `inventory/vms/<vm>.yaml`, provisioned by OpenTofu, configured by Ansible. Pinned to exactly one Host via `placement.host`.
 _Avoid_: guest, instance.
 
+**VM PCI Device Assignment**:
+A Host PCI device declared as VM hardware so one VM can own that device. Distinct from Container Device Access, which exposes a VM-local device into a Service container.
+_Avoid_: container device, Service device, GPU passthrough.
+
 **Template Verification VM**:
 A deliberately disposable VM provisioned from a Template on a specific Host to prove the Template satisfies the fortress VM lifecycle contract before ordinary VMs depend on it there.
 _Avoid_: test guest, smoke instance.
@@ -109,6 +113,10 @@ _Avoid_: raw service config, deploy vars, rendered Quadlet.
 **Service Runtime Identity**:
 The fortress-owned runtime names and paths derived from Service Runtime Intent, such as Podman container names, systemd unit names, Service Network names, Service Secret names, Service Data Directory paths, and required mount unit names.
 _Avoid_: Quadlet rendering detail, Ansible variable name.
+
+**Container Device Access**:
+A VM-local device exposed into a Service container without transferring ownership of the device between Hosts or VMs. Distinct from VM PCI Device Assignment, which changes VM hardware.
+_Avoid_: GPU passthrough, VM device model.
 
 **Published Port**:
 A VM-local port exposed by a Quadlet container for another VM or the Ingress to reach; defaults to loopback binding and TCP unless declared otherwise.
@@ -1033,7 +1041,11 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Seerr hostname**: Resolved. The Seerr **Service** uses `seerr.fearn.cloud`; friendly request aliases are deferred until hostname aliases are explicitly modeled.
 - **Arr stack image pinning**: Resolved. Checked-in arr stack **Service** Inventory uses exact image version tags, not `latest`, `develop`, `nightly`, or rolling channel tags.
 - **Arr stack image publishers**: Resolved. Arr stack **Services** prefer official images where they are the strongest current distribution path, and LinuxServer images where uniform operations matter for arr and downloader Services.
-- **Jellyfin GPU acceleration**: Deferred. First-pass Jellyfin runs CPU-only; GPU acceleration requires an explicit VM device and container device model before it is represented in fortress Inventory.
+- **Jellyfin GPU acceleration**: Resolved. GPU acceleration crosses two boundaries: **VM PCI Device Assignment** gives the **Media VM** ownership of the Host iGPU, and **Container Device Access** exposes the resulting VM-local `/dev/dri` device into the Jellyfin **Service** container.
+- **VM PCI Device Assignment validation**: Resolved. First-pass **VM PCI Device Assignment** validation is schema-local and renderer-backed; cross-file ownership checks wait until Host PCI devices are modeled as Inventory facts.
+- **Jellyfin Container Device Access declaration**: Resolved. First-pass Jellyfin **Container Device Access** uses a Quadlet Fragment for `/dev/dri`; it does not introduce first-class Service Inventory device fields until device access becomes a reusable Rite invariant.
+- **Jellyfin render-node permissions**: Resolved. First-pass Jellyfin **Container Device Access** grants `/dev/dri` and supplemental `render` group access in the Quadlet Fragment; VM-local render group policy remains outside first-class Inventory until reused.
+- **Jellyfin encoding configuration ownership**: Resolved. Rite provides VM and container device access for hardware acceleration; Jellyfin's internal encoding settings remain an **Application Configuration Artifact** changed through application-native configuration for this slice.
 - **Arr stack hostnames and ports**: Resolved. First-pass Services use `jellyfin.fearn.cloud:8096`, `seerr.fearn.cloud:5055`, `sonarr.fearn.cloud:8989`, `sonarr-anime.fearn.cloud:8990`, `radarr.fearn.cloud:7878`, `radarr-anime.fearn.cloud:7879`, `prowlarr.fearn.cloud:9696`, `bazarr.fearn.cloud:6767`, `clonarr.fearn.cloud:6060`, `qbittorrent.fearn.cloud:8080`, and `sabnzbd.fearn.cloud:8081` with SABnzbd container port `8080`.
 - **Arr stack runtime owner**: Resolved. First-pass arr and downloader **Services** use UID/GID `1001:1001`, matching the adopted media Dataset owner.
 - **Arr stack first-run credentials**: Resolved. First-pass arr stack Inventory does not pre-model app credentials or generated API keys as **Service Secrets**; app-native first-run setup owns them until explicit automated configuration is added.

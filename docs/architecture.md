@@ -613,6 +613,10 @@ Per-VM PCI device assignment in the VM yaml (instance-level, not template-level)
 hardware:
   pci_devices:
     - host_address: "0000:00:02.1"           # specific VF for SR-IOV
+      mapping_name: wintermute-igpu-vf1      # preferred: Proxmox PCI resource mapping used by API-token provisioning
+      pci_id: "8086:46a8"                    # vendor:device ID required for managed PCI mappings
+      iommu_group: 18                        # keeps the mapping complete and hardware-drift visible
+      subsystem_id: "8086:0000"
       primary_gpu: false
       pcie: true
       rombar: true

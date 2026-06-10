@@ -52,6 +52,41 @@ locals {
   vm_cloud_init_interfaces = {
     for vm_name, vm in var.vms : vm_name => "scsi${max(1, length(try(vm.hardware.disks, [])))}"
   }
+  vm_pci_device_mappings = {
+    for item in flatten([
+      for vm_name, vm in var.vms : [
+        for index, pci_device in try(vm.hardware.pci_devices, []) : {
+          key              = "${vm_name}-${index}"
+          name             = pci_device.mapping_name
+          path             = pci_device.host_address
+          pci_id           = pci_device.pci_id
+          comment          = try(pci_device.mapping_comment, "Managed by fortress for VM ${vm_name}")
+          iommu_group      = try(pci_device.iommu_group, null)
+          mediated_devices = try(pci_device.mediated_devices, false)
+          subsystem_id     = try(pci_device.subsystem_id, null)
+        } if try(pci_device.mapping_name, null) != null
+      ]
+    ]) : item.key => item
+  }
+}
+
+resource "proxmox_hardware_mapping_pci" "pci" {
+  for_each = local.vm_pci_device_mappings
+
+  name             = each.value.name
+  comment          = each.value.comment
+  mediated_devices = each.value.mediated_devices
+
+  map = [
+    {
+      comment      = each.value.comment
+      id           = each.value.pci_id
+      iommu_group  = each.value.iommu_group
+      node         = var.pve_node_name
+      path         = each.value.path
+      subsystem_id = each.value.subsystem_id
+    }
+  ]
 }
 
 resource "proxmox_virtual_environment_file" "cloud_init_user_data" {
@@ -144,6 +179,21 @@ resource "proxmox_virtual_environment_vm" "vm" {
       vlan_id = network_device.value.vlan
     }
   }
+
+  dynamic "hostpci" {
+    for_each = try(each.value.hardware.pci_devices, [])
+
+    content {
+      device  = "hostpci${hostpci.key}"
+      id      = try(hostpci.value.mapping_name, null) == null ? hostpci.value.host_address : null
+      mapping = try(hostpci.value.mapping_name, null)
+      pcie    = hostpci.value.pcie
+      rombar  = hostpci.value.rombar
+      xvga    = hostpci.value.primary_gpu
+    }
+  }
+
+  depends_on = [proxmox_hardware_mapping_pci.pci]
 
   lifecycle {
     precondition {

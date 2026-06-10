@@ -186,7 +186,7 @@ class TofuGenerationTests(unittest.TestCase):
         partitions = (REPO_ROOT / "fortress_tofu" / "generate.py").read_text()
 
         self.assertIn('variable "selected_vm"', root_module)
-        self.assertIn("globals = yamldecode", root_module)
+        self.assertIn("globals  = yamldecode", root_module)
         self.assertIn("vms = {", root_module)
         self.assertNotIn("if var.selected_vm == null || vm_name == var.selected_vm", root_module)
         self.assertIn("local.vms", partitions)
@@ -216,6 +216,21 @@ class TofuGenerationTests(unittest.TestCase):
 
         self.assertRegex(module, r"interface\s*=\s*local\.vm_cloud_init_interfaces\[each\.key\]")
         self.assertIn('startswith(local.vm_cloud_init_interfaces[each.key], "scsi")', module)
+
+    def test_vm_partition_renders_declared_pci_device_assignments(self):
+        module = (REPO_ROOT / "tofu" / "modules" / "vm-partition" / "main.tf").read_text()
+
+        self.assertIn('dynamic "hostpci"', module)
+        self.assertIn('resource "proxmox_hardware_mapping_pci" "pci"', module)
+        self.assertIn("for_each = local.vm_pci_device_mappings", module)
+        self.assertIn("for_each = try(each.value.hardware.pci_devices, [])", module)
+        self.assertIn('device  = "hostpci${hostpci.key}"', module)
+        self.assertIn("id      = try(hostpci.value.mapping_name, null) == null ? hostpci.value.host_address : null", module)
+        self.assertIn("mapping = try(hostpci.value.mapping_name, null)", module)
+        self.assertIn("pcie    = hostpci.value.pcie", module)
+        self.assertIn("rombar  = hostpci.value.rombar", module)
+        self.assertIn("xvga    = hostpci.value.primary_gpu", module)
+        self.assertIn("depends_on = [proxmox_hardware_mapping_pci.pci]", module)
 
     def test_generated_tofu_outputs_and_local_state_are_ignored(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text()

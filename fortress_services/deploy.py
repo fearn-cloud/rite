@@ -242,12 +242,26 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
             container["image"]
             for container in service.get("deploy", {}).get("containers", []) or []
         ],
+        "fortress_quadlet_host_groups": _quadlet_host_groups(service),
         "fortress_owned_quadlet_prune_paths": _owned_quadlet_prune_paths(
             rendered.artifacts,
             service_intent=service_intent,
         ),
         "fortress_service_secret_prefix": f"fortress_{service['name']}_",
     }
+
+
+def _quadlet_host_groups(service):
+    host_groups = []
+    seen = set()
+    for container in service.get("deploy", {}).get("containers", []) or []:
+        for device in container.get("devices", []) or []:
+            host_group = device.get("host_group")
+            if not host_group or host_group in seen:
+                continue
+            seen.add(host_group)
+            host_groups.append(host_group)
+    return host_groups
 
 
 def _runtime_service_data_directories(service, model, runtime_intent=None):

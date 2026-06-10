@@ -9,8 +9,13 @@ from fortress_workflows.runner import CommandPhase, ConfirmationGate, OperatorWo
 
 
 HOST_SOFTWARE_ADVANCEMENT_COMMAND = (
-    "sudo apt-get update && "
-    "sudo env DEBIAN_FRONTEND=noninteractive apt-get --assume-yes --with-new-pkgs --no-remove upgrade"
+    "apt-get update && "
+    "env DEBIAN_FRONTEND=noninteractive apt-get --assume-yes --with-new-pkgs --no-remove upgrade"
+)
+HOST_REBOOT_COMMAND = (
+    "mkdir -p /var/lib/fortress && "
+    "cat /proc/sys/kernel/random/boot_id > /var/lib/fortress/host-update-pre-reboot-boot-id && "
+    "systemctl reboot"
 )
 
 
@@ -61,6 +66,19 @@ def build_host_update_plan(repo_root: Path, host_name: str, reboot: bool = False
     )
 
 
+def build_host_reboot_plan(repo_root: Path, host_name: str) -> OperatorWorkflowPlan:
+    inventory = load_inventory_tree(repo_root)
+    if host_name not in inventory.hosts:
+        raise HostUpdatePlanError(
+            f"Host {host_name!r} is not declared at {repo_root / 'inventory' / 'hosts' / f'{host_name}.yaml'}"
+        )
+
+    return OperatorWorkflowPlan(
+        id=f"host-reboot:{host_name}",
+        steps=_host_reboot_steps(repo_root, host_name, inventory),
+    )
+
+
 def _host_reboot_steps(repo_root: Path, host_name: str, inventory) -> list[CommandPhase | ConfirmationGate]:
     try:
         impact = InventoryEntityGraph(inventory).host_update_reboot_impact(host_name)
@@ -85,7 +103,6 @@ def _host_reboot_steps(repo_root: Path, host_name: str, inventory) -> list[Comma
                     str(repo_root / "scripts" / "host-shell"),
                     host_name,
                     "--",
-                    "sudo",
                     "qm",
                     "shutdown",
                     str(vm.vmid),
@@ -105,17 +122,17 @@ def _host_reboot_steps(repo_root: Path, host_name: str, inventory) -> list[Comma
                     str(repo_root / "scripts" / "host-shell"),
                     host_name,
                     "--",
-                    "sudo",
-                    "systemctl",
-                    "reboot",
+                    "bash",
+                    "-lc",
+                    HOST_REBOOT_COMMAND,
                 ],
                 diagnostic_label=f"Host reboot command failed for Host {host_name}",
                 streaming=True,
             ),
             CommandPhase(
                 id="verify-host-reachable",
-                display_name="Verify Host reachable",
-                command=[str(repo_root / "scripts" / "host-shell"), host_name, "--", "true"],
+                display_name="Wait for Host reboot",
+                command=[str(repo_root / "scripts" / "host-wait-reboot"), host_name],
                 diagnostic_label=f"Host reachability verification failed for Host {host_name}",
                 streaming=True,
             ),
@@ -130,10 +147,9 @@ def _host_reboot_steps(repo_root: Path, host_name: str, inventory) -> list[Comma
                     str(repo_root / "scripts" / "host-shell"),
                     host_name,
                     "--",
-                    "sudo",
-                    "qm",
-                    "start",
-                    str(vm.vmid),
+                    "bash",
+                    "-lc",
+                    _start_vm_unless_running_command(vm.vmid),
                 ],
                 diagnostic_label=f"VM restoration failed for VM {vm.vm_name} on Host {host_name}",
                 streaming=True,
@@ -150,3 +166,7 @@ def _host_reboot_prompt(host_name: str, impacted_vms, resident_service_names: tu
         f"Resident Services impacted through those VMs: {service_names}\n"
         f"Type 'reboot {host_name}' to confirm the Host Update maintenance-window reboot: "
     )
+
+
+def _start_vm_unless_running_command(vmid: int) -> str:
+    return f"qm status {vmid} | grep -qx 'status: running' || qm start {vmid}"

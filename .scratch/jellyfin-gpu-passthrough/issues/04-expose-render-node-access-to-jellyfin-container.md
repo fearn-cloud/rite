@@ -1,6 +1,6 @@
 # Expose render-node access to Jellyfin container
 
-Status: ready-for-agent
+Status: done
 Type: enhancement
 
 ## What to build
@@ -21,4 +21,3 @@ This slice keeps Container Device Access as a native Quadlet Fragment concern ra
 ## Blocked by
 
 - .scratch/jellyfin-gpu-passthrough/issues/03-assign-neuromancer-igpu-to-media-vm.md
-

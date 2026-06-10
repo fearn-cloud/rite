@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+
+DEFAULT_DOWN_TIMEOUT_SECONDS = 600
+DEFAULT_UP_TIMEOUT_SECONDS = 600
+DEFAULT_INTERVAL_SECONDS = 10
+REMOTE_PRE_REBOOT_BOOT_ID_PATH = "/var/lib/fortress/vm-update-pre-reboot-boot-id"
+
+
+def main():
+    parsed = parse_args(sys.argv[1:])
+    if parsed is None:
+        print(
+            "usage: scripts/vm-wait-reboot <vm> [--down-timeout <seconds>] "
+            "[--up-timeout <seconds>] [--interval <seconds>]",
+            file=sys.stderr,
+        )
+        return 2
+    vm, down_timeout, up_timeout, interval = parsed
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+
+    previous_boot_id = read_remote_file(repo_root, vm, REMOTE_PRE_REBOOT_BOOT_ID_PATH)
+
+    print(f"Waiting for VM {vm} to go down after reboot")
+    observed_down = wait_for_reboot_start(
+        repo_root,
+        vm,
+        previous_boot_id=previous_boot_id,
+        timeout=down_timeout,
+        interval=interval,
+    )
+    if observed_down == "rebooted":
+        cleanup_previous_boot_id(repo_root, vm)
+        print(f"VM {vm} is reachable after reboot")
+        return 0
+    if observed_down != "down":
+        if previous_boot_id:
+            print(f"VM {vm} boot ID did not change within {down_timeout}s after reboot", file=sys.stderr)
+        else:
+            print(f"VM {vm} did not go down within {down_timeout}s after reboot", file=sys.stderr)
+        return 1
+
+    print(f"Waiting for VM {vm} to become reachable after reboot")
+    if not wait_for_reboot_finish(
+        repo_root,
+        vm,
+        previous_boot_id=previous_boot_id,
+        timeout=up_timeout,
+        interval=interval,
+    ):
+        print(f"VM {vm} did not become reachable within {up_timeout}s after reboot", file=sys.stderr)
+        return 1
+
+    cleanup_previous_boot_id(repo_root, vm)
+    print(f"VM {vm} is reachable after reboot")
+    return 0
+
+
+def parse_args(args):
+    if not args:
+        return None
+    vm = args[0].removeprefix("vm=")
+    if not vm or vm.startswith("-"):
+        return None
+    down_timeout = DEFAULT_DOWN_TIMEOUT_SECONDS
+    up_timeout = DEFAULT_UP_TIMEOUT_SECONDS
+    interval = DEFAULT_INTERVAL_SECONDS
+    index = 1
+    while index < len(args):
+        option = args[index]
+        if option not in {"--down-timeout", "--up-timeout", "--interval"} or index + 1 >= len(args):
+            return None
+        try:
+            value = int(args[index + 1])
+        except ValueError:
+            return None
+        if value <= 0:
+            return None
+        if option == "--down-timeout":
+            down_timeout = value
+        elif option == "--up-timeout":
+            up_timeout = value
+        else:
+            interval = value
+        index += 2
+    return vm, down_timeout, up_timeout, interval
+
+
+def wait_for_reboot_start(repo_root, vm, previous_boot_id, timeout, interval):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        boot_id = read_current_boot_id(repo_root, vm)
+        if boot_id is None:
+            return "down"
+        if previous_boot_id and boot_id != previous_boot_id:
+            return "rebooted"
+        time.sleep(interval)
+    return "timeout"
+
+
+def wait_for_reboot_finish(repo_root, vm, previous_boot_id, timeout, interval):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        boot_id = read_current_boot_id(repo_root, vm)
+        if boot_id is not None and (not previous_boot_id or boot_id != previous_boot_id):
+            return True
+        time.sleep(interval)
+    return False
+
+
+def read_current_boot_id(repo_root, vm):
+    return read_remote_file(repo_root, vm, "/proc/sys/kernel/random/boot_id")
+
+
+def read_remote_file(repo_root, vm, remote_path):
+    result = subprocess.run(
+        [str(repo_root / "scripts" / "vm-shell"), vm, "--", "sudo", "cat", remote_path],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def cleanup_previous_boot_id(repo_root, vm):
+    subprocess.run(
+        [str(repo_root / "scripts" / "vm-shell"), vm, "--", "sudo", "rm", "-f", REMOTE_PRE_REBOOT_BOOT_ID_PATH],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

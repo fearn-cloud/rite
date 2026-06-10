@@ -526,6 +526,46 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                     ],
                 )
 
+    def test_jellyfin_declares_render_node_without_replacing_runtime_user(self):
+        model = load_inventory_tree(REPO_ROOT)
+
+        rendered = render_quadlet_service(
+            model.services["jellyfin"],
+            model.vms["media-vm"],
+            inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=quadlet_runtime_intent_fixture(
+                model.services["jellyfin"],
+                model.vms["media-vm"],
+            ),
+        )
+
+        jellyfin = rendered.artifacts_by_filename["fortress-jellyfin-jellyfin.container"]
+        self.assertIn("User=1001:1001\n", jellyfin.content)
+        self.assertIn("AddDevice=/dev/dri\n", jellyfin.content)
+        self.assertIn("GroupAdd=__FORTRESS_HOST_GROUP_GID_render__\n", jellyfin.content)
+
+    def test_container_device_renders_add_device_and_host_group_marker(self):
+        service = {
+            "name": "jellyfin",
+            "backend": {"vm": "media01", "port": 8096},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "server",
+                        "image": "docker.io/jellyfin/jellyfin:10.11.8",
+                        "devices": [{"path": "/dev/dri", "host_group": "render"}],
+                    }
+                ],
+            },
+        }
+
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
+        container = rendered.artifacts_by_filename["fortress-jellyfin-server.container"]
+
+        self.assertIn("AddDevice=/dev/dri\n", container.content)
+        self.assertIn("GroupAdd=__FORTRESS_HOST_GROUP_GID_render__\n", container.content)
+
     def test_container_renders_non_secret_env_and_service_secret_file_env(self):
         service = {
             "name": "paperless",

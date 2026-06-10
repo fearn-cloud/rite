@@ -4,12 +4,15 @@ proxmox:
   # endpoint: https://neuromancer.fearn.cloud:8006
   templates:
     - debian-13-base
+  custom_roles:
+    - name: FortressTofuMapping
+      privileges: [Mapping.Audit, Mapping.Modify, Mapping.Use]
   users:
     - name: tofu@pve
-      roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin]
+      roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin, FortressTofuMapping]
       tokens:
         - id: tofu
-          roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin]
+          roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin, FortressTofuMapping]
 hardware:
   cpu: i7-8700T
   cores: 12

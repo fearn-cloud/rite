@@ -161,6 +161,12 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
     for name, value in (container.get("env") or {}).items():
         lines.append(f"Environment={name}={_quadlet_env_value(value)}")
 
+    for device in container.get("devices", []) or []:
+        lines.append(f"AddDevice={device['path']}")
+        host_group = device.get("host_group")
+        if host_group:
+            lines.append(f"GroupAdd=__FORTRESS_HOST_GROUP_GID_{host_group}__")
+
     service_secret_facts = _service_secret_facts_for_container(
         service,
         container_index,

@@ -22,7 +22,7 @@ When the Host requires a maintenance-window reboot, use the reboot path:
 just host-update <host> --reboot
 ```
 
-Before rebooting, Host Update reports `Ordinary VMs impacted on Host` and `Resident Services impacted through those VMs`. Continue only in a maintenance window. Type `reboot <host>` at the confirmation gate. The workflow gracefully shuts down the ordinary VMs it reported, reboots the selected Host, verifies Host reachability, and starts the same ordinary VMs it shut down.
+After software advancement, Host Update checks whether the Host reports `/var/run/reboot-required`, has a newest installed `/boot/vmlinuz-*` kernel that differs from the running kernel, has `needrestart` findings for a pending kernel/microcode/service restart, or has `checkrestart` findings for stale running processes. If no reboot is required, the workflow reports that and stops without interrupting VMs. If a reboot is required, Host Update reports `Ordinary VMs impacted on Host` and `Resident Services impacted through those VMs`. Continue only in a maintenance window; the reboot flag is the explicit maintenance-window approval for Host Update. The workflow gracefully shuts down the ordinary VMs it reported, reboots the selected Host, waits for reboot completion and Host reachability, and starts the same ordinary VMs it shut down.
 
 If an ordinary VM does not stop cleanly, stop and inspect before continuing. Do not force the reboot from this workflow unless the operator has made a separate recovery decision.
 

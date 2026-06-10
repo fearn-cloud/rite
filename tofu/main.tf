@@ -16,7 +16,7 @@ variable "selected_vm" {
 }
 
 locals {
-  globals = yamldecode(file("../inventory/group_vars/all.yaml"))
+  globals  = yamldecode(file("../inventory/group_vars/all.yaml"))
   vm_files = fileset("../inventory/vms", "*.yaml")
   vms = {
     for path in local.vm_files :

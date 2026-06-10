@@ -69,12 +69,15 @@ class InventorySchemaTests(unittest.TestCase):
             host_yaml.write_text(
                 "proxmox:\n"
                 "  pve_node_name: wintermute\n"
+                "  custom_roles:\n"
+                "    - name: FortressTofuMapping\n"
+                "      privileges: [Mapping.Audit, Mapping.Modify, Mapping.Use]\n"
                 "  users:\n"
                 "    - name: tofu@pve\n"
-                "      roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin]\n"
+                "      roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin, FortressTofuMapping]\n"
                 "      tokens:\n"
                 "        - id: tofu\n"
-                "          roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin]\n"
+                "          roles: [PVEVMAdmin, PVEDatastoreAdmin, PVESDNAdmin, FortressTofuMapping]\n"
                 "hardware:\n"
                 "  storage:\n"
                 "    - name: local-lvm\n"
@@ -117,6 +120,72 @@ class InventorySchemaTests(unittest.TestCase):
             result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_vm_schema_accepts_and_rejects_pci_device_assignments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            valid_vm = Path(tmp) / "valid.yaml"
+            valid_vm.write_text(
+                "vmid: 101\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "  pci_devices:\n"
+                "    - host_address: \"0000:00:02.0\"\n"
+                "      mapping_name: media-igpu\n"
+                "      pci_id: \"8086:3e92\"\n"
+                "      iommu_group: 0\n"
+                "      subsystem_id: \"1028:085a\"\n"
+                "      primary_gpu: false\n"
+                "      pcie: true\n"
+                "      rombar: true\n"
+                "cloud_init:\n"
+                "  hostname: media01\n"
+            )
+            invalid_vm = Path(tmp) / "invalid.yaml"
+            invalid_vm.write_text(
+                "vmid: 102\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "  pci_devices:\n"
+                "    - host_address: \"0000:00:02.0\"\n"
+                "      primary_gpu: nope\n"
+                "      pcie: true\n"
+                "      rombar: true\n"
+                "      extra: unsupported\n"
+                "cloud_init:\n"
+                "  hostname: media02\n"
+            )
+
+            valid = self.run_schema("inventory/vms/_schema.json", str(valid_vm))
+            invalid = self.run_schema("inventory/vms/_schema.json", str(invalid_vm))
+
+            self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
+            self.assertNotEqual(invalid.returncode, 0, invalid.stdout + invalid.stderr)
+            self.assertIn("pci_devices", invalid.stdout + invalid.stderr)
+
+    def test_media_vm_declares_neuromancer_igpu_assignment(self):
+        media_vm = REPO_ROOT / "inventory" / "vms" / "media-vm.yaml"
+        content = media_vm.read_text()
+
+        result = self.run_schema("inventory/vms/_schema.json", str(media_vm))
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("pci_devices:", content)
+        self.assertIn('host_address: "0000:00:02.0"', content)
+        self.assertIn("mapping_name: neuromancer-igpu", content)
+        self.assertIn('pci_id: "8086:3e92"', content)
+        self.assertIn("primary_gpu: false", content)
+        self.assertIn("pcie: true", content)
+        self.assertIn("rombar: true", content)
 
     def test_host_schema_accepts_proxmox_web_ui_host_ingress_route(self):
         with tempfile.TemporaryDirectory() as tmp:

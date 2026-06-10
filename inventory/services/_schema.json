@@ -36,6 +36,19 @@
         "container": { "$ref": "#/$defs/container_path" },
         "access": { "$ref": "#/$defs/access" }
       }
+    },
+    "container_device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/container_path" },
+        "host_group": {
+          "description": "Backend VM group whose numeric GID should be added to the container for this device.",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
+        }
+      }
     }
   },
   "type": "object",
@@ -183,6 +196,10 @@
                   "env": {
                     "type": "object",
                     "additionalProperties": { "type": ["string", "number", "boolean"] }
+                  },
+                  "devices": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/container_device" }
                   },
                   "secrets": {
                     "type": "array",

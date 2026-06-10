@@ -27,6 +27,11 @@
         name: vm_baseline_collectors
       tags: [vm_baseline_collectors]
 
+    - name: Configure VM PCI Device Assignment support
+      ansible.builtin.include_role:
+        name: vm_pci_device_assignment
+      tags: [vm_pci_device_assignment]
+
     - name: Finalize VM admin user
       ansible.builtin.include_role:
         name: vm_admin_user

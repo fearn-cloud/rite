@@ -84,10 +84,39 @@
         mode: "0755"
       when: fortress_service_deploy_type == "quadlet"
 
+    - name: Resolve Quadlet host group GIDs
+      ansible.builtin.command:
+        cmd: "getent group {{ item }}"
+      loop: "{{ fortress_quadlet_host_groups | default([]) }}"
+      register: fortress_quadlet_host_group_entries
+      changed_when: false
+      when:
+        - fortress_service_deploy_type == "quadlet"
+        - fortress_quadlet_host_groups | default([]) | length > 0
+
+    - name: Build Quadlet host group GID map
+      ansible.builtin.set_fact:
+        fortress_quadlet_host_group_gids: >-
+          {{
+            fortress_quadlet_host_group_gids | default({}) |
+            combine({item.item: item.stdout.split(':')[2]})
+          }}
+      loop: "{{ fortress_quadlet_host_group_entries.results | default([]) }}"
+      when:
+        - fortress_service_deploy_type == "quadlet"
+        - fortress_quadlet_host_groups | default([]) | length > 0
+
     - name: Render selected Service Quadlet artifacts
       ansible.builtin.copy:
         dest: "{{ item.path }}"
-        content: "{{ item.content }}"
+        content: |-
+          {% set rendered_quadlet = namespace(content=item.content) -%}
+          {% for host_group in fortress_quadlet_host_groups | default([]) -%}
+          {% set marker = '__FORTRESS_HOST_GROUP_GID_' ~ host_group ~ '__' -%}
+          {% set gid = fortress_quadlet_host_group_gids[host_group] -%}
+          {% set rendered_quadlet.content = rendered_quadlet.content | replace(marker, gid) -%}
+          {% endfor -%}
+          {{ rendered_quadlet.content }}
         owner: root
         group: root
         mode: "0644"

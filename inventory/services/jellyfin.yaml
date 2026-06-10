@@ -19,6 +19,9 @@ deploy:
   containers:
     - name: jellyfin
       image: docker.io/jellyfin/jellyfin:10.11.8
+      devices:
+        - path: /dev/dri
+          host_group: render
       published_ports:
         - bind: 0.0.0.0
           host: 8096

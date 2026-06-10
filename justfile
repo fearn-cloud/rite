@@ -25,8 +25,8 @@ host-up host endpoint="all" auto_confirm="false" keep_on_fail="false":
     @./scripts/host-up {{host}} endpoint={{endpoint}} auto_confirm={{auto_confirm}} keep_on_fail={{keep_on_fail}}
 
 # Apply routine in-place software maintenance to one Host.
-host-update host:
-    @./scripts/host-update {{host}}
+host-update host reboot="false":
+    @if [ "{{reboot}}" = "true" ] || [ "{{reboot}}" = "reboot=true" ] || [ "{{reboot}}" = "--reboot" ]; then ./scripts/host-update {{host}} --reboot; else ./scripts/host-update {{host}}; fi
 
 # Provision one VM through prepare, selected-VM Tofu apply, and configure.
 vm-up vm auto_confirm="false":
@@ -37,8 +37,8 @@ vm-configure vm:
     @./scripts/vm-configure {{vm}}
 
 # Apply routine in-place software maintenance to one VM.
-vm-update vm:
-    @./scripts/vm-update {{vm}}
+vm-update vm reboot="false":
+    @if [ "{{reboot}}" = "true" ] || [ "{{reboot}}" = "reboot=true" ] || [ "{{reboot}}" = "--reboot" ]; then ./scripts/vm-update {{vm}} --reboot; else ./scripts/vm-update {{vm}}; fi
 
 # Open an SSH shell to a VM.
 vm-shell vm:

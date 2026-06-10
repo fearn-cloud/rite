@@ -1,6 +1,6 @@
 # Assign neuromancer iGPU to the Media VM
 
-Status: ready-for-agent
+Status: done
 Type: enhancement
 
 ## What to build
@@ -21,4 +21,3 @@ This slice is repo-side intent only; live application, Host reboot, and playback
 
 - .scratch/jellyfin-gpu-passthrough/issues/01-converge-host-full-passthrough-readiness.md
 - .scratch/jellyfin-gpu-passthrough/issues/02-render-vm-pci-device-assignment-through-opentofu.md
-

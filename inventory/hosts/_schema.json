@@ -18,6 +18,11 @@
             "pve_node_name": { "type": "string", "minLength": 1 },
             "endpoint": { "type": "string", "minLength": 1 },
             "templates": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "custom_roles": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/pve_custom_role" },
+              "uniqueItems": true
+            },
             "users": {
               "type": "array",
               "items": { "$ref": "#/$defs/pve_user" },
@@ -109,6 +114,20 @@
               }
             }
           ]
+        }
+      }
+    },
+    "pve_custom_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "privileges"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "privileges": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
         }
       }
     },

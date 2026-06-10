@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fortress_workflows import CommandPhase, ConfirmationGate, OperatorWorkflowRunner  # noqa: E402
-from fortress_workflows.host_update import HostUpdatePlanError, build_host_update_plan  # noqa: E402
+from fortress_workflows.host_update import HostUpdatePlanError, build_host_reboot_plan, build_host_update_plan  # noqa: E402
+
+
+HOST_REBOOT_REQUIRED_COMMAND = (
+    "if test -f /var/run/reboot-required; then exit 0; fi; "
+    'running="$(uname -r)"; '
+    "latest=\"$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -printf '%f\\n' 2>/dev/null "
+    "| sed 's/^vmlinuz-//' | sort -V | tail -n 1)\"; "
+    'if test -n "$latest" && test "$latest" != "$running"; then exit 0; fi; '
+    "if command -v needrestart >/dev/null 2>&1; then "
+    'needrestart_output="$(needrestart -b -r l 2>/dev/null)"; '
+    "if printf '%s\\n' \"$needrestart_output\" | "
+    "awk -F': *' 'BEGIN { missing = 1 } /^NEEDRESTART-KSTA:/ { missing = 0; exit (($2 + 0) >= 2 ? 0 : 1) } END { if (missing) exit 1 }'; "
+    "then exit 0; fi; "
+    "if printf '%s\\n' \"$needrestart_output\" | grep -Eq '^NEEDRESTART-(SVC|BIN|UCODE):'; then exit 0; fi; "
+    "fi; "
+    "if command -v checkrestart >/dev/null 2>&1; then "
+    "checkrestart -t >/dev/null 2>&1; "
+    'checkrestart_status="$?"; '
+    'if test "$checkrestart_status" -eq 1; then exit 0; fi; '
+    'if test "$checkrestart_status" -ne 0; then exit 2; fi; '
+    "fi; "
+    "exit 1"
+)
 
 
 def main():
@@ -18,14 +42,34 @@ def main():
     host_name, reboot = parsed
     repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
     try:
-        plan = build_host_update_plan(repo_root, host_name, reboot=reboot)
+        update_plan = build_host_update_plan(repo_root, host_name)
     except HostUpdatePlanError as error:
         print(str(error), file=sys.stderr)
         return 1
 
-    result = OperatorWorkflowRunner(cwd=repo_root).run(plan)
-    render_result(plan, result, host_name)
-    return result.return_code
+    update_result = OperatorWorkflowRunner(cwd=repo_root).run(update_plan)
+    render_result(update_plan, update_result, host_name)
+    if not update_result.success or not reboot:
+        return update_result.return_code
+
+    reboot_required = host_reboot_required(repo_root, host_name)
+    if reboot_required is None:
+        print(f"Host reboot-required check failed for Host {host_name}", file=sys.stderr)
+        return 1
+    if not reboot_required:
+        print(f"Host {host_name} does not require reboot after update")
+        return 0
+
+    try:
+        reboot_plan = build_host_reboot_plan(repo_root, host_name)
+    except HostUpdatePlanError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    render_reboot_impact(reboot_plan)
+    reboot_result = OperatorWorkflowRunner(cwd=repo_root, auto_confirm=True).run(reboot_plan)
+    render_result(reboot_plan, reboot_result, host_name)
+    return reboot_result.return_code
 
 
 def parse_args(args):
@@ -55,6 +99,37 @@ def render_result(plan, result, host_name):
             suffix = f": {detail}" if detail else ""
             print(f"{step.diagnostic_label}{suffix}", file=sys.stderr)
             return
+
+
+def render_reboot_impact(plan):
+    for step in plan.steps:
+        if isinstance(step, ConfirmationGate) and step.id == "confirm-host-reboot":
+            prompt_lines = step.prompt.splitlines()
+            for line in prompt_lines:
+                if not line.startswith("Type "):
+                    print(line)
+            return
+
+
+def host_reboot_required(repo_root, host_name):
+    result = subprocess.run(
+        [
+            str(repo_root / "scripts" / "host-shell"),
+            host_name,
+            "--",
+            "bash",
+            "-lc",
+            HOST_REBOOT_REQUIRED_COMMAND,
+        ],
+        cwd=repo_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    return None
 
 
 if __name__ == "__main__":

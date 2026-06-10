@@ -1,6 +1,6 @@
 # Render VM PCI Device Assignment through OpenTofu
 
-Status: ready-for-agent
+Status: done
 Type: enhancement
 
 ## What to build
@@ -21,4 +21,3 @@ This slice should prove the Inventory-to-OpenTofu path without relying on live P
 ## Blocked by
 
 None - can start immediately
-

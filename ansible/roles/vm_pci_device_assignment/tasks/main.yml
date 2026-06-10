@@ -1,0 +1,58 @@
+- name: Install guest packages for VM PCI Device Assignment
+  ansible.builtin.apt:
+    name:
+      - linux-image-amd64
+      - intel-media-va-driver
+      - mesa-va-drivers
+      - vainfo
+    state: present
+    update_cache: true
+  when: fortress_vm.hardware.pci_devices | default([]) | length > 0
+
+- name: Prefer non-cloud Debian kernel for VM PCI Device Assignment
+  ansible.builtin.shell: |
+    set -eu
+    config=/etc/default/grub.d/fortress-vm-pci-device-assignment.cfg
+    desired_config="$(printf '%s\n%s' \
+      '# Managed by fortress for VM PCI Device Assignment.' \
+      'GRUB_DEFAULT=saved')"
+    kernel_version="$(
+      find /boot -maxdepth 1 -type f -name 'vmlinuz-*-amd64' \
+        ! -name '*cloud*' -printf '%f\n' \
+        | sed 's/^vmlinuz-//' \
+        | sort -V \
+        | tail -1
+    )"
+    if [ -z "$kernel_version" ]; then
+      echo "no non-cloud amd64 kernel found under /boot" >&2
+      exit 1
+    fi
+    advanced_id="$(grep -o "gnulinux-advanced-[^']*" /boot/grub/grub.cfg | head -1)"
+    kernel_id="$(grep -o "gnulinux-${kernel_version}-advanced-[^']*" /boot/grub/grub.cfg | head -1)"
+    if [ -z "$advanced_id" ] || [ -z "$kernel_id" ]; then
+      echo "could not resolve GRUB menu IDs for kernel ${kernel_version}" >&2
+      exit 1
+    fi
+    desired_entry="${advanced_id}>${kernel_id}"
+    current_config="$(cat "$config" 2>/dev/null || true)"
+    current_entry="$(grub-editenv /boot/grub/grubenv list 2>/dev/null | sed -n 's/^saved_entry=//p')"
+    changed=false
+    if [ "$current_config" != "$desired_config" ]; then
+      printf '%s\n' "$desired_config" > "$config"
+      update-grub >/dev/null
+      changed=true
+    fi
+    if [ "$current_entry" != "$desired_entry" ]; then
+      grub-set-default "$desired_entry"
+      changed=true
+    fi
+    if [ "$changed" = true ]; then
+      echo changed
+    else
+      echo unchanged
+    fi
+  args:
+    executable: /bin/bash
+  register: fortress_vm_pci_device_assignment_grub_default
+  changed_when: "'changed' in fortress_vm_pci_device_assignment_grub_default.stdout_lines"
+  when: fortress_vm.hardware.pci_devices | default([]) | length > 0

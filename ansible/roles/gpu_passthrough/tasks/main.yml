@@ -21,9 +21,62 @@
     - fortress_host.gpu_passthrough.enabled | default(false) | bool
     - fortress_host.gpu_passthrough.mode == "sriov"
 
-- name: Flag GPU passthrough changes as requiring operator reboot # noqa: var-naming[no-role-prefix]
-  ansible.builtin.set_fact:
-    host_configure_reboot_required: "{{ host_configure_reboot_required + ['GPU passthrough configuration may require a Host reboot'] }}"
+- name: Stage vfio modules for full GPU passthrough
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/fortress-gpu-passthrough.conf
+    content: |
+      # Managed by fortress for Host GPU passthrough.
+      vfio
+      vfio_iommu_type1
+      vfio_pci
+      vfio_virqfd
+    owner: root
+    group: root
+    mode: "0644"
+  register: gpu_passthrough_modules_load
   when:
     - fortress_host.gpu_passthrough.enabled | default(false) | bool
-    - (gpu_passthrough_modprobe.changed | default(false)) or (gpu_passthrough_sriov.changed | default(false))
+    - fortress_host.gpu_passthrough.mode == "full"
+
+- name: Stage Intel full-passthrough kernel arguments
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/fortress-gpu-passthrough.cfg
+    content: |
+      # Managed by fortress for Host GPU passthrough.
+      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT intel_iommu=on iommu=pt pcie_acs_override=downstream,multifunction"
+    owner: root
+    group: root
+    mode: "0644"
+  register: gpu_passthrough_cmdline
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - fortress_host.gpu_passthrough.mode == "full"
+    - fortress_host.gpu_passthrough.iommu == "intel"
+
+- name: Refresh initramfs after GPU passthrough module changes
+  ansible.builtin.command: update-initramfs -u -k all
+  changed_when: true
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - (gpu_passthrough_modprobe.changed | default(false)) or (gpu_passthrough_sriov.changed | default(false)) or (gpu_passthrough_modules_load.changed | default(false))
+
+- name: Refresh boot artifacts after GPU passthrough kernel argument changes
+  ansible.builtin.shell: |
+    set -euo pipefail
+    update-grub
+    if command -v proxmox-boot-tool >/dev/null 2>&1; then
+      proxmox-boot-tool refresh
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - gpu_passthrough_cmdline.changed | default(false)
+
+- name: Flag GPU passthrough changes as requiring operator reboot # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    host_configure_reboot_required: "{{ host_configure_reboot_required + ['Host reboot required for GPU passthrough readiness; no reboot was performed'] }}"
+  when:
+    - fortress_host.gpu_passthrough.enabled | default(false) | bool
+    - (gpu_passthrough_modprobe.changed | default(false)) or (gpu_passthrough_sriov.changed | default(false)) or (gpu_passthrough_modules_load.changed | default(false)) or (gpu_passthrough_cmdline.changed | default(false))

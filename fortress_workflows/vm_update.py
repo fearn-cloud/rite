@@ -10,6 +10,13 @@ from fortress_workflows.runner import CommandPhase, ConfirmationGate, OperatorWo
 from fortress_workflows.service_update import service_units_active_check_command, service_update_units
 
 
+VM_REBOOT_COMMAND = (
+    "sudo mkdir -p /var/lib/fortress && "
+    "cat /proc/sys/kernel/random/boot_id | sudo tee /var/lib/fortress/vm-update-pre-reboot-boot-id >/dev/null && "
+    "sudo systemctl reboot"
+)
+
+
 def build_vm_update_plan(repo_root: Path, vm: str, reboot: bool = False) -> OperatorWorkflowPlan:
     model = load_inventory_tree(repo_root)
     if vm not in model.vms:
@@ -110,14 +117,14 @@ def _vm_reboot_steps(repo_root, vm, services, resident_service_names, runtime_in
             CommandPhase(
                 id="reboot-vm",
                 display_name="Reboot VM",
-                command=[str(repo_root / "scripts" / "vm-shell"), vm, "--", "sudo", "systemctl", "reboot"],
+                command=[str(repo_root / "scripts" / "vm-shell"), vm, "--", "bash", "-lc", VM_REBOOT_COMMAND],
                 diagnostic_label=f"VM reboot failed for VM {vm}",
                 streaming=True,
             ),
             CommandPhase(
                 id="verify-vm-reachable",
-                display_name="Verify VM reachable",
-                command=[str(repo_root / "scripts" / "vm-shell"), vm, "--", "true"],
+                display_name="Wait for VM reboot",
+                command=[str(repo_root / "scripts" / "vm-wait-reboot"), vm],
                 diagnostic_label=f"VM reachability check failed for VM {vm} after reboot",
                 streaming=True,
             ),

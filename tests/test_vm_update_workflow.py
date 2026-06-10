@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from fortress_workflows import CommandPhase, ConfirmationGate
-from fortress_workflows.vm_update import build_vm_update_plan
+from fortress_workflows.vm_update import VM_REBOOT_COMMAND, build_vm_update_plan
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -91,10 +91,10 @@ class VMUpdateWorkflowTests(unittest.TestCase):
                 list(verify_jellyfin.command),
             )
             self.assertEqual(
-                [str(root / "scripts" / "vm-shell"), "media01", "--", "sudo", "systemctl", "reboot"],
+                [str(root / "scripts" / "vm-shell"), "media01", "--", "bash", "-lc", VM_REBOOT_COMMAND],
                 list(plan.steps[7].command),
             )
-            self.assertEqual([str(root / "scripts" / "vm-shell"), "media01", "--", "true"], list(plan.steps[8].command))
+            self.assertEqual([str(root / "scripts" / "vm-wait-reboot"), "media01"], list(plan.steps[8].command))
             self.assertEqual(
                 [
                     str(root / "scripts" / "vm-shell"),
@@ -217,8 +217,8 @@ class VMUpdateWorkflowTests(unittest.TestCase):
                     "vm-shell media01 -- sudo systemctl stop fortress-jellyfin-web.service",
                     "vm-shell media01 -- sh -lc "
                     'for unit in fortress-jellyfin-web.service; do sudo systemctl is-active --quiet "$unit" && exit 1 || true; done',
-                    "vm-shell media01 -- sudo systemctl reboot",
-                    "vm-shell media01 -- true",
+                    f"vm-shell media01 -- bash -lc {VM_REBOOT_COMMAND}",
+                    "vm-wait-reboot media01",
                     "vm-shell media01 -- sudo systemctl start fortress-jellyfin-web.service",
                     "vm-shell media01 -- sh -lc "
                     'for unit in fortress-jellyfin-web.service; do sudo systemctl is-active --quiet "$unit" || exit $?; done',
@@ -247,8 +247,8 @@ class VMUpdateWorkflowTests(unittest.TestCase):
                     "vm-shell media01 -- sudo systemctl stop fortress-jellyfin-web.service",
                     "vm-shell media01 -- sh -lc "
                     'for unit in fortress-jellyfin-web.service; do sudo systemctl is-active --quiet "$unit" && exit 1 || true; done',
-                    "vm-shell media01 -- sudo systemctl reboot",
-                    "vm-shell media01 -- true",
+                    f"vm-shell media01 -- bash -lc {VM_REBOOT_COMMAND}",
+                    "vm-wait-reboot media01",
                 ],
             ),
         }
@@ -272,6 +272,88 @@ class VMUpdateWorkflowTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 42)
                 self.assertIn(message, result.stderr)
                 self.assertEqual(expected_calls, calls_log.read_text().splitlines())
+
+    def test_vm_wait_reboot_accepts_changed_boot_id_without_observed_outage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir()
+            calls_log = root / "calls.log"
+            vm_shell = scripts_dir / "vm-shell"
+            vm_shell.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
+                "if [[ \"$*\" == \"media01 -- sudo cat /var/lib/fortress/vm-update-pre-reboot-boot-id\" ]]; then echo boot-before; exit 0; fi\n"
+                "if [[ \"$*\" == \"media01 -- sudo cat /proc/sys/kernel/random/boot_id\" ]]; then echo boot-after; exit 0; fi\n"
+                "if [[ \"$*\" == \"media01 -- sudo rm -f /var/lib/fortress/vm-update-pre-reboot-boot-id\" ]]; then exit 0; fi\n"
+                "exit 1\n"
+            )
+            vm_shell.chmod(vm_shell.stat().st_mode | stat.S_IXUSR)
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "vm-wait-reboot"),
+                    "media01",
+                    "--down-timeout",
+                    "1",
+                    "--interval",
+                    "1",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Waiting for VM media01 to go down after reboot", result.stdout)
+            self.assertIn("VM media01 is reachable after reboot", result.stdout)
+            self.assertEqual(
+                [
+                    "media01 -- sudo cat /var/lib/fortress/vm-update-pre-reboot-boot-id",
+                    "media01 -- sudo cat /proc/sys/kernel/random/boot_id",
+                    "media01 -- sudo rm -f /var/lib/fortress/vm-update-pre-reboot-boot-id",
+                ],
+                calls_log.read_text().splitlines(),
+            )
+
+    def test_vm_wait_reboot_reports_unchanged_boot_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir()
+            calls_log = root / "calls.log"
+            vm_shell = scripts_dir / "vm-shell"
+            vm_shell.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$*\" >> \"$CALLS_LOG\"\n"
+                "if [[ \"$*\" == \"media01 -- sudo cat /var/lib/fortress/vm-update-pre-reboot-boot-id\" ]]; then echo boot-before; exit 0; fi\n"
+                "if [[ \"$*\" == \"media01 -- sudo cat /proc/sys/kernel/random/boot_id\" ]]; then echo boot-before; exit 0; fi\n"
+                "exit 1\n"
+            )
+            vm_shell.chmod(vm_shell.stat().st_mode | stat.S_IXUSR)
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [
+                    str(REPO_ROOT / "scripts" / "vm-wait-reboot"),
+                    "media01",
+                    "--down-timeout",
+                    "1",
+                    "--interval",
+                    "1",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("VM media01 boot ID did not change within 1s after reboot", result.stderr)
 
     def test_vm_update_does_not_rebuild_or_mutate_template_clone_sources(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -328,8 +410,10 @@ class VMUpdateWorkflowTests(unittest.TestCase):
     def test_just_vm_update_calls_workflow_script(self):
         justfile = (REPO_ROOT / "justfile").read_text()
 
-        self.assertIn("vm-update vm:", justfile)
+        self.assertIn('vm-update vm reboot="false":', justfile)
         self.assertIn("./scripts/vm-update {{vm}}", justfile)
+        self.assertIn("./scripts/vm-update {{vm}} --reboot", justfile)
+        self.assertIn('"{{reboot}}" = "--reboot"', justfile)
 
     def test_routine_software_advancement_uses_tmpfs_key_wrapper_for_ansible_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -423,7 +507,7 @@ class VMUpdateWorkflowTests(unittest.TestCase):
         (root / "inventory" / "vms" / "media01.sops.yaml").write_text("encrypted: value\n")
         (root / "inventory" / "fortress.yaml").write_text("plugin: fortress\nroot: ..\n")
         calls_log = root / "calls.log"
-        for name in ["vm-configure", "vm-routine-software-advance", "vm-shell"]:
+        for name in ["vm-configure", "vm-routine-software-advance", "vm-shell", "vm-wait-reboot"]:
             script = root / "scripts" / name
             script.write_text(
                 "#!/usr/bin/env bash\n"
@@ -433,7 +517,7 @@ class VMUpdateWorkflowTests(unittest.TestCase):
                 "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" systemctl stop \"* ]]; then phase=\"stop-service\"; fi\n"
                 "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" is-active --quiet \"* && \" $* \" == *\" && exit 1 \"* ]]; then phase=\"verify-service-stopped\"; fi\n"
                 "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" systemctl reboot \"* ]]; then phase=\"reboot-vm\"; fi\n"
-                "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" -- true \"* ]]; then phase=\"verify-vm-reachable\"; fi\n"
+                "if [ \"$name\" = vm-wait-reboot ]; then phase=\"verify-vm-reachable\"; fi\n"
                 "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" systemctl start \"* ]]; then phase=\"restore-service\"; fi\n"
                 "if [ \"$name\" = vm-shell ] && [[ \" $* \" == *\" is-active --quiet \"* && \" $* \" == *\" || exit $? \"* ]]; then phase=\"verify-service-active\"; fi\n"
                 "if [ \"$FORTRESS_FAIL_PHASE\" = \"$name\" ] || [ \"$FORTRESS_FAIL_PHASE\" = \"$phase\" ]; then exit 42; fi\n"

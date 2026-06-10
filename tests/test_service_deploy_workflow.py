@@ -1035,6 +1035,27 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                     deploy_vars["fortress_service_data_files"],
                 )
 
+    def test_service_deploy_exposes_quadlet_host_groups_for_device_access(self):
+        model = load_inventory_tree(REPO_ROOT)
+        service = model.services["jellyfin"]
+        vm = model.vms["media-vm"]
+
+        deploy_vars = quadlet_deploy_vars(
+            service,
+            vm,
+            inventory_root=REPO_ROOT / "inventory",
+            model=model,
+        )
+        jellyfin_artifact = next(
+            artifact
+            for artifact in deploy_vars["fortress_quadlet_artifacts"]
+            if artifact["filename"] == "fortress-jellyfin-jellyfin.container"
+        )
+
+        self.assertEqual(["render"], deploy_vars["fortress_quadlet_host_groups"])
+        self.assertIn("AddDevice=/dev/dri\n", jellyfin_artifact["content"])
+        self.assertIn("GroupAdd=__FORTRESS_HOST_GROUP_GID_render__\n", jellyfin_artifact["content"])
+
     def test_internal_ingress_service_deploy_scaffolding_imports_generated_routes(self):
         caddyfile = (REPO_ROOT / "inventory" / "services" / "internal-ingress.native.d" / "Caddyfile.j2").read_text()
 

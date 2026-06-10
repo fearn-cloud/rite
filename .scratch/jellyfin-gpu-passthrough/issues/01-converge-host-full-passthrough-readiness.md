@@ -1,6 +1,6 @@
 # Converge Host full-passthrough readiness
 
-Status: ready-for-agent
+Status: done
 Type: enhancement
 
 ## What to build
@@ -22,4 +22,3 @@ This slice closes the gap between documented Rite behavior and the current parti
 ## Blocked by
 
 None - can start immediately
-

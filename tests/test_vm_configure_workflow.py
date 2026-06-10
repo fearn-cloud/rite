@@ -158,6 +158,29 @@ class VMConfigureWorkflowTests(unittest.TestCase):
             playbook.index("name: vm_admin_user"),
         )
 
+    def test_vm_configure_playbook_installs_guest_support_for_pci_device_assignment(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
+        role = (REPO_ROOT / "ansible" / "roles" / "vm_pci_device_assignment" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("name: vm_pci_device_assignment", playbook)
+        self.assertLess(
+            playbook.index("name: vm_pci_device_assignment"),
+            playbook.index("name: vm_admin_user"),
+        )
+        self.assertIn("fortress_vm.hardware.pci_devices", role)
+        self.assertIn("linux-image-amd64", role)
+        self.assertIn("intel-media-va-driver", role)
+        self.assertIn("mesa-va-drivers", role)
+        self.assertIn("vainfo", role)
+        self.assertIn("fortress-vm-pci-device-assignment.cfg", role)
+        self.assertIn("GRUB_DEFAULT=", role)
+        self.assertIn("GRUB_DEFAULT=saved", role)
+        self.assertIn("grub-editenv /boot/grub/grubenv list", role)
+        self.assertIn('grub-set-default "$desired_entry"', role)
+        self.assertNotIn("GRUB_DEFAULT='${advanced_id}>${kernel_id}'", role)
+        self.assertIn("update-grub", role)
+        self.assertIn("stdout_lines", role)
+
     def test_vm_admin_user_role_uses_only_builtin_modules_for_configure(self):
         role = (REPO_ROOT / "ansible" / "roles" / "vm_admin_user" / "tasks" / "main.yml").read_text()
 

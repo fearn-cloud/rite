@@ -47,7 +47,41 @@
             }
           }
         },
-        "pci_devices": { "type": "array", "items": { "type": "object" } }
+        "pci_devices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["host_address", "primary_gpu", "pcie", "rombar"],
+            "properties": {
+              "host_address": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\\.[0-7]$"
+              },
+              "mapping_name": { "type": "string", "minLength": 1 },
+              "pci_id": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$"
+              },
+              "iommu_group": { "type": "integer", "minimum": 0 },
+              "subsystem_id": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}$"
+              },
+              "mapping_comment": { "type": "string", "minLength": 1 },
+              "mediated_devices": { "type": "boolean" },
+              "primary_gpu": { "type": "boolean" },
+              "pcie": { "type": "boolean" },
+              "rombar": { "type": "boolean" }
+            },
+            "allOf": [
+              {
+                "if": { "required": ["mapping_name"] },
+                "then": { "required": ["pci_id"] }
+              }
+            ]
+          }
+        }
       }
     },
     "network": {

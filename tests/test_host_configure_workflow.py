@@ -153,9 +153,27 @@ class HostConfigureWorkflowTests(unittest.TestCase):
         self.assertIn("pvesm set local --content", tasks)
         self.assertIn(",snippets,", tasks)
 
+    def test_gpu_passthrough_full_intel_readiness_is_staged_without_auto_reboot(self):
+        tasks = (REPO_ROOT / "ansible" / "roles" / "gpu_passthrough" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("intel_iommu=on iommu=pt pcie_acs_override=downstream,multifunction", tasks)
+        self.assertIn("mode == \"full\"", tasks)
+        self.assertIn("/etc/modules-load.d/fortress-gpu-passthrough.conf", tasks)
+        self.assertIn("update-initramfs -u -k all", tasks)
+        self.assertIn("proxmox-boot-tool refresh", tasks)
+        self.assertIn("Host reboot required for GPU passthrough readiness", tasks)
+        self.assertNotIn("ansible.builtin.reboot", tasks)
+        self.assertIn("vfio", tasks)
+        self.assertIn("vfio_iommu_type1", tasks)
+        self.assertIn("vfio_pci", tasks)
+        self.assertIn("vfio_virqfd", tasks)
+
     def test_proxmox_users_applies_acl_roles_to_token_principals(self):
         tasks = (REPO_ROOT / "ansible" / "roles" / "proxmox_users" / "tasks" / "main.yml").read_text()
 
+        self.assertIn("proxmox_custom_roles_declared", tasks)
+        self.assertIn("pveum role add {{ item.name }} --privs {{ item.privileges | join(',') }}", tasks)
+        self.assertIn("pveum role modify {{ item.name }} --privs {{ item.privileges | join(',') }}", tasks)
         self.assertIn("subelements('tokens', skip_missing=True)", tasks)
         self.assertIn("pveum acl modify / --tokens {{ item.0.name }}!{{ item.1.id }} --roles {{ item.1.roles | join(',') }}", tasks)
         self.assertIn("changed_when: false", tasks)

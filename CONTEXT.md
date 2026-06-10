@@ -190,6 +190,10 @@ _Avoid_: public app subnet, external ingress.
 The implementation-facing source of truth for VLAN layout, service placement intent, and inter-VLAN access expectations.
 _Avoid_: router config, firewall export.
 
+**DNS Filtering Exception**:
+A client-specific policy that preserves fortress DNS resolution while exempting the client from Pi-hole blocking behavior. It does not assign addresses, change VLAN membership, change trust level, or grant direct Service access.
+_Avoid_: Known device, trusted device, DNS whitelist.
+
 ### Operator and ceremony
 
 **Operator**:
@@ -601,6 +605,11 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The primary **DNS VM** is `dns-primary-vm` at `10.40.0.11/24` on the `straylight` Host.
 - The secondary **DNS VM** is `dns-secondary-vm` at `10.40.0.18/24` on the `molly` Host.
 - Primary and secondary **DNS VMs** are functionally identical peers.
+- **DNS Filtering Exceptions** are declared once at fleet level.
+- A **DNS Filtering Exception** is identified by a fixed IPv4 address assigned outside Rite.
+- Rite does not validate **DNS Filtering Exception** addresses against router VLANs or create DHCP reservations.
+- **DNS Filtering Exceptions** are projected into a fixed fortress-managed Pi-hole group on every Pi-hole-backed DNS **Service**.
+- The **DNS Filtering Exception** workflow is authoritative only for the fortress-managed Pi-hole group and its declared client assignments.
 - The **Forgejo VM** is `forgejo-vm` at `10.40.0.12/24` on the `straylight` Host.
 - **Forgejo Runner VMs** must not be co-located on the **Forgejo VM**.
 - The **Observability VM** is `observability-vm` at `10.40.0.17/24` on the `straylight` Host.

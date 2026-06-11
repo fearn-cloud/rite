@@ -1,0 +1,4 @@
+exceptions:
+  - name: xbox
+    ipv4_address: 10.25.0.21
+    reason: Microsoft/Xbox services need unfiltered DNS.

@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_dns_filtering_exceptions.plan import build_plan, render_peer_apply_script, render_plan
+from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.validate import validate_inventory_model
+
+
+def main():
+    if sys.argv[1:] not in ([], ["--print"]):
+        print("usage: scripts/dns-filtering-exceptions-apply [--print]", file=sys.stderr)
+        return 2
+
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    model = load_inventory_tree(repo_root)
+    errors = validate_inventory_model(model)
+    if errors:
+        for error in errors:
+            print(f"{error.code}: {error.path}: {error.message}", file=sys.stderr)
+        return 1
+
+    plan = build_plan(model)
+    if sys.argv[1:] == ["--print"]:
+        print(render_plan(plan), end="")
+        return 0
+
+    return apply_plan(repo_root, plan)
+
+
+def apply_plan(repo_root, plan):
+    print("Applying DNS Filtering Exceptions from Inventory...", flush=True)
+    failures = []
+    for target in plan["targets"]:
+        service_name = target["service"]
+        vm = target["backend_vm"]
+        description = f"apply DNS Filtering Exceptions for {service_name} on {vm}"
+        print(f"running: {description}", flush=True)
+        result = subprocess.run(
+            [str(repo_root / "scripts" / "vm-shell"), vm, "--", "bash", "-s"],
+            input=render_peer_apply_script(plan, target),
+            text=True,
+        )
+        if result.returncode == 0:
+            print(f"ok: {description}", flush=True)
+        else:
+            failures.append(target)
+            print(f"failed: {description}", file=sys.stderr, flush=True)
+    if failures:
+        failed = ", ".join(f"{target['service']} on {target['backend_vm']}" for target in failures)
+        print(f"DNS Filtering Exceptions failed for: {failed}", file=sys.stderr, flush=True)
+        return 1
+    print("DNS Filtering Exceptions applied.", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

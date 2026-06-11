@@ -161,6 +161,61 @@ Pi-hole API, or another local dnsmasq file are outside fortress ownership and
 must not be placed in 99-fortress-ingress.conf, because Ingress Regeneration may
 replace that file at any time.
 
+## DNS Filtering Exceptions
+
+DNS Filtering Exceptions are declared once at fleet level in
+`inventory/dns-filtering-exceptions.yaml`. Each entry names one fixed IPv4
+client that should keep fortress DNS resolution while bypassing Pi-hole blocking
+behavior:
+
+```yaml
+exceptions:
+  - name: living-room-xbox
+    ipv4_address: 10.25.0.50
+    reason: vendor services break under Pi-hole blocking
+```
+
+Print the non-mutating plan before applying live state:
+
+```bash
+scripts/dns-filtering-exceptions-apply --print
+```
+
+Apply the declaration to every Pi-hole-backed DNS Service:
+
+```bash
+just dns-filtering-exceptions-apply
+```
+
+Missing or empty DNS Filtering Exceptions inventory means zero declared exceptions.
+The apply workflow still converges the fortress-managed Pi-hole group in that
+state. To remove the last exception by leaving `exceptions: []` or deleting
+`inventory/dns-filtering-exceptions.yaml`, apply the workflow again; absence is
+also valid because it means an empty declaration.
+
+Fixed IPv4 assignment is handled outside Rite. Rite does not validate router VLAN membership,
+does not create DHCP reservations, does not change client trust level, and does
+not grant direct Service access. The workflow owns only the fortress-managed
+Pi-hole group, the declared client assignments in that group, and the absence of
+Pi-hole adlist/domain-list assignments on that group. It does not own manual
+Pi-hole groups, domain allowlists, blocklists, or adlists outside the managed
+exception group.
+
+The live workflow reaches each DNS VM directly with `vm-shell`, not through
+Ingress. On `dns-primary-vm` and `dns-secondary-vm`, it updates
+`/etc/pihole/gravity.db` with `pihole-FTL sqlite3 /etc/pihole/gravity.db`, then
+refreshes Pi-hole with `pihole reloadlists`. It does not perform a
+full Pi-hole systemd or container restart for ordinary group assignment changes.
+
+Lightweight verification for both DNS peers:
+
+```bash
+scripts/dns-filtering-exceptions-apply --print
+just dns-filtering-exceptions-apply
+scripts/vm-shell dns-primary-vm -- sudo podman exec fortress-dns-primary-pihole pihole-FTL sqlite3 -readonly /etc/pihole/gravity.db "select name from \"group\" where name = 'fortress-dns-filtering-exceptions';"
+scripts/vm-shell dns-secondary-vm -- sudo podman exec fortress-dns-secondary-pihole pihole-FTL sqlite3 -readonly /etc/pihole/gravity.db "select name from \"group\" where name = 'fortress-dns-filtering-exceptions';"
+```
+
 The firewall model comes from `docs/firewall-matrix.md`:
 
 - `DNS-001-ALLOW-INTERNAL-RESOLUTION`: Trusted, Known, IoT, Apps,

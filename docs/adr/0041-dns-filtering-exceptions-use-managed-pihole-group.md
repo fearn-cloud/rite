@@ -1,0 +1,3 @@
+# DNS Filtering Exceptions use a fortress-managed Pi-hole group
+
+DNS Filtering Exceptions are declared once at fleet level and applied to every Pi-hole-backed DNS Service by reconciling a fixed fortress-managed Pi-hole group. The workflow owns that group, its declared client IPv4 assignments, and the absence of Pi-hole adlist/domain-list assignments on the managed exception group, leaving router DHCP reservations, VLAN membership, firewall policy, Pi-hole domain allowlists, blocklists, adlists, and manually managed Pi-hole groups outside Rite's ownership. This avoids brittle Xbox/vendor domain allowlists and keeps primary and secondary DNS peers converged without relying on manual Pi-hole UI changes or direct database edits.

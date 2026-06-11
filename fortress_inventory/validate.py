@@ -8,6 +8,7 @@ from .validation.datasets import (
     validate_dataset_names,
     validate_dataset_nas_refs,
 )
+from .validation.dns_filtering_exceptions import validate_dns_filtering_exceptions
 from .validation.errors import ValidationError
 from .validation.hosts import (
     validate_host_ingress_routes,
@@ -56,6 +57,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(validate_vm_refs(model))
     errors.extend(validate_vm_launchable_service_groups(model))
     errors.extend(validate_backup_policies(model))
+    errors.extend(validate_dns_filtering_exceptions(model))
     errors.extend(validate_pbs_substrate(model))
     errors.extend(validate_dataset_names(model))
     errors.extend(validate_dataset_nas_refs(model))

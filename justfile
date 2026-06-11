@@ -68,6 +68,10 @@ service-update service auto_confirm="false":
 instrumentation-converge:
     @./scripts/instrumentation-converge
 
+# Apply declared DNS Filtering Exceptions across Pi-hole-backed DNS Services.
+dns-filtering-exceptions-apply:
+    @./scripts/dns-filtering-exceptions-apply
+
 # Plan host-scoped Backup Job reconciliation; use host=all for fleet iteration.
 backup-configure-plan host observed_jobs_json="" output="text":
     @if [ "{{observed_jobs_json}}" = "" ]; then ./scripts/backup-configure-plan {{host}} --output {{output}}; else ./scripts/backup-configure-plan {{host}} --observed-jobs-json {{observed_jobs_json}} --output {{output}}; fi

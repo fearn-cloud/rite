@@ -9,7 +9,7 @@ hardware:
   memory: 8192
   disks:
     - storage: local-lvm
-      size: 32G
+      size: 256G
   pci_devices:
     - host_address: "0000:00:02.0"
       mapping_name: neuromancer-igpu

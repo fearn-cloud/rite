@@ -1,6 +1,6 @@
 # Plan DNS Filtering Exceptions across Pi-hole DNS Services
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## What to build
 
@@ -18,3 +18,7 @@ Add a non-mutating plan for applying DNS Filtering Exceptions across every Pi-ho
 ## Blocked by
 
 - .scratch/dns-filtering-exceptions/issues/01-declare-fleet-level-dns-filtering-exceptions.md
+
+## Comments
+
+- Implemented via TDD. Added a pure DNS Filtering Exceptions plan with fixed fortress-managed group name, deterministic Pi-hole-backed DNS Service targets, zero-client handling for missing/empty declarations, and stable `scripts/dns-filtering-exceptions-apply --print` output that does not call `vm-shell`.

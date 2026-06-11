@@ -1,6 +1,6 @@
 # Apply DNS Filtering Exceptions to Pi-hole peers
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## What to build
 
@@ -21,3 +21,7 @@ Implement the operator workflow that reconciles DNS Filtering Exceptions into li
 ## Blocked by
 
 - .scratch/dns-filtering-exceptions/issues/02-plan-dns-filtering-exceptions-across-pihole-dns-services.md
+
+## Comments
+
+- Implemented via TDD. `scripts/dns-filtering-exceptions-apply` validates Inventory, uses `vm-shell` for each Pi-hole-backed DNS VM, ensures the managed group exists, authoritatively reconciles only that group's client assignments, refreshes with Pi-hole CLI instead of full service restart, reports failed peers, and leaves successful peers converged.

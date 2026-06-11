@@ -44,6 +44,98 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             model.backup_policies["default"],
         )
 
+    def test_inventory_model_loads_missing_dns_filtering_exceptions_as_empty(self):
+        model = load_inventory_tree(FIXTURES / "inventory_valid")
+
+        self.assertEqual([], model.dns_filtering_exceptions)
+
+    def test_inventory_model_loads_dns_filtering_exceptions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text(
+                "exceptions:\n"
+                "  - name: living-room-xbox\n"
+                "    ipv4_address: 10.25.0.50\n"
+                "    reason: vendor services break under Pi-hole blocking\n"
+                "  - name: handheld-console\n"
+                "    ipv4_address: 10.25.0.51\n"
+            )
+
+            model = load_inventory_tree(root)
+
+            self.assertEqual(
+                [
+                    {
+                        "name": "living-room-xbox",
+                        "ipv4_address": "10.25.0.50",
+                        "reason": "vendor services break under Pi-hole blocking",
+                    },
+                    {"name": "handheld-console", "ipv4_address": "10.25.0.51"},
+                ],
+                model.dns_filtering_exceptions,
+            )
+
+    def test_empty_dns_filtering_exceptions_are_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text("exceptions: []\n")
+
+            self.assertNotIn("malformed_dns_filtering_exception", {error.code for error in validate_inventory_tree(root)})
+
+    def test_dns_filtering_exception_requires_valid_ipv4_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text(
+                "exceptions:\n"
+                "  - name: living-room-xbox\n"
+                "    ipv4_address: 999.25.0.50\n"
+            )
+
+            self.assertIn("invalid_dns_filtering_exception_ipv4_address", {error.code for error in validate_inventory_tree(root)})
+
+    def test_dns_filtering_exception_requires_name_and_ipv4_address(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text(
+                "exceptions:\n"
+                "  - ipv4_address: 10.25.0.50\n"
+                "  - name: handheld-console\n"
+            )
+
+            self.assertIn("malformed_dns_filtering_exception", {error.code for error in validate_inventory_tree(root)})
+
+    def test_dns_filtering_exception_names_must_be_unique(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text(
+                "exceptions:\n"
+                "  - name: living-room-xbox\n"
+                "    ipv4_address: 10.25.0.50\n"
+                "  - name: living-room-xbox\n"
+                "    ipv4_address: 10.25.0.51\n"
+            )
+
+            self.assertIn("duplicate_dns_filtering_exception_name", {error.code for error in validate_inventory_tree(root)})
+
+    def test_dns_filtering_exception_ipv4_addresses_must_be_unique(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "dns-filtering-exceptions.yaml").write_text(
+                "exceptions:\n"
+                "  - name: living-room-xbox\n"
+                "    ipv4_address: 10.25.0.50\n"
+                "  - name: handheld-console\n"
+                "    ipv4_address: 10.25.0.50\n"
+            )
+
+            self.assertIn("duplicate_dns_filtering_exception_ipv4_address", {error.code for error in validate_inventory_tree(root)})
+
     def test_backup_policy_file_is_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

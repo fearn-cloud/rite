@@ -1,6 +1,6 @@
 # Document and prove DNS Filtering Exceptions workflow
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## What to build
 
@@ -18,3 +18,7 @@ Document the DNS Filtering Exceptions operator workflow and add lightweight proo
 ## Blocked by
 
 - .scratch/dns-filtering-exceptions/issues/03-apply-dns-filtering-exceptions-to-pihole-peers.md
+
+## Comments
+
+- Implemented via TDD. `runbooks/dns-architecture.md` now documents declaring, printing, applying, removing the final exception, managed group boundaries, out-of-scope router/DHCP/VLAN/firewall state, and lightweight verification across both DNS peers. Tests pin the runbook and command surface.

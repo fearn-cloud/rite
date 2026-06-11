@@ -1,6 +1,6 @@
 # Declare fleet-level DNS Filtering Exceptions
 
-Status: ready-for-agent
+Status: ready-for-human
 
 ## What to build
 
@@ -17,3 +17,7 @@ Add a fleet-level Inventory contract for DNS Filtering Exceptions. The completed
 ## Blocked by
 
 None - can start immediately
+
+## Comments
+
+- Implemented via TDD. `load_inventory_tree` now treats missing `inventory/dns-filtering-exceptions.yaml` as an empty declaration, loads declared exceptions, and validates required fields, IPv4 shape, duplicate names, and duplicate IPv4 addresses without router/DHCP/VLAN/firewall inference.

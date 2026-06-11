@@ -19,6 +19,7 @@ class InventoryModel:
     globals: dict
     backup_policy_file_exists: bool = False
     backup_policies: dict = field(default_factory=dict)
+    dns_filtering_exceptions: list = field(default_factory=list)
 
 
 def load_inventory_tree(root):
@@ -36,6 +37,10 @@ def load_inventory_tree(root):
         template_verification_policy=_load_optional_yaml(inventory_root / "template-verification-policy.yaml"),
         backup_policy_file_exists=(inventory_root / "backup-policies.yaml").is_file(),
         backup_policies=_load_optional_yaml(inventory_root / "backup-policies.yaml").get("policies", {}),
+        dns_filtering_exceptions=_load_optional_yaml(inventory_root / "dns-filtering-exceptions.yaml").get(
+            "exceptions",
+            [],
+        ),
         acceptance_policies=_load_entity_dir(inventory_root / "acceptance"),
         globals=_load_optional_yaml(inventory_root / "group_vars" / "all.yaml"),
     )

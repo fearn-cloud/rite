@@ -1,0 +1,43 @@
+name: searxng
+hostname: search.fearn.cloud
+service_group: search
+service_network: search
+service_data_owner:
+  uid: 1000
+  gid: 1000
+backend:
+  vm: search-vm
+  port: 8080
+ingress:
+  enabled: true
+  exposure: lan_only
+  tls: letsencrypt_dns
+  auth:
+    type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: searxng
+      image: ghcr.io/searxng/searxng:2026.6.11-4dd0bf486
+      depends_on: [valkey]
+      published_ports:
+        - bind: 0.0.0.0
+          host: 8080
+          container: 8080
+          ingress: true
+      env:
+        SEARXNG_BASE_URL: https://search.fearn.cloud/
+        SEARXNG_LIMITER: true
+      volumes:
+        - service_path: config
+          container: /etc/searxng
+          access: read_write
+        - service_path: cache
+          container: /var/cache/searxng
+          access: read_write
+    - name: valkey
+      image: docker.io/valkey/valkey:9-alpine
+      volumes:
+        - service_path: valkey
+          container: /data
+          access: read_write

@@ -60,6 +60,7 @@ Forgejo runners must not run on `forgejo-vm`. Add a separate runner VM when runn
 | `media-vm` | `10.50.0.13` | `neuromancer` | Jellyfin, Seerr, Sonarr, Sonarr Anime, Radarr, Radarr Anime, Prowlarr, Bazarr, Clonarr | NFS `tank/media` |
 | `download-vm` | `10.50.0.14` | `neuromancer` | qBittorrent, SABnzbd | NFS `tank/media` |
 | `file-browser-vm` | `10.50.0.15` | `neuromancer` | File Browser | NFS `tank/personal-media` |
+| `search-vm` | `10.50.0.16` | `neuromancer` | SearXNG | VM-local |
 
 `media-vm` and `download-vm` both mount `tank/media` read-write at the VM level. Individual Services narrow visible paths and read/write exposure through Share-backed Volume subpaths. Jellyfin uses read-only library subpaths. Seerr does not consume the media Dataset unless a later explicit requirement appears.
 
@@ -151,6 +152,9 @@ No public `Internet -> headscale-vm` rule exists in this baseline.
 | `APP-006-DENY-VAULTWARDEN-BYPASS` | Known, IoT, Guest, DMZ | `vaultwarden-vm` backend | Any | Any | Yes | Deny emergency bypass path to non-admin networks |
 | `APP-007-ALLOW-TRUSTED-FILE-BROWSER` | Trusted | `internal-ingress-vm`, `file-browser-vm` | TCP | 443, File Browser backend port | Yes | Trusted-only personal files access and recovery |
 | `APP-008-DENY-FILE-BROWSER-BYPASS` | Known, IoT, Guest, DMZ | `file-browser-vm` backend | Any | Any | Yes | Deny personal files backend to non-admin networks |
+| `APP-009-ALLOW-SEARXNG-OUTBOUND` | `search-vm` | Internet | TCP | 80, 443 | Yes | SearXNG fetches upstream search results and assets |
+| `APP-010-ALLOW-TRUSTED-SEARXNG-BYPASS` | Trusted | `search-vm` | TCP | SearXNG backend port | Yes | Emergency direct backend access if internal ingress is down |
+| `APP-011-DENY-SEARXNG-BYPASS` | Known, IoT, Guest, DMZ | `search-vm` backend | Any | Any | Yes | Clients should use Ingress rather than direct backend paths |
 
 Treat NFS access as VM-specific, not VLAN-wide.
 

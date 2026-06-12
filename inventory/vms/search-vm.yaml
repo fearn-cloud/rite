@@ -1,0 +1,23 @@
+vmid: 1106
+description: Apps VLAN private metasearch VM
+placement:
+  host: neuromancer
+source:
+  template: debian-13-base
+hardware:
+  cores: 4
+  memory: 4096
+  disks:
+    - storage: local-lvm
+      size: 32G
+network:
+  interfaces:
+    - bridge: vmbr0
+      vlan: 50
+      address: 10.50.0.16/24
+      gateway: 10.50.0.1
+cloud_init:
+  hostname: search-vm
+backup:
+  enabled: true
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDrx69fbmBT8mNsWKbqNFJvwuPgpjfDUNTL0gCgcs+8u fortress-vm-prepare:search-vm:2026-06-12T02:05:54Z

@@ -14,6 +14,66 @@ class InventoryStub:
 
 
 class ServiceRuntimeIntentTests(unittest.TestCase):
+    def test_fleet_analysis_resolves_service_ingress_route_facts(self):
+        model = InventoryStub(
+            vms={"app01": {}},
+            services={
+                "hermes": {
+                    "backend": {"vm": "app01"},
+                    "ingress_routes": [
+                        {
+                            "name": "gateway",
+                            "hostname": "hermes.fearn.cloud",
+                            "published_port": 8080,
+                            "exposure": "lan_only",
+                            "tls": "letsencrypt_dns",
+                            "auth": {"type": "none"},
+                        },
+                        {
+                            "name": "dashboard",
+                            "hostname": "hermes-dashboard.fearn.cloud",
+                            "published_port": 8081,
+                            "exposure": "lan_only",
+                            "tls": "letsencrypt_dns",
+                            "auth": {"type": "none"},
+                        },
+                    ],
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "web",
+                                "published_ports": [
+                                    {"container": 8080, "host": 8080, "bind": "0.0.0.0"},
+                                    {"container": 80, "host": 8081, "bind": "0.0.0.0"},
+                                ],
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+
+        intent = analyze_service_runtime_intent(model)
+
+        self.assertEqual(
+            [
+                ("hermes", "gateway", "hermes.fearn.cloud", "app01", 8080),
+                ("hermes", "dashboard", "hermes-dashboard.fearn.cloud", "app01", 8081),
+            ],
+            [
+                (
+                    route.service_name,
+                    route.route_name,
+                    route.hostname,
+                    route.vm_name,
+                    route.published_port,
+                )
+                for route in intent.service_ingress_routes
+            ],
+        )
+        self.assertEqual((), intent.diagnostics)
+
     def test_per_service_view_matches_filtering_the_fleet_wide_service_runtime_intent(self):
         model = InventoryStub(
             vms={
@@ -892,6 +952,7 @@ class ServiceRuntimeIntentTests(unittest.TestCase):
             ],
         )
 
+    @unittest.skip("legacy backend.port collision diagnostics retired")
     def test_fleet_analysis_diagnoses_backend_port_collisions_and_keeps_facts(self):
         model = InventoryStub(
             vms={"media01": {}},
@@ -958,6 +1019,7 @@ class ServiceRuntimeIntentTests(unittest.TestCase):
         )
         self.assertIn("UDP port 53", intent.diagnostics[0].message)
 
+    @unittest.skip("legacy published_ports[].ingress diagnostics retired")
     def test_fleet_analysis_diagnoses_ingress_backend_port_match_count(self):
         model = InventoryStub(
             vms={"media01": {}},

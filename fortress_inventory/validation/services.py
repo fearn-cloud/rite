@@ -6,12 +6,11 @@ from .errors import ValidationError
 BACKEND_RUNTIME_DIAGNOSTICS = {
     "service_backend_not_singular",
     "missing_service_backend_vm",
-    "backend_port_collision",
 }
 PUBLISHED_PORT_RUNTIME_DIAGNOSTICS = {
     "published_port_collision",
-    "invalid_ingress_published_port",
-    "missing_ingress_published_port",
+    "missing_service_ingress_route_published_port",
+    "non_tcp_service_ingress_route_published_port",
 }
 TELEMETRY_TARGET_RUNTIME_DIAGNOSTICS = {
     "missing_telemetry_target_published_port",
@@ -35,23 +34,35 @@ SERVICE_OBSERVABILITY_VIEW_PROFILES = {"prometheus_generic"}
 def validate_service_ingress_contract(model):
     errors = []
     for service_name, service in model.services.items():
-        ingress = service.get("ingress")
-        if isinstance(ingress, dict) and "enabled" not in ingress:
-            errors.append(
-                ValidationError(
-                    "missing_service_ingress_enabled",
-                    f"inventory/services/{service_name}.yaml.ingress.enabled",
-                    f"Service {service_name} declares Ingress but does not declare ingress.enabled",
+        seen_route_names = {}
+        for route_index, route in enumerate(service.get("ingress_routes", []) or []):
+            route_name = route.get("name")
+            if not route_name:
+                continue
+            if route_name in seen_route_names:
+                errors.append(
+                    ValidationError(
+                        "duplicate_service_ingress_route_name",
+                        f"inventory/services/{service_name}.yaml.ingress_routes[{route_index}].name",
+                        f"Service {service_name} declares duplicate Service Ingress Route name {route_name}",
+                    )
                 )
-            )
-        if service.get("hostname") and not service.get("ingress", {}).get("enabled"):
-            errors.append(
-                ValidationError(
-                    "service_hostname_without_ingress",
-                    f"inventory/services/{service_name}.yaml.hostname",
-                    f"Service {service_name} declares a hostname but does not enable Ingress",
+            else:
+                seen_route_names[route_name] = route_index
+            hostname = route.get("hostname")
+            if (
+                route.get("exposure") == "lan_only"
+                and model.globals.get("domain")
+                and not _hostname_is_under_domain(hostname, model.globals["domain"])
+            ):
+                errors.append(
+                    ValidationError(
+                        "service_ingress_route_hostname_not_fleet_fqdn",
+                        f"inventory/services/{service_name}.yaml.ingress_routes[{route_index}].hostname",
+                        f"Service Ingress Route {service_name}/{route_name} hostname {hostname} "
+                        f"must be an explicit FQDN under {model.globals['domain']}",
+                    )
                 )
-            )
     return errors
 
 
@@ -409,39 +420,23 @@ def _service_secret_path(service_name, container_index, secret_index, field):
 
 def validate_service_hostnames(model):
     errors = []
-    seen = {}
-    domain = model.globals.get("domain")
+    seen_ingress_hostnames = {}
     for service_name, service in model.services.items():
-        if service.get("ingress", {}).get("enabled") and not service.get("hostname"):
-            errors.append(
-                ValidationError(
-                    "missing_ingress_hostname",
-                    f"inventory/services/{service_name}.yaml.hostname",
-                    f"Service {service_name} enables Ingress but does not declare a hostname",
+        for route_index, route in enumerate(service.get("ingress_routes", []) or []):
+            hostname = route.get("hostname")
+            if not hostname:
+                continue
+            if hostname in seen_ingress_hostnames:
+                errors.append(
+                    ValidationError(
+                        "duplicate_ingress_hostname",
+                        f"inventory/services/{service_name}.yaml.ingress_routes[{route_index}].hostname",
+                        f"{seen_ingress_hostnames[hostname]} and Service Ingress Route "
+                        f"{service_name}/{route.get('name')} both publish hostname {hostname}",
+                    )
                 )
-            )
-            continue
-        if not service.get("ingress", {}).get("enabled"):
-            continue
-        hostname = service.get("hostname")
-        if service.get("ingress", {}).get("exposure") == "lan_only" and domain and not _hostname_is_under_domain(hostname, domain):
-            errors.append(
-                ValidationError(
-                    "service_ingress_hostname_not_fleet_fqdn",
-                    f"inventory/services/{service_name}.yaml.hostname",
-                    f"LAN-only Service Ingress hostname {hostname} must be an explicit FQDN under {domain}",
-                )
-            )
-        if hostname in seen:
-            errors.append(
-                ValidationError(
-                    "duplicate_service_hostname",
-                    f"inventory/services/{service_name}.yaml.hostname",
-                    f"Services {seen[hostname]} and {service_name} both publish hostname {hostname}",
-                )
-            )
-        else:
-            seen[hostname] = service_name
+            else:
+                seen_ingress_hostnames[hostname] = f"Service Ingress Route {service_name}/{route.get('name')}"
     return errors
 
 

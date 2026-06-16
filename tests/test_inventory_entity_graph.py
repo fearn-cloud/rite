@@ -15,6 +15,7 @@ from fortress_inventory.entity_graph import (
     InventoryEntityGraphError,
     ObservabilityViewIntent,
     ServiceGroupLaunchIntent,
+    ServiceIngressRouteFact,
     ServiceLaunchIntent,
     ServiceShareBackedVolumeFact,
     ServiceTelemetryTargetFact,
@@ -667,8 +668,8 @@ class InventoryEntityGraphTests(unittest.TestCase):
             vms={"media01": {}},
             services={
                 "photos": {
-                    "backend": {"vm": "media01", "port": 2283},
-                    "ingress": {"enabled": True},
+                    "backend": {"vm": "media01"},
+                    "ingress_routes": [{"name": "web", "hostname": "photos.fearn.cloud", "published_port": 2283}],
                 },
             },
         )
@@ -684,6 +685,21 @@ class InventoryEntityGraphTests(unittest.TestCase):
             graph.service_launch_intent("photos"),
         )
         self.assertIsNone(graph.service_launch_intent("missing-service"))
+
+    def test_service_launch_intent_requires_ingress_regeneration_for_service_ingress_routes(self):
+        model = inventory_model(
+            vms={"media01": {}},
+            services={
+                "photos": {
+                    "backend": {"vm": "media01"},
+                    "ingress_routes": [{"name": "web", "hostname": "photos.fearn.cloud", "published_port": 2283}],
+                },
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertTrue(graph.service_launch_intent("photos").requires_ingress_regeneration)
 
     def test_service_launch_intent_rejects_missing_backend_vm_reference(self):
         model = inventory_model(
@@ -739,6 +755,32 @@ class InventoryEntityGraphTests(unittest.TestCase):
             ),
             graph.service_group_launch_intent("observability"),
         )
+
+    def test_service_group_launch_intent_requires_ingress_regeneration_for_service_ingress_routes(self):
+        model = inventory_model(
+            vms={
+                "media-vm": {
+                    "launchable_service_groups": [
+                        {"name": "media", "launch_order": ["photos", "downloads"]},
+                    ],
+                },
+            },
+            services={
+                "photos": {
+                    "service_group": "media",
+                    "backend": {"vm": "media-vm"},
+                    "ingress_routes": [{"name": "web", "hostname": "photos.fearn.cloud", "published_port": 2283}],
+                },
+                "downloads": {
+                    "service_group": "media",
+                    "backend": {"vm": "media-vm"},
+                },
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertTrue(graph.service_group_launch_intent("media").requires_ingress_regeneration)
 
     def test_service_group_launch_intent_rejects_unknown_service_group(self):
         graph = InventoryEntityGraph(inventory_model())
@@ -1438,6 +1480,55 @@ class InventoryEntityGraphTests(unittest.TestCase):
         self.assertEqual(("photos",), graph.ingress_enabled_service_names())
         self.assertEqual(("wintermute",), graph.host_ingress_route_names())
         self.assertEqual(("truenas",), graph.nas_ingress_route_names())
+
+    def test_resolves_service_ingress_route_facts(self):
+        model = inventory_model(
+            vms={"app01": {}},
+            services={
+                "hermes": {
+                    "backend": {"vm": "app01"},
+                    "ingress_routes": [
+                        {
+                            "name": "gateway",
+                            "hostname": "hermes.fearn.cloud",
+                            "published_port": 8080,
+                            "exposure": "lan_only",
+                            "tls": "letsencrypt_dns",
+                            "auth": {"type": "none"},
+                        },
+                    ],
+                    "deploy": {
+                        "type": "quadlet",
+                        "containers": [
+                            {
+                                "name": "web",
+                                "published_ports": [
+                                    {"container": 8080, "host": 8080, "bind": "0.0.0.0"},
+                                ],
+                            }
+                        ],
+                    },
+                }
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(
+            (
+                ServiceIngressRouteFact(
+                    service_name="hermes",
+                    route_name="gateway",
+                    hostname="hermes.fearn.cloud",
+                    backend_vm_name="app01",
+                    published_port=8080,
+                    exposure="lan_only",
+                    tls="letsencrypt_dns",
+                    auth={"type": "none"},
+                ),
+            ),
+            graph.service_ingress_route_facts(),
+        )
 
 
 if __name__ == "__main__":

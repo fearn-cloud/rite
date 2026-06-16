@@ -1,5 +1,4 @@
 name: media-file-browser
-hostname: media-files.fearn.cloud
 service_group: media
 service_network: media
 service_data_owner:
@@ -7,13 +6,14 @@ service_data_owner:
   gid: 1001
 backend:
   vm: media-vm
-  port: 8082
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: media-files.fearn.cloud
+    published_port: 8082
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -23,7 +23,6 @@ deploy:
         - bind: 0.0.0.0
           host: 8082
           container: 8080
-          ingress: true
       volumes:
         - mount: media
           source: /

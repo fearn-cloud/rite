@@ -80,6 +80,22 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
                 list(ingress_regeneration.command),
             )
 
+    def test_service_group_launch_plan_regenerates_ingress_for_service_ingress_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "sonarr",
+                "media01",
+                deploy_type="quadlet",
+                ingress_enabled=False,
+                ingress_routes=True,
+            )
+
+            plan = build_service_group_launch_plan(root, "media")
+
+            self.assertEqual(service_group_launch_step_ids(include_ingress=True), [step.id for step in plan.steps])
+
     def test_service_group_launch_plan_refreshes_observability_when_any_service_declares_instrumentation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _calls_log = self._workflow_fixture(tmp)
@@ -356,8 +372,21 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
         ingress_enabled,
         instrumentation_enabled=False,
         observability_view_enabled=False,
+        ingress_routes=False,
     ):
         ingress = "true" if ingress_enabled else "false"
+        routes = (
+            "ingress_routes:\n"
+            "  - name: web\n"
+            f"    hostname: {service_name}.fearn.cloud\n"
+            "    published_port: 8080\n"
+            "    exposure: lan_only\n"
+            "    tls: letsencrypt_dns\n"
+            "    auth:\n"
+            "      type: none\n"
+            if ingress_routes or ingress_enabled
+            else ""
+        )
         observability_view = (
             "  observability_views:\n"
             "    - profile: prometheus_generic\n"
@@ -399,6 +428,7 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
             "backend:\n"
             f"  vm: {backend_vm}\n"
             "  port: 8080\n"
+            f"{routes}"
             "ingress:\n"
             f"  enabled: {ingress}\n"
             f"{deploy_yaml}"

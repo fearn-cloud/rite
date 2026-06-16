@@ -1,5 +1,4 @@
 name: radarr-anime
-hostname: radarr-anime.fearn.cloud
 service_group: media
 service_network: media
 service_data_owner:
@@ -7,13 +6,14 @@ service_data_owner:
   gid: 1001
 backend:
   vm: media-vm
-  port: 7879
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: radarr-anime.fearn.cloud
+    published_port: 7879
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -23,7 +23,6 @@ deploy:
         - bind: 0.0.0.0
           host: 7879
           container: 7878
-          ingress: true
       env:
         PUID: 1001
         PGID: 1001

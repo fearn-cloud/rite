@@ -1,17 +1,17 @@
 name: file-browser
-hostname: files.fearn.cloud
 service_data_owner:
   uid: 1000
   gid: 1000
 backend:
   vm: file-browser-vm
-  port: 8080
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: files.fearn.cloud
+    published_port: 8080
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -21,7 +21,6 @@ deploy:
         - bind: 0.0.0.0
           host: 8080
           container: 80
-          ingress: true
       volumes:
         - mount: personal-media
           source: /

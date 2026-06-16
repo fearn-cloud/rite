@@ -445,12 +445,14 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_service_backend_vm_must_exist(self):
         self.assertIn("missing_service_backend_vm", self.codes_for("inventory_invalid/missing-service-vm"))
 
+    @unittest.skip("legacy backend.port contract retired by Service Ingress Routes")
     def test_backend_ports_must_not_collide_on_same_vm(self):
         self.assertIn("backend_port_collision", self.codes_for("inventory_invalid/port-collision"))
 
     def test_service_hostnames_must_be_unique(self):
-        self.assertIn("duplicate_service_hostname", self.codes_for("inventory_invalid/duplicate-hostname"))
+        self.assertIn("duplicate_ingress_hostname", self.codes_for("inventory_invalid/duplicate-hostname"))
 
+    @unittest.skip("legacy top-level Service hostname contract retired by Service Ingress Routes")
     def test_service_hostname_does_not_enable_ingress_implicitly(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -474,6 +476,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             self.assertEqual({"enabled": False}, model.services["immich"]["ingress"])
             self.assertNotIn("missing_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
 
+    @unittest.skip("legacy top-level Service ingress block retired by Service Ingress Routes")
     def test_service_ingress_block_requires_explicit_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -495,6 +498,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertIn("missing_service_ingress_enabled", {error.code for error in validate_inventory_tree(root)})
 
+    @unittest.skip("legacy top-level Service hostname contract retired by Service Ingress Routes")
     def test_service_hostname_requires_ingress_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -503,6 +507,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertIn("service_hostname_without_ingress", {error.code for error in validate_inventory_tree(root)})
 
+    @unittest.skip("legacy top-level Service hostname validation replaced by route hostname validation")
     def test_lan_only_service_ingress_hostname_must_be_explicit_fqdn_under_fleet_domain(self):
         invalid_hostnames = ["photos", "photos.example.com", "fearn.cloud", ".fearn.cloud", "photos..fearn.cloud"]
         for hostname in invalid_hostnames:
@@ -523,6 +528,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    @unittest.skip("model no longer injects default Service ingress data")
     def test_service_ingress_defaults_and_hostname_requirement(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -549,6 +555,102 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertIn("missing_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
 
+    def test_service_ingress_route_names_must_be_unique_within_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_service_with_ingress_routes(
+                root,
+                routes=[
+                    ("web", "photos.fearn.cloud", 2283),
+                    ("web", "photos-admin.fearn.cloud", 8080),
+                ],
+            )
+
+            self.assertIn("duplicate_service_ingress_route_name", {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_ingress_route_hostname_must_be_explicit_fqdn_under_fleet_domain(self):
+        invalid_hostnames = ["photos", "photos.example.com", "fearn.cloud", ".fearn.cloud", "photos..fearn.cloud"]
+        for hostname in invalid_hostnames:
+            with self.subTest(hostname=hostname), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                self.write_service_with_ingress_routes(root, routes=[("web", hostname, 2283)])
+
+                self.assertIn(
+                    "service_ingress_route_hostname_not_fleet_fqdn",
+                    {error.code for error in validate_inventory_tree(root)},
+                )
+
+    def test_service_ingress_route_hostnames_share_ingress_namespace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_service_with_ingress_routes(
+                root,
+                service_name="immich",
+                routes=[("web", "photos.fearn.cloud", 2283)],
+            )
+            self.write_service_with_ingress_routes(
+                root,
+                service_name="photos",
+                routes=[("gallery", "photos.fearn.cloud", 8181)],
+                published_ports=(8181, 8182),
+            )
+
+            self.assertIn("duplicate_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_ingress_route_hostname_collides_with_host_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                (root / "inventory" / "group_vars" / "all.yaml").read_text()
+                + "ingress:\n"
+                + "  trusted_source_ranges:\n"
+                + "    - 10.20.0.0/24\n"
+            )
+            self.write_service_with_ingress_routes(root, routes=[("web", "wintermute.fearn.cloud", 2283)])
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                (root / "inventory" / "hosts" / "wintermute.yaml").read_text()
+                + "ingress:\n"
+                + "  proxmox_web_ui:\n"
+                + "    enabled: true\n"
+                + "    hostname: wintermute.fearn.cloud\n"
+            )
+
+            self.assertIn("duplicate_ingress_hostname", {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_ingress_route_target_must_resolve_to_declared_tcp_published_port(self):
+        cases = [
+            ("missing_service_ingress_route_published_port", [("web", "photos.fearn.cloud", 9000)], (2283,)),
+            ("non_tcp_service_ingress_route_published_port", [("web", "photos.fearn.cloud", 2283)], (2283,)),
+        ]
+        for expected_code, routes, published_ports in cases:
+            with self.subTest(expected_code=expected_code), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                protocol = "udp" if expected_code.startswith("non_tcp") else "tcp"
+                self.write_service_with_ingress_routes(
+                    root,
+                    routes=routes,
+                    published_ports=published_ports,
+                    published_port_protocol=protocol,
+                )
+
+                self.assertIn(expected_code, {error.code for error in validate_inventory_tree(root)})
+
+    def test_direct_published_ports_remain_valid_without_service_ingress_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_service_with_ingress_routes(root, routes=(), published_ports=(2283, 8080))
+
+            codes = {error.code for error in validate_inventory_tree(root)}
+            self.assertNotIn("missing_service_ingress_route_published_port", codes)
+            self.assertNotIn("non_tcp_service_ingress_route_published_port", codes)
+
+    @unittest.skip("legacy duplicate Service hostname validation replaced by route namespace validation")
     def test_duplicate_hostnames_only_matter_for_ingress_enabled_services(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -707,6 +809,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    @unittest.skip("legacy Service hostname collision test replaced by route collision test")
     def test_host_ingress_route_hostname_shares_service_ingress_namespace(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1007,6 +1110,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    @unittest.skip("published_ports[].ingress marker retired by Service Ingress Routes")
     def test_published_ports_require_ingress_marker_and_do_not_collide_on_backend_vm(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1223,6 +1327,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    @unittest.skip("published_ports[].ingress marker retired by Service Ingress Routes")
     def test_ingress_published_port_must_be_exactly_one_tcp_capable_backend_port(self):
         invalid_published_ports = [
             [
@@ -2050,4 +2155,43 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             "  type: quadlet\n"
             "  containers:\n"
             f"{containers}"
+        )
+
+    def write_service_with_ingress_routes(
+        self,
+        root,
+        service_name="immich",
+        vm="media01",
+        routes=(),
+        published_ports=(2283, 8080),
+        published_port_protocol="tcp",
+    ):
+        route_yaml = ""
+        for route_name, hostname, published_port in routes:
+            route_yaml += (
+                f"  - name: {route_name}\n"
+                f"    hostname: {hostname}\n"
+                f"    published_port: {published_port}\n"
+                "    exposure: lan_only\n"
+                "    tls: letsencrypt_dns\n"
+                "    auth:\n"
+                "      type: none\n"
+            )
+        published_port_yaml = "".join(
+            f"        - container: {port}\n          host: {port}\n          protocol: {published_port_protocol}\n"
+            for port in published_ports
+        )
+        (root / "inventory" / "services" / f"{service_name}.yaml").write_text(
+            f"name: {service_name}\n"
+            "backend:\n"
+            f"  vm: {vm}\n"
+            "ingress_routes:\n"
+            f"{route_yaml}"
+            "deploy:\n"
+            "  type: quadlet\n"
+            "  containers:\n"
+            "    - name: server\n"
+            "      image: ghcr.io/immich-app/immich-server:v1.120.0\n"
+            "      published_ports:\n"
+            f"{published_port_yaml}"
         )

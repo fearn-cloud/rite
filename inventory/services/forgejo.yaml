@@ -1,17 +1,17 @@
 name: forgejo
-hostname: git.fearn.cloud
 service_data_owner:
   uid: 1000
   gid: 1000
 backend:
   vm: forgejo-vm
-  port: 3000
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: git.fearn.cloud
+    published_port: 3000
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -21,7 +21,6 @@ deploy:
         - bind: 0.0.0.0
           host: 3000
           container: 3000
-          ingress: true
         - bind: 0.0.0.0
           host: 2222
           container: 22

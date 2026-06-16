@@ -1,8 +1,6 @@
 name: immich
-hostname: photos.fearn.cloud
 backend:
   vm: media01
-  port: 2283
 deploy:
   type: quadlet
   containers:
@@ -10,4 +8,3 @@ deploy:
       image: ghcr.io/immich-app/immich-server:v1.120.0
       published_ports:
         - container: 2283
-          ingress: true

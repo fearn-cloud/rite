@@ -6,10 +6,14 @@ service_data_owner:
   gid: 1000
 backend:
   vm: dns-secondary-vm
-  port: 8080
-hostname: dns-secondary.fearn.cloud
-ingress:
-  enabled: true
+ingress_routes:
+  - name: web
+    hostname: dns-secondary.fearn.cloud
+    published_port: 8080
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 dns:
   provider: pihole
   ingress_records:
@@ -28,7 +32,6 @@ deploy:
         - bind: 0.0.0.0
           host: 8080
           container: 80
-          ingress: true
       env:
         TZ: UTC
         FTLCONF_dns_upstreams: unbound

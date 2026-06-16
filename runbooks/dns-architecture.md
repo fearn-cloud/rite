@@ -107,7 +107,7 @@ not the password.
 - VLAN: `VLAN 40`
 
 Pi-hole must listen on each DNS VM's resolver address for TCP and UDP port 53.
-The Service Backend port is the Pi-hole web UI published port, `8080`, so
+Each DNS Service Ingress Route targets the Pi-hole web UI Published Port, `8080`, so
 Caddy routes `dns-primary.fearn.cloud` and `dns-secondary.fearn.cloud` to the
 matching Pi-hole admin UI while resolver traffic remains direct TCP/UDP 53
 access to the DNS VM.

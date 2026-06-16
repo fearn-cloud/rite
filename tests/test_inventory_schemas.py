@@ -234,7 +234,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "service_network: media\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  containers:\n"
@@ -255,7 +254,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "  name: media\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  containers:\n"
@@ -499,7 +497,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  containers:\n"
@@ -538,7 +535,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "instrumentation:\n"
                 "  telemetry_targets:\n"
                 "    - name: metrics\n"
@@ -570,7 +566,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "instrumentation:\n"
                 "  telemetry_targets:\n"
                 "    - name: metrics\n"
@@ -598,7 +593,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "instrumentation:\n"
                 "  telemetry_targets:\n"
                 "    - name: metrics\n"
@@ -625,7 +619,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "instrumentation:\n"
                 "  telemetry_targets:\n"
                 "    - name: metrics\n"
@@ -653,7 +646,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "instrumentation:\n"
                 "  telemetry_targets:\n"
                 "    - name: metrics\n"
@@ -682,7 +674,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "hostname: photos.fearn.cloud\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  network: immich-net\n"
@@ -704,6 +695,79 @@ class InventorySchemaTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("deploy", result.stdout + result.stderr)
 
+    def test_service_schema_accepts_service_ingress_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "hermes.yaml"
+            service_yaml.write_text(
+                "name: hermes\n"
+                "backend:\n"
+                "  vm: app01\n"
+                "ingress_routes:\n"
+                "  - name: gateway\n"
+                "    hostname: hermes.fearn.cloud\n"
+                "    published_port: 8080\n"
+                "    exposure: lan_only\n"
+                "    tls: letsencrypt_dns\n"
+                "    auth:\n"
+                "      type: none\n"
+                "  - name: dashboard\n"
+                "    hostname: hermes-dashboard.fearn.cloud\n"
+                "    published_port: 8081\n"
+                "    exposure: lan_only\n"
+                "    tls: letsencrypt_dns\n"
+                "    auth:\n"
+                "      type: none\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: gateway\n"
+                "      image: ghcr.io/example/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                "      published_ports:\n"
+                "        - container: 8080\n"
+                "          host: 8080\n"
+                "        - container: 8081\n"
+                "          host: 8081\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_service_schema_rejects_legacy_service_ingress_fields(self):
+        cases = {
+            "hostname": "hostname: photos.fearn.cloud\n",
+            "ingress": "ingress:\n  enabled: true\n",
+            "backend_port": "backend:\n  vm: media01\n  port: 2283\n",
+            "published_port_ingress": (
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: ghcr.io/example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                "      published_ports:\n"
+                "        - container: 2283\n"
+                "          ingress: true\n"
+            ),
+        }
+        for field, legacy_yaml in cases.items():
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
+                service_yaml = Path(tmp) / "legacy.yaml"
+                service_yaml.write_text(
+                    "name: legacy\n"
+                    "backend:\n"
+                    "  vm: media01\n"
+                    "deploy:\n"
+                    "  type: quadlet\n"
+                    "  containers:\n"
+                    "    - name: server\n"
+                    "      image: ghcr.io/example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                    f"{legacy_yaml}"
+                )
+
+                result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_service_schema_accepts_secret_env_value_mode(self):
         with tempfile.TemporaryDirectory() as tmp:
             service_yaml = Path(tmp) / "pihole.yaml"
@@ -711,7 +775,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: pihole\n"
                 "backend:\n"
                 "  vm: dns-primary-vm\n"
-                "  port: 80\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  containers:\n"
@@ -738,7 +801,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "    enabled: true\n"
                 "backend:\n"
                 "  vm: dns-primary-vm\n"
-                "  port: 80\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  containers:\n"
@@ -757,7 +819,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: caddy\n"
                 "backend:\n"
                 "  vm: ingress01\n"
-                "  port: 80\n"
                 "deploy:\n"
                 "  type: native\n"
                 "  package: caddy\n"
@@ -794,7 +855,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: caddy\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 80\n"
                 "deploy:\n"
                 "  type: native\n"
                 "  package: caddy\n"
@@ -817,7 +877,6 @@ class InventorySchemaTests(unittest.TestCase):
                 "name: immich\n"
                 "backend:\n"
                 "  vm: media01\n"
-                "  port: 2283\n"
                 "deploy:\n"
                 "  type: quadlet\n"
                 "  environment_secrets:\n"

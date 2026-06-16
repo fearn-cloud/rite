@@ -1,9 +1,6 @@
 name: internal-ingress
 backend:
   vm: internal-ingress-vm
-  port: 443
-ingress:
-  enabled: false
 deploy:
   type: native
   package: caddy

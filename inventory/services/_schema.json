@@ -56,7 +56,6 @@
   "required": ["name", "backend", "deploy"],
   "properties": {
     "name": { "type": "string", "minLength": 1 },
-    "hostname": { "type": "string", "minLength": 1 },
     "service_group": {
       "description": "Logical Service Group for operator workflows; does not imply shared private networking.",
       "type": "string",
@@ -94,25 +93,30 @@
     "backend": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vm", "port"],
+      "required": ["vm"],
       "properties": {
-        "vm": { "type": "string", "minLength": 1 },
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "vm": { "type": "string", "minLength": 1 }
       }
     },
-    "ingress": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "exposure": { "enum": ["lan_only"] },
-        "tls": { "enum": ["letsencrypt_dns"] },
-        "auth": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": {
-            "type": { "enum": ["none"] }
+    "ingress_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "hostname", "published_port", "exposure", "tls", "auth"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "hostname": { "type": "string", "minLength": 1 },
+          "published_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "exposure": { "enum": ["lan_only"] },
+          "tls": { "enum": ["letsencrypt_dns"] },
+          "auth": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": { "enum": ["none"] }
+            }
           }
         }
       }
@@ -179,8 +183,7 @@
                         "container": { "type": "integer", "minimum": 1, "maximum": 65535 },
                         "host": { "type": "integer", "minimum": 1, "maximum": 65535 },
                         "bind": { "type": "string", "minLength": 1 },
-                        "protocol": { "enum": ["tcp", "udp", "tcp_udp"] },
-                        "ingress": { "type": "boolean" }
+                        "protocol": { "enum": ["tcp", "udp", "tcp_udp"] }
                       }
                     }
                   },

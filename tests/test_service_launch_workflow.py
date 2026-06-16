@@ -67,6 +67,18 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
             self.assertEqual([str(root / "scripts" / "vm-up"), "media01"], list(vm_lifecycle.command))
             self.assertEqual([str(root / "scripts" / "service-deploy"), "headless"], list(service_deploy.command))
 
+    def test_service_launch_plan_regenerates_ingress_for_service_ingress_routes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(root, "photos", "media01", ingress_enabled=False, ingress_routes=True)
+
+            plan = build_service_launch_plan(root, "photos", auto_confirm=True)
+
+            self.assertEqual(
+                ["vm-lifecycle", "service-deploy", "ingress-regeneration"],
+                [step.id for step in plan.steps],
+            )
+
     def test_service_launch_plan_refreshes_observability_when_service_declares_instrumentation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _calls_log = self._workflow_fixture(tmp)
@@ -416,9 +428,22 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
         service_group=None,
         instrumentation_enabled=False,
         observability_view_enabled=False,
+        ingress_routes=False,
     ):
         ingress = "true" if ingress_enabled else "false"
         group = f"service_group: {service_group}\n" if service_group else ""
+        routes = (
+            "ingress_routes:\n"
+            "  - name: web\n"
+            f"    hostname: {service_name}.fearn.cloud\n"
+            "    published_port: 2283\n"
+            "    exposure: lan_only\n"
+            "    tls: letsencrypt_dns\n"
+            "    auth:\n"
+            "      type: none\n"
+            if ingress_routes or ingress_enabled
+            else ""
+        )
         observability_view = (
             "  observability_views:\n"
             "    - profile: prometheus_generic\n"
@@ -441,6 +466,7 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
             "backend:\n"
             f"  vm: {backend_vm}\n"
             "  port: 2283\n"
+            f"{routes}"
             "ingress:\n"
             f"  enabled: {ingress}\n"
             "deploy:\n"

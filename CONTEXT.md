@@ -103,7 +103,7 @@ The Apps VLAN VM that runs Vaultwarden with VM-local primary data.
 _Avoid_: password manager container, shared secrets VM.
 
 **Backend**:
-The VM (and TCP port) that the Ingress reverse-proxies a Service to. Declared as `backend.vm` and `backend.port`. Becomes a list when the Service is HA.
+The VM where a Service runs and receives Service traffic.
 _Avoid_: upstream (overloaded with apt/git senses).
 
 **Service Runtime Intent**:
@@ -121,6 +121,14 @@ _Avoid_: GPU passthrough, VM device model.
 **Published Port**:
 A VM-local port exposed by a Quadlet container for another VM or the Ingress to reach; defaults to loopback binding and TCP unless declared otherwise.
 _Avoid_: exposed port (overloaded between container metadata and host publishing).
+
+**Service Ingress Route**:
+A Service-level Ingress route from a hostname to one HTTP-family VM host port exposed by a Published Port on the Service's Backend VM. It never routes directly to a container-only port.
+_Avoid_: sibling Service, direct VM port, Host Ingress Route.
+
+**Service Ingress Route Name**:
+A Service-local stable identifier for one Service Ingress Route, independent of container names and hostnames.
+_Avoid_: container alias, DNS label, route hostname.
 
 **Service Data Directory**:
 The VM-local directory tree under `/srv/services/<service>/` that holds Service-owned bind-mounted data.
@@ -726,15 +734,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A failed Service-layer **Acceptance Test** with `keep_on_fail=true` preserves all generated inventory and live resources owned by that run for inspection.
 - A **Service** has one **Backend** **VM** (a list when HA is needed).
 - A **Service** may belong to at most one **Service Group**.
-- A Quadlet **Service**'s **Backend** port must match exactly one **Published Port**.
-- A **Published Port** may use TCP, UDP, or both; only TCP-capable Published Ports may satisfy a **Backend**.
+- A **Service** does not declare a Backend port; ports are declared by the specific consumer that needs them.
+- A **Published Port** may use TCP, UDP, or both; only TCP-capable Published Ports may satisfy a **Service Ingress Route**.
 - **Ingress** is HTTP-family routing only; non-HTTP Published Ports are exposed directly on the **Backend** VM rather than through Caddy.
-- A **Published Port** must opt into **Ingress** routing explicitly; direct VM exposure is deliberate through its bind address.
+- A **Service Ingress Route** must target a declared TCP-capable **Published Port**.
+- A **Service Ingress Route** targets the resolved VM host port of a **Published Port**, not a container-only port.
+- A **Published Port** does not opt into **Ingress**; **Service Ingress Routes** are the explicit Ingress opt-in.
 - A **Published Port** bound to `0.0.0.0` is an explicit direct VM exposure to all VM interfaces.
-- An **Ingress**-enabled Quadlet **Service** has exactly one TCP-capable **Published Port** marked for **Ingress** whose host port equals the **Backend** port.
 - An **Ingress**-backed **Published Port** must bind to an address reachable from the **Ingress** **VM**; loopback binding is only for same-VM callers.
 - A Service-layer **Acceptance Test** must prove direct **Published Port** reachability from the **Peer Acceptance VM** to the **Primary Acceptance VM**.
-- A Service-layer **Acceptance Test** proves direct reachability through the tested **Service**'s **Backend** port, not through a separate test-only Published Port.
+- A Service-layer **Acceptance Test** proves direct reachability through a declared **Published Port**, not through a separate test-only port.
 - A Service-layer **Acceptance Test** may additionally prove **Ingress** hostname reachability when the tested **Service** declares **Ingress**.
 - A Service-layer **Acceptance Test** with multiple containers proves systemd unit activation, declared **Container Dependency** ordering, **Container Alias** resolution, and **Share-backed Volume** consumption.
 - A Service-layer **Acceptance Test** proves **Share-backed Volume** consumption by serving a pre-written marker file from the **Primary Acceptance VM**'s **Mount** through the tested **Service**.
@@ -756,7 +765,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - Fortress-owned runtime artifacts use a `fortress-` prefix; Podman container and systemd unit identity is `fortress-<service>-<container>`, while the **Container Alias** remains the declared container name.
 - The **Ingress** **VM** routes traffic to **Services** by hostname.
 - **Ingress** routes are hostname-only; path-based routing is deferred.
-- The **Ingress** reverse-proxies each **Service** to its **Backend** **VM**'s declared static address and **Backend** port.
+- The **Ingress** reverse-proxies each **Service Ingress Route** to its **Backend** **VM**'s declared static address and the route's **Published Port**.
 - A **Host Ingress Route** reverse-proxies to a physical **Host** management address rather than to a **Service** **Backend**.
 - **Host Ingress Routes** are declared on Host inventory, not Service inventory.
 - A **Host Ingress Route** must be explicitly enabled per **Host**; Host existence alone does not create management ingress.
@@ -780,11 +789,10 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - Known, IoT, Guest, and DMZ clients must not reach TrueNAS web UI **NAS Ingress Routes** through the **Ingress**.
 - **Ingress** terminates public TLS, proxies ordinary **Backends** over plain HTTP, and proxies Proxmox web UI **Host Ingress Routes** to the Host management address over HTTPS with self-signed upstream certificate verification skipped.
 - **Ingress Regeneration** requires unambiguous static IPv4 addresses for the **Ingress** **VM** and every **Backend** **VM** it routes to.
-- **Ingress** TLS for internal Service hostnames uses Let's Encrypt DNS-01 when `ingress.tls` is `letsencrypt_dns`.
-- A **Service** needs a hostname only when **Ingress** is enabled.
-- A **Service** must declare `ingress.enabled: true` explicitly to enable **Ingress**; a hostname alone does not enable **Ingress**.
-- A **Service** that declares an `ingress` block must declare `ingress.enabled` explicitly.
-- A **Service** must not declare a hostname when **Ingress** is disabled.
+- **Ingress** TLS for internal Service hostnames uses Let's Encrypt DNS-01 when a **Service Ingress Route** declares `tls: letsencrypt_dns`.
+- A **Service** declares operator-facing HTTP hostnames through **Service Ingress Routes**.
+- A **Service** without **Service Ingress Routes** has no **Ingress** route.
+- A **Service** must not declare a top-level hostname.
 - A LAN-only **Ingress** hostname must be an explicit FQDN under the configured fleet domain.
 - An **Ingress**-enabled **Service** defaults to LAN-only **Exposure**, Let's Encrypt DNS-01 TLS, and no **Ingress Auth** when those policy fields are omitted.
 - When a mixed-protocol **Service** enables **Ingress**, its **Backend** port is the HTTP-family port used by **Ingress**; non-HTTP **Published Ports** remain direct VM exposure.

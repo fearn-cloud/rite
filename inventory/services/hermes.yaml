@@ -1,0 +1,41 @@
+name: hermes
+service_group: hermes
+service_network: hermes
+service_data_owner:
+  uid: 1000
+  gid: 1000
+backend:
+  vm: hermes-vm
+ingress_routes:
+  - name: gateway
+    hostname: hermes.fearn.cloud
+    published_port: 8642
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
+  - name: dashboard
+    hostname: hermes-dashboard.fearn.cloud
+    published_port: 9119
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: gateway
+      image: docker.io/nousresearch/hermes-agent:main
+      published_ports:
+        - bind: 0.0.0.0
+          host: 8642
+          container: 8642
+        - bind: 0.0.0.0
+          host: 9119
+          container: 9119
+      env:
+        HERMES_DASHBOARD: true
+      volumes:
+        - service_path: data
+          container: /opt/data
+          access: read_write

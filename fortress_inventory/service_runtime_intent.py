@@ -16,7 +16,7 @@ class RuntimeDiagnostic:
 class BackendRuntimeFact:
     service_name: str
     vm_name: str
-    port: int
+    port: int | None
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,18 @@ class PublishedPortRuntimeFact:
     bind: str
     protocols: tuple[str, ...]
     ingress: bool
+
+
+@dataclass(frozen=True)
+class ServiceIngressRouteRuntimeFact:
+    service_name: str
+    route_name: str
+    hostname: str
+    vm_name: str
+    published_port: int
+    exposure: str
+    tls: str
+    auth: dict
 
 
 @dataclass(frozen=True)
@@ -149,6 +161,7 @@ class ServiceRuntimeIntent:
     service_network_identities: tuple[ServiceNetworkIdentityRuntimeFact, ...] = ()
     container_identities: tuple[ContainerIdentityRuntimeFact, ...] = ()
     service_unit_orders: tuple[ServiceUnitOrderRuntimeFact, ...] = ()
+    service_ingress_routes: tuple[ServiceIngressRouteRuntimeFact, ...] = ()
 
 
 def service_runtime_intent_for_service(runtime_intent, service_name):
@@ -171,6 +184,10 @@ def service_runtime_intent_for_service(runtime_intent, service_name):
         ),
         service_unit_orders=_facts_for_service(
             runtime_intent.service_unit_orders,
+            service_name,
+        ),
+        service_ingress_routes=_facts_for_service(
+            runtime_intent.service_ingress_routes,
             service_name,
         ),
         diagnostics=tuple(
@@ -202,8 +219,8 @@ def analyze_service_runtime_intent(model):
     service_network_identities = []
     container_identities = []
     service_unit_orders = []
+    service_ingress_routes = []
     diagnostics = []
-    seen_backend_ports = {}
     seen_published_ports = {}
     for service_name, service in model.services.items():
         backend = service.get("backend", {})
@@ -218,7 +235,6 @@ def analyze_service_runtime_intent(model):
             continue
 
         vm_name = backend.get("vm")
-        port = backend.get("port")
         if vm_name and vm_name not in model.vms:
             diagnostics.append(
                 RuntimeDiagnostic(
@@ -227,23 +243,10 @@ def analyze_service_runtime_intent(model):
                     f"Service {service_name} references missing Backend VM {vm_name}",
                 )
             )
-        if vm_name and port:
-            backends.append(BackendRuntimeFact(service_name, vm_name, port))
-            key = (vm_name, port)
-            if key in seen_backend_ports:
-                other_service = seen_backend_ports[key]
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        "backend_port_collision",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Services {other_service} and {service_name} both use Backend {vm_name}:{port}",
-                    )
-                )
-            else:
-                seen_backend_ports[key] = service_name
+        if vm_name:
+            backends.append(BackendRuntimeFact(service_name, vm_name, backend.get("port")))
 
         service_published_ports = []
-        ingress_backend_matches = []
         deploy_type = service.get("deploy", {}).get("type")
         if deploy_type == "quadlet":
             service_network_podman_name = _service_network_podman_name(
@@ -399,8 +402,6 @@ def analyze_service_runtime_intent(model):
                     )
                     published_ports.append(fact)
                     service_published_ports.append(fact)
-                    if fact.ingress and fact.host_port == port and "tcp" in fact.protocols:
-                        ingress_backend_matches.append(fact)
                     for protocol in protocols:
                         key = (vm_name, host_port, protocol)
                         if key in seen_published_ports:
@@ -418,6 +419,46 @@ def analyze_service_runtime_intent(model):
         published_ports_by_host_port = {}
         for published_port in service_published_ports:
             published_ports_by_host_port.setdefault(published_port.host_port, []).append(published_port)
+        for route_index, route in enumerate(service.get("ingress_routes", []) or []):
+            published_port = route.get("published_port")
+            declared_published_ports = published_ports_by_host_port.get(published_port, [])
+            matching_published_ports = [
+                candidate
+                for candidate in declared_published_ports
+                if "tcp" in candidate.protocols
+            ]
+            if not matching_published_ports:
+                if declared_published_ports:
+                    diagnostics.append(
+                        RuntimeDiagnostic(
+                            "non_tcp_service_ingress_route_published_port",
+                            _service_ingress_route_path(service_name, route_index, "published_port"),
+                            f"Service Ingress Route {service_name}/{route.get('name', route_index)} "
+                            f"targets Published Port {published_port}, but it is not TCP-capable",
+                        )
+                    )
+                else:
+                    diagnostics.append(
+                        RuntimeDiagnostic(
+                            "missing_service_ingress_route_published_port",
+                            _service_ingress_route_path(service_name, route_index, "published_port"),
+                            f"Service Ingress Route {service_name}/{route.get('name', route_index)} "
+                            f"targets undeclared Published Port {published_port}",
+                        )
+                    )
+                continue
+            service_ingress_routes.append(
+                ServiceIngressRouteRuntimeFact(
+                    service_name=service_name,
+                    route_name=route.get("name"),
+                    hostname=route.get("hostname"),
+                    vm_name=vm_name,
+                    published_port=published_port,
+                    exposure=route.get("exposure"),
+                    tls=route.get("tls"),
+                    auth=route.get("auth") or {},
+                )
+            )
         for target_index, target in enumerate(
             service.get("instrumentation", {}).get("telemetry_targets", []) or []
         ):
@@ -459,25 +500,6 @@ def analyze_service_runtime_intent(model):
                     path=target.get("path", _default_telemetry_target_path(target.get("type"))),
                 )
             )
-        if deploy_type == "quadlet" and service.get("ingress", {}).get("enabled") and port:
-            if len(ingress_backend_matches) != 1:
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        "invalid_ingress_published_port",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Service {service_name} enables Ingress but must have exactly one TCP-capable "
-                        f"Published Port marked for Ingress on Backend port {port}",
-                    )
-                )
-            if not ingress_backend_matches:
-                diagnostics.append(
-                    RuntimeDiagnostic(
-                        "missing_ingress_published_port",
-                        f"inventory/services/{service_name}.yaml.backend.port",
-                        f"Service {service_name} enables Ingress but no Published Port explicitly marks "
-                        f"Backend port {port} with ingress: true",
-                    )
-                )
         if deploy_type == "native":
             for secret_index, secret in enumerate(service.get("deploy", {}).get("environment_secrets", []) or []):
                 secret_ref = secret.get("secret")
@@ -518,6 +540,7 @@ def analyze_service_runtime_intent(model):
         service_network_identities=tuple(service_network_identities),
         container_identities=tuple(container_identities),
         service_unit_orders=tuple(service_unit_orders),
+        service_ingress_routes=tuple(service_ingress_routes),
         diagnostics=tuple(diagnostics),
     )
 
@@ -653,6 +676,10 @@ def _service_telemetry_target_path(service_name, target_index, field):
         f"inventory/services/{service_name}.yaml.instrumentation."
         f"telemetry_targets[{target_index}].{field}"
     )
+
+
+def _service_ingress_route_path(service_name, route_index, field):
+    return f"inventory/services/{service_name}.yaml.ingress_routes[{route_index}].{field}"
 
 
 def _service_volume_path(service_name, container_index, volume_index, field):

@@ -93,14 +93,6 @@ def _default_services(services):
 
 def _default_service(service):
     service = deepcopy(service)
-    ingress = dict(service.get("ingress") or {})
-    if "ingress" not in service:
-        ingress["enabled"] = False
-    if ingress.get("enabled"):
-        ingress.setdefault("exposure", "lan_only")
-        ingress.setdefault("tls", "letsencrypt_dns")
-        ingress.setdefault("auth", {"type": "none"})
-    service["ingress"] = ingress
     for container in service.get("deploy", {}).get("containers", []) or []:
         for published_port in container.get("published_ports", []) or []:
             published_port.setdefault("bind", "127.0.0.1")

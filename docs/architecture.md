@@ -477,15 +477,15 @@ Services live at `inventory/services/<svc>.yaml`. This mirrors the host/VM/templ
 
 ```yaml
 name: immich
-hostname: photos.fearn.cloud
 backend:
   vm: media01
-  port: 2283                                 # the port caddy proxies to
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-auth: { type: none }
+ingress_routes:
+  - name: web
+    hostname: photos.fearn.cloud
+    published_port: 2283                     # VM host Published Port Caddy proxies to
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth: { type: none }
 
 deploy:
   type: quadlet
@@ -552,7 +552,7 @@ deploy:
 
 Single Caddy VM. Caddy terminates TLS for internal HTTP-family routes and reverse-proxies to declared Service Backends, Host Ingress Routes, and NAS Ingress Routes. One TLS cert store, one stable Caddy scaffold, and one generated route import live on the Ingress VM.
 
-Service Ingress is declared on Service inventory with an explicit hostname, `ingress.enabled: true`, and exactly one TCP-capable Published Port marked `ingress: true`. The generated route proxies that hostname to the Service Backend VM's static address and Backend port.
+Service Ingress is declared on Service inventory with explicit `ingress_routes`. Each Service Ingress Route owns its hostname, exposure, TLS, auth policy, and target VM host Published Port. The generated route proxies that hostname to the Service Backend VM's static address and the route's Published Port.
 
 Host Ingress Routes are declared on Host inventory, not as synthetic Services. They share hostname collision checks, TLS, generated DNS, and Ingress Regeneration with Service Ingress, but they target the Host `network.management_address` for Proxmox web UI access. Caddy enforces Trusted-only source ranges for Host Ingress Routes because Service routes and Host management routes share the same Ingress VM address.
 
@@ -566,7 +566,7 @@ The Cloudflare DNS provider module is declared in `inventory/services/internal-i
 
 Pi-hole + Unbound on a separate VM (DNS appliance, different criticality and lifecycle from ingress). Pi-hole serves LAN DNS; Unbound is the recursive backend so Pi-hole doesn't query upstream.
 
-Generated DNS ownership belongs to Ingress Regeneration. Ingress DNS Records are generated per declared Service Ingress hostname, per declared Host Ingress Route hostname, and per declared NAS Ingress Route hostname. Each record points to the Ingress VM address, not to the Backend VM, Host management address, or NAS management address.
+Generated DNS ownership belongs to Ingress Regeneration. Ingress DNS Records are generated per declared Service Ingress Route hostname, per declared Host Ingress Route hostname, and per declared NAS Ingress Route hostname. Each record points to the Ingress VM address, not to the Backend VM, Host management address, or NAS management address.
 
 Ingress DNS Targets are DNS Services that opt into receiving the generated record set through `capabilities.ingress_records`. The first provider is Pi-hole's dnsmasq compatibility surface, rendered as `99-fortress-ingress.conf` in the Service-owned dnsmasq directory mounted at `/etc/dnsmasq.d` inside the Pi-hole container. Ingress Regeneration authoritatively replaces that generated file and restarts every target Pi-hole DNS Service so FTL rereads dnsmasq config.
 
@@ -804,8 +804,8 @@ Catches typos and shape errors at validate-time (fast feedback) instead of at pl
 JSON Schema is per-file; some constraints span files. `scripts/validate.sh` invokes a small Python validator that checks:
 
 - Service `backend.vm` references an existing `inventory/vms/<vm>.yaml`.
-- No two services on the same VM declare the same `backend.port`.
-- No two services declare the same `hostname`.
+- No two Services on the same VM publish the same VM host port/protocol.
+- No two Ingress routes declare the same hostname.
 - VM `placement.host` references an existing `inventory/hosts/<host>.yaml`.
 - VM `source.template` exists in `vm-templates/`.
 - Dataset names are globally unique.

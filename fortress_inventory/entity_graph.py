@@ -82,6 +82,18 @@ class ServiceTelemetryTargetFact:
 
 
 @dataclass(frozen=True)
+class ServiceIngressRouteFact:
+    service_name: str
+    route_name: str
+    hostname: str
+    backend_vm_name: str
+    published_port: int
+    exposure: str
+    tls: str
+    auth: dict
+
+
+@dataclass(frozen=True)
 class ObservabilityViewIntent:
     view_id: str
     entity_kind: str
@@ -249,6 +261,22 @@ class InventoryEntityGraph:
             for target in intent.telemetry_targets
         )
 
+    def service_ingress_route_facts(self):
+        intent = analyze_service_runtime_intent(self._model)
+        return tuple(
+            ServiceIngressRouteFact(
+                service_name=route.service_name,
+                route_name=route.route_name,
+                hostname=route.hostname,
+                backend_vm_name=route.vm_name,
+                published_port=route.published_port,
+                exposure=route.exposure,
+                tls=route.tls,
+                auth=route.auth,
+            )
+            for route in intent.service_ingress_routes
+        )
+
     def observability_view_intents(self, excluded_vm_names=()):
         return self.vm_observability_view_intents(
             excluded_vm_names=excluded_vm_names
@@ -298,7 +326,7 @@ class InventoryEntityGraph:
         return ServiceLaunchIntent(
             service_name=service_name,
             backend_vm_name=backend_vm_name,
-            requires_ingress_regeneration=service.get("ingress", {}).get("enabled") is True,
+            requires_ingress_regeneration=_service_requires_ingress_regeneration(service),
         )
 
     def service_group_launch_intent(self, service_group_name):
@@ -366,7 +394,7 @@ class InventoryEntityGraph:
             backend_vm_name=backend_vm_name,
             service_names=service_names,
             requires_ingress_regeneration=any(
-                (self._model.services.get(service_name) or {}).get("ingress", {}).get("enabled") is True
+                _service_requires_ingress_regeneration(self._model.services.get(service_name) or {})
                 for service_name in service_names
             ),
         )
@@ -859,3 +887,7 @@ def _share_backed_source_path(mount_point, source):
 
 def _is_ordinary_vm(vm):
     return (vm.get("lifecycle") or {}).get("kind", "ordinary") == "ordinary"
+
+
+def _service_requires_ingress_regeneration(service):
+    return bool(service.get("ingress_routes") or [])

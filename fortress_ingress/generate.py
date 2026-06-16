@@ -67,25 +67,25 @@ def _render_dnsmasq_ingress_records(route_model):
 
 def _service_routes(model, graph):
     routes = []
-    for service_name in graph.ingress_enabled_service_names():
-        service = model.services[service_name]
-        backend_vm_name = graph.service_backend_vm_name(service_name)
+    for route in graph.service_ingress_route_facts():
+        backend_vm_name = route.backend_vm_name
         if backend_vm_name not in model.vms:
             continue
         routes.append(
             {
                 "kind": "service",
-                "hostname": service.get("hostname"),
+                "hostname": route.hostname,
                 "target": _http_target(
                     _required_vm_static_ipv4_address(
                         graph,
                         backend_vm_name,
                         f"Backend VM {backend_vm_name}",
                     ),
-                    graph.service_backend_port(service_name),
+                    route.published_port,
                 ),
-                "owner": service_name,
-                "tls": service.get("ingress", {}).get("tls"),
+                "owner": route.service_name,
+                "route": route.route_name,
+                "tls": route.tls,
             }
         )
     return routes

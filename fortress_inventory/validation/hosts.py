@@ -58,11 +58,12 @@ def validate_host_ingress_routes(model):
     errors = []
     domain = model.globals.get("domain")
     trusted_source_ranges = (model.globals.get("ingress") or {}).get("trusted_source_ranges") or []
-    seen_hostnames = {
-        service.get("hostname"): f"Service {service_name}"
-        for service_name, service in model.services.items()
-        if service.get("ingress", {}).get("enabled") and service.get("hostname")
-    }
+    seen_hostnames = {}
+    for service_name, service in model.services.items():
+        for route in service.get("ingress_routes", []) or []:
+            hostname = route.get("hostname")
+            if hostname:
+                seen_hostnames[hostname] = f"Service Ingress Route {service_name}/{route.get('name')}"
     for host_name, host in model.hosts.items():
         route = host.get("ingress", {}).get("proxmox_web_ui", {})
         if not route.get("enabled"):

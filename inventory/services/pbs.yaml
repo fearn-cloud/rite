@@ -1,9 +1,6 @@
 name: pbs
 backend:
   vm: pbs-vm
-  port: 8007
-ingress:
-  enabled: false
 deploy:
   type: native
   package: proxmox-backup-server

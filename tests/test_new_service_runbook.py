@@ -19,7 +19,7 @@ class NewServiceRunbookTests(unittest.TestCase):
             "inventory/services/<service>.yaml",
             "Service yaml does not declare NAS Endpoint, Dataset, Share, or protocol details directly",
             "Backend",
-            "hostname",
+            "ingress_routes[].hostname",
             "Service Runtime Identity",
             "fortress-owned runtime names and paths",
             "Podman container names",
@@ -27,7 +27,7 @@ class NewServiceRunbookTests(unittest.TestCase):
             "required mount unit names",
             "rendered Quadlet text",
             "adapter output, not Inventory identity",
-            "Ingress defaults",
+            "explicit `ingress_routes`",
             "Published Ports",
             "Service Group",
             "service_group",
@@ -68,16 +68,19 @@ class NewServiceRunbookTests(unittest.TestCase):
     def test_acceptance_demo_service_shape_is_renderable(self):
         service = {
             "name": "fortress-service-demo",
-            "hostname": "fortress-service-demo.fearn.cloud",
             "service_group": "service-demo",
             "service_data_owner": {"uid": 1000, "gid": 1000},
-            "backend": {"vm": "wintermute-demo", "port": 8080},
-            "ingress": {
-                "enabled": True,
-                "exposure": "lan_only",
-                "tls": "letsencrypt_dns",
-                "auth": {"type": "none"},
-            },
+            "backend": {"vm": "wintermute-demo"},
+            "ingress_routes": [
+                {
+                    "name": "web",
+                    "hostname": "fortress-service-demo.fearn.cloud",
+                    "published_port": 8080,
+                    "exposure": "lan_only",
+                    "tls": "letsencrypt_dns",
+                    "auth": {"type": "none"},
+                }
+            ],
             "deploy": {
                 "type": "quadlet",
                 "containers": [
@@ -86,7 +89,7 @@ class NewServiceRunbookTests(unittest.TestCase):
                         "image": "docker.io/library/nginx:1.27",
                         "depends_on": ["postgres", "redis"],
                         "published_ports": [
-                            {"bind": "127.0.0.1", "host": 8080, "container": 80, "ingress": True},
+                            {"bind": "127.0.0.1", "host": 8080, "container": 80},
                             {"bind": "127.0.0.1", "host": 18080, "container": 80},
                         ],
                         "volumes": [
@@ -148,7 +151,7 @@ class NewServiceRunbookTests(unittest.TestCase):
         self.assertEqual(["postgres", "redis"], containers[0]["depends_on"])
         self.assertEqual(
             [
-                {"bind": "127.0.0.1", "host": 8080, "container": 80, "ingress": True},
+                {"bind": "127.0.0.1", "host": 8080, "container": 80},
                 {"bind": "127.0.0.1", "host": 18080, "container": 80},
             ],
             containers[0]["published_ports"],
@@ -194,10 +197,10 @@ class NewServiceRunbookTests(unittest.TestCase):
 
         for phrase in [
             "Declare Service Ingress",
-            "ingress.enabled: true",
+            "ingress_routes",
             "hostname: <service>.fearn.cloud",
+            "published_port: 8080",
             "published_ports",
-            "ingress: true",
             "just service-deploy <service>",
             "just ingress-regenerate",
             "Ingress Regeneration",
@@ -215,6 +218,7 @@ class NewServiceRunbookTests(unittest.TestCase):
             "Service Launch",
             "just service-launch service=<service>",
             "wrapper over `vm-up`, `service-deploy`, conditional `ingress-regenerate`, and conditional Observability refresh",
+            "one or more Service Ingress Routes",
             "runs `service-update observability --auto-confirm` when the launched Service declares Service-level Instrumentation",
             "Host Configure, NAS Reconcile, and Ingress infrastructure readiness are prerequisites",
             "does not run `host-bootstrap`, `host-configure`, `nas-reconcile`, `service-deploy internal-ingress`, or Service Deploy for DNS Services",

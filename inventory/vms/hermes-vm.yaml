@@ -1,0 +1,23 @@
+vmid: 1107
+description: Apps VLAN Hermes browser agent VM
+placement:
+  host: neuromancer
+source:
+  template: debian-13-base
+hardware:
+  cores: 4
+  memory: 8192
+  disks:
+    - storage: local-lvm
+      size: 64G
+network:
+  interfaces:
+    - bridge: vmbr0
+      vlan: 50
+      address: 10.50.0.17/24
+      gateway: 10.50.0.1
+cloud_init:
+  hostname: hermes-vm
+backup:
+  enabled: true
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDZxplY/KJVaxpjhJ+utJTGRay9uEOcouhrRNqha1bAb fortress-vm-prepare:hermes-vm:2026-06-16T05:08:02Z

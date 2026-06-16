@@ -1,5 +1,4 @@
 name: identity
-hostname: auth.fearn.cloud
 service_group: identity
 service_network: identity
 service_data_owner:
@@ -7,13 +6,14 @@ service_data_owner:
   gid: 1000
 backend:
   vm: identity-vm
-  port: 9000
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: auth.fearn.cloud
+    published_port: 9000
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -38,7 +38,6 @@ deploy:
         - bind: 0.0.0.0
           host: 9000
           container: 9000
-          ingress: true
       env:
         AUTHENTIK_POSTGRESQL__HOST: postgres
         AUTHENTIK_POSTGRESQL__USER: authentik

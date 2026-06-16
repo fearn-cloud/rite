@@ -10,6 +10,7 @@ from fortress_inventory.service_runtime_intent import (  # noqa: F401
     PublishedPortRuntimeFact,
     RuntimeDiagnostic,
     ServiceDataDirectoryRuntimeFact,
+    ServiceIngressRouteRuntimeFact,
     ServiceOwnedVolumeRuntimeFact,
     ServiceRuntimeIntent,
     ServiceSecretRuntimeFact,

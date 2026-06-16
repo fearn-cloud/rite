@@ -1,5 +1,4 @@
 name: immich
-hostname: photos.fearn.cloud
 service_group: media
 service_network: media
 service_data_owner:
@@ -7,13 +6,14 @@ service_data_owner:
   gid: 1000
 backend:
   vm: media01
-  port: 2283
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: photos.fearn.cloud
+    published_port: 2283
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -23,7 +23,6 @@ deploy:
         - host: 2283
           container: 2283
           protocol: tcp
-          ingress: true
       volumes:
         - service_path: upload
           container: /usr/src/app/upload

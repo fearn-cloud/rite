@@ -1,5 +1,4 @@
 name: observability
-hostname: grafana.fearn.cloud
 service_group: observability
 service_network: observability
 service_data_owner:
@@ -7,13 +6,14 @@ service_data_owner:
   gid: 1000
 backend:
   vm: observability-vm
-  port: 3000
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: grafana.fearn.cloud
+    published_port: 3000
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -46,7 +46,6 @@ deploy:
         - bind: 0.0.0.0
           host: 3000
           container: 3000
-          ingress: true
       volumes:
         - service_path: grafana
           container: /var/lib/grafana

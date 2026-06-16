@@ -1,0 +1,3 @@
+# Service ingress uses explicit route declarations
+
+Service Ingress uses explicit `ingress_routes` entries rather than top-level `hostname`, `ingress.enabled`, `backend.port`, or `published_ports[].ingress` markers. Each Service Ingress Route owns its hostname, exposure, TLS, auth policy, and target VM host Published Port, allowing one Service to expose multiple HTTP-family surfaces without modeling those surfaces as sibling Services. The rejected alternatives were preserving the one-route Service model, which cannot represent services like Hermes with separate gateway and dashboard hostnames, and nesting routes under an `ingress` block, which kept the obsolete enabled flag and split route policy away from the route itself.

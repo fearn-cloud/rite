@@ -12,11 +12,11 @@ The naming planes are separate:
 
 - `name` is the Service identity in Inventory. Service Runtime Intent derives Service Runtime Identity from Inventory, including fortress-owned runtime names and paths such as the Service Network name, Podman container names, systemd unit names, Service Secret names, Service Data Directory paths, and required mount unit names.
 - `backend.vm` is the Backend VM where containers run.
-- `backend.port` is the VM-local Backend TCP port used by Ingress.
-- `hostname` is the public Ingress hostname. If it is absent, future Ingress regeneration may derive one from the Service name; keep it explicit when the name matters.
+- `ingress_routes[].hostname` is the public Ingress hostname for one Service Ingress Route.
+- `ingress_routes[].published_port` targets a VM host Published Port on the Backend VM.
 - Quadlet filenames, rendered Quadlet text, Service Deploy Ansible variable names, systemd commands, and application-specific configuration are adapter output, not Inventory identity.
 
-Ingress defaults are intentionally small in issue 07. `ingress.enabled: true` means Ingress should route the Service hostname to `backend.vm:backend.port`; `ingress.exposure`, `ingress.tls`, and `ingress.auth` are optional policy fields for later Ingress work. A Service with Ingress enabled must mark exactly the Published Port that backs the Ingress path with `ingress: true`.
+Service Ingress is declared with explicit `ingress_routes`. Each Service Ingress Route owns its hostname, exposure, TLS, auth policy, and target VM host Published Port.
 
 Published Ports live under each Quadlet container. A Published Port defaults to TCP and uses the container port as the host port when `host` is absent. Set `bind: 127.0.0.1` for ports intended only for Ingress or VM-local callers.
 
@@ -24,19 +24,19 @@ Use `service_group` when the Service belongs to a logical operator grouping, suc
 
 ## Declare Service Ingress
 
-For a new HTTP-family Service that should be reachable through the Ingress, declare an explicit fleet-domain hostname, enable Service Ingress, and mark exactly one TCP-capable Published Port as the Ingress Backend port:
+For a new HTTP-family Service that should be reachable through the Ingress, declare a Service Ingress Route with an explicit fleet-domain hostname and target a TCP-capable VM host Published Port:
 
 ```yaml
-hostname: <service>.fearn.cloud
 backend:
   vm: <backend-vm>
-  port: 8080
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: <service>.fearn.cloud
+    published_port: 8080
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -46,7 +46,6 @@ deploy:
         - bind: 0.0.0.0
           host: 8080
           container: 80
-          ingress: true
 ```
 
 Run the Service deployment first so the Backend exists and Caddy has something to reach:
@@ -127,7 +126,7 @@ Add `auto_confirm=true` when the selected Backend VM apply should skip the inter
 just service-launch service=<service> auto_confirm=true
 ```
 
-Service Launch is a wrapper over `vm-up`, `service-deploy`, conditional `ingress-regenerate`, and conditional Observability refresh. It resolves the named Service, validates its declared `backend.vm`, runs `vm-up <backend-vm>`, runs `service-deploy <service>`, runs `ingress-regenerate` only when that Service declares `ingress.enabled: true`, and runs `service-update observability --auto-confirm` when the launched Service declares Service-level Instrumentation.
+Service Launch is a wrapper over `vm-up`, `service-deploy`, conditional `ingress-regenerate`, and conditional Observability refresh. It resolves the named Service, validates its declared `backend.vm`, runs `vm-up <backend-vm>`, runs `service-deploy <service>`, runs `ingress-regenerate` only when that Service declares one or more Service Ingress Routes, and runs `service-update observability --auto-confirm` when the launched Service declares Service-level Instrumentation.
 
 Host Configure, NAS Reconcile, and Ingress infrastructure readiness are prerequisites. Service Launch does not run `host-bootstrap`, `host-configure`, `nas-reconcile`, `service-deploy internal-ingress`, or Service Deploy for DNS Services. It deploys only the named Service, even when other Services share the same Backend VM, Service Group, or Service Network.
 
@@ -169,20 +168,20 @@ It is a contrived but real-world-shaped multi-container Service on an existing B
 
 ```yaml
 name: fortress-service-demo
-hostname: fortress-service-demo.fearn.cloud
 service_group: service-demo
 service_data_owner:
   uid: 1000
   gid: 1000
 backend:
   vm: wintermute-demo
-  port: 8080
-ingress:
-  enabled: true
-  exposure: lan_only
-  tls: letsencrypt_dns
-  auth:
-    type: none
+ingress_routes:
+  - name: web
+    hostname: fortress-service-demo.fearn.cloud
+    published_port: 8080
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
 deploy:
   type: quadlet
   containers:
@@ -193,7 +192,6 @@ deploy:
         - bind: 127.0.0.1
           host: 8080
           container: 80
-          ingress: true
         - bind: 127.0.0.1
           host: 18080
           container: 80

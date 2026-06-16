@@ -18,7 +18,7 @@ deploy:
   type: quadlet
   containers:
     - name: prowlarr
-      image: lscr.io/linuxserver/prowlarr:2.3.5.5327-ls146
+      image: lscr.io/linuxserver/prowlarr:2.4.0.5397-ls149
       published_ports:
         - bind: 0.0.0.0
           host: 9696

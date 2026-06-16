@@ -18,7 +18,7 @@ deploy:
   type: quadlet
   containers:
     - name: jellyfin
-      image: docker.io/jellyfin/jellyfin:10.11.8
+      image: docker.io/jellyfin/jellyfin:10.11.11
       devices:
         - path: /dev/dri
           host_group: render

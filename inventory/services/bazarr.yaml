@@ -18,7 +18,7 @@ deploy:
   type: quadlet
   containers:
     - name: bazarr
-      image: lscr.io/linuxserver/bazarr:v1.5.6-ls348
+      image: lscr.io/linuxserver/bazarr:v1.5.6-ls350
       published_ports:
         - bind: 0.0.0.0
           host: 6767

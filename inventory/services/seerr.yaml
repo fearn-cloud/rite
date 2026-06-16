@@ -18,7 +18,7 @@ deploy:
   type: quadlet
   containers:
     - name: seerr
-      image: ghcr.io/seerr-team/seerr:v3.2.0
+      image: ghcr.io/seerr-team/seerr:v3.3.0
       published_ports:
         - bind: 0.0.0.0
           host: 5055

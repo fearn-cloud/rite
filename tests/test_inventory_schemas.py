@@ -733,6 +733,26 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_service_schema_accepts_container_command_and_tmpfs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "hermes.yaml"
+            service_yaml.write_text(
+                "name: hermes\n"
+                "backend:\n"
+                "  vm: hermes-vm\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: signal-cli\n"
+                "      image: registry.gitlab.com/packaging/signal-cli/signal-cli-native:v0-14-5-1\n"
+                "      command: [daemon, --http, 0.0.0.0:8080]\n"
+                "      tmpfs: [\"/tmp:exec\"]\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_service_schema_rejects_legacy_service_ingress_fields(self):
         cases = {
             "hostname": "hostname: photos.fearn.cloud\n",

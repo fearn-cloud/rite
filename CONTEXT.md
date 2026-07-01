@@ -78,6 +78,10 @@ _Avoid_: scrape config, Prometheus job.
 A generated operator-facing dashboard or panel set that presents telemetry collected from declared Instrumentation.
 _Avoid_: dashboard config, Grafana JSON, monitoring page.
 
+**Status Page**:
+An internal-ingress-bound operator-facing page that summarizes the health and uptime of opted-in Services.
+_Avoid_: Availability View, public status page, customer status page.
+
 **Observability View Profile**:
 A named reusable view shape that Rite can generate from compatible Instrumentation.
 _Avoid_: dashboard template, panel preset, Grafana model.

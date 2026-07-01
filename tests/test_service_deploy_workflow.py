@@ -980,6 +980,30 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
 
     def test_service_deploy_renders_pihole_dnsmasq_d_compatibility_for_ingress_dns_targets(self):
         model = load_inventory_tree(REPO_ROOT)
+        forward_records = (
+            "server:\n"
+            "    do-ip6: no\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"amazon.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"amazonaws.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"awsglobalaccelerator.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"cloudfront.net.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+        )
         cases = [
             ("dns-primary", "dns-primary-vm"),
             ("dns-secondary", "dns-secondary-vm"),
@@ -1026,10 +1050,11 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                         },
                         {
                             "path": f"/srv/services/{service_name}/unbound/forward-records.conf",
-                            "content": "",
+                            "content": forward_records,
                             "mode": "0644",
                             "uid": 1000,
                             "gid": 1000,
+                            "force": True,
                         },
                     ],
                     deploy_vars["fortress_service_data_files"],

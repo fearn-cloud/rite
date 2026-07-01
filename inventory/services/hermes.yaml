@@ -26,6 +26,7 @@ deploy:
   containers:
     - name: gateway
       image: docker.io/nousresearch/hermes-agent:main
+      depends_on: [signal-cli]
       published_ports:
         - bind: 0.0.0.0
           host: 8642
@@ -35,7 +36,16 @@ deploy:
           container: 9119
       env:
         HERMES_DASHBOARD: true
+        SIGNAL_HTTP_URL: http://signal-cli:8080
       volumes:
         - service_path: data
           container: /opt/data
+          access: read_write
+    - name: signal-cli
+      image: registry.gitlab.com/packaging/signal-cli/signal-cli-native:v0-14-5-1
+      command: ["daemon", "--http", "0.0.0.0:8080"]
+      tmpfs: ["/tmp:exec"]
+      volumes:
+        - service_path: signal-cli
+          container: /var/lib/signal-cli
           access: read_write

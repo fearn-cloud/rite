@@ -1,3 +1,4 @@
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -157,6 +158,12 @@ def render_quadlet_container(service, vm, container, container_index=None, runti
     for published_port in container.get("published_ports", []) or []:
         for rendered_port in _published_ports(published_port):
             lines.append(f"PublishPort={rendered_port}")
+
+    if container.get("command"):
+        lines.append(f"Exec={shlex.join(container['command'])}")
+
+    for tmpfs in container.get("tmpfs", []) or []:
+        lines.append(f"Tmpfs={tmpfs}")
 
     for name, value in (container.get("env") or {}).items():
         lines.append(f"Environment={name}={_quadlet_env_value(value)}")
@@ -416,15 +423,42 @@ def _service_data_files(service):
     files = []
     if _needs_unbound_default_include_files(service):
         owner = service.get("service_data_owner") or {}
-        for filename in ("a-records.conf", "srv-records.conf", "forward-records.conf"):
+        forward_records = _unbound_forward_records_content(service)
+        for filename, content, force in (
+            ("a-records.conf", "", False),
+            ("srv-records.conf", "", False),
+            ("forward-records.conf", forward_records, bool(forward_records)),
+        ):
             files.append(
                 ServiceDataFile(
                     path=str(PurePosixPath("/srv/services") / service["name"] / "unbound" / filename),
+                    content=content,
                     uid=owner.get("uid"),
                     gid=owner.get("gid"),
+                    force=force,
                 )
             )
     return files
+
+
+def _unbound_forward_records_content(service):
+    zones = (service.get("dns") or {}).get("unbound_forward_zones") or []
+    blocks = [
+        "\n".join(
+            [
+                "server:",
+                "    do-ip6: no",
+            ]
+        )
+    ]
+    for zone in zones:
+        lines = [
+            "forward-zone:",
+            f"    name: \"{zone['name']}\"",
+        ]
+        lines.extend(f"    forward-addr: {addr}" for addr in zone["forward_addrs"])
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) + "\n"
 
 
 def _needs_unbound_default_include_files(service):

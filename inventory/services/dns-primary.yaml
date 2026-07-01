@@ -18,6 +18,15 @@ dns:
   provider: pihole
   ingress_records:
     enabled: true
+  unbound_forward_zones:
+    - name: amazon.com.
+      forward_addrs: [1.1.1.1, 1.0.0.1]
+    - name: amazonaws.com.
+      forward_addrs: [1.1.1.1, 1.0.0.1]
+    - name: awsglobalaccelerator.com.
+      forward_addrs: [1.1.1.1, 1.0.0.1]
+    - name: cloudfront.net.
+      forward_addrs: [1.1.1.1, 1.0.0.1]
 deploy:
   type: quadlet
   containers:

@@ -505,8 +505,32 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
                 self.assertNotIn("version:", container.content)
                 self.assertNotIn("value:", container.content)
 
-    def test_dns_unbound_services_seed_empty_default_include_files(self):
+    def test_dns_unbound_services_render_default_include_files(self):
         services = ["dns-primary", "dns-secondary"]
+        forward_records = (
+            "server:\n"
+            "    do-ip6: no\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"amazon.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"amazonaws.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"awsglobalaccelerator.com.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+            "\n"
+            "forward-zone:\n"
+            "    name: \"cloudfront.net.\"\n"
+            "    forward-addr: 1.1.1.1\n"
+            "    forward-addr: 1.0.0.1\n"
+        )
 
         for service_name in services:
             with self.subTest(service=service_name):
@@ -516,12 +540,19 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
 
                 self.assertEqual(
                     [
-                        (f"/srv/services/{service_name}/unbound/a-records.conf", "", 1000, 1000, "0644"),
-                        (f"/srv/services/{service_name}/unbound/srv-records.conf", "", 1000, 1000, "0644"),
-                        (f"/srv/services/{service_name}/unbound/forward-records.conf", "", 1000, 1000, "0644"),
+                        (f"/srv/services/{service_name}/unbound/a-records.conf", "", 1000, 1000, "0644", False),
+                        (f"/srv/services/{service_name}/unbound/srv-records.conf", "", 1000, 1000, "0644", False),
+                        (
+                            f"/srv/services/{service_name}/unbound/forward-records.conf",
+                            forward_records,
+                            1000,
+                            1000,
+                            "0644",
+                            True,
+                        ),
                     ],
                     [
-                        (file.path, file.content, file.uid, file.gid, file.mode)
+                        (file.path, file.content, file.uid, file.gid, file.mode, file.force)
                         for file in rendered.service_data_files
                     ],
                 )
@@ -602,6 +633,29 @@ class ServiceQuadletRenderingTests(unittest.TestCase):
             container.content,
         )
         self.assertNotIn("admin_password: ", container.content)
+
+    def test_container_renders_command_and_tmpfs(self):
+        service = {
+            "name": "hermes",
+            "backend": {"vm": "hermes-vm"},
+            "deploy": {
+                "type": "quadlet",
+                "containers": [
+                    {
+                        "name": "signal-cli",
+                        "image": "registry.gitlab.com/packaging/signal-cli/signal-cli-native:v0-14-5-1",
+                        "command": ["daemon", "--http", "0.0.0.0:8080"],
+                        "tmpfs": ["/tmp:exec"],
+                    }
+                ],
+            },
+        }
+
+        rendered = render_quadlet_service(service, {}, runtime_intent=quadlet_runtime_intent_fixture(service))
+
+        container = rendered.artifacts_by_filename["fortress-hermes-signal-cli.container"]
+        self.assertIn("Exec=daemon --http 0.0.0.0:8080\n", container.content)
+        self.assertIn("Tmpfs=/tmp:exec\n", container.content)
 
     def test_container_service_secret_lines_use_service_runtime_intent_when_provided(self):
         service = {

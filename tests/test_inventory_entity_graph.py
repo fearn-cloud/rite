@@ -6,6 +6,7 @@ from fortress_inventory.entity_graph import (
     AcceptanceOperationalVmFact,
     AcceptancePolicyIntent,
     DesiredNfsShareInput,
+    DirectoryEntryFact,
     HostUpdateImpactedVm,
     HostUpdateRebootImpact,
     InstrumentedVmFact,
@@ -681,6 +682,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 service_name="photos",
                 backend_vm_name="media01",
                 requires_ingress_regeneration=True,
+                requires_directory_regeneration=False,
             ),
             graph.service_launch_intent("photos"),
         )
@@ -739,6 +741,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
                     "media-file-browser",
                 ),
                 requires_ingress_regeneration=True,
+                requires_directory_regeneration=True,
             ),
             graph.service_group_launch_intent("media"),
         )
@@ -752,6 +755,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 backend_vm_name="observability-vm",
                 service_names=("observability",),
                 requires_ingress_regeneration=True,
+                requires_directory_regeneration=True,
             ),
             graph.service_group_launch_intent("observability"),
         )
@@ -1528,6 +1532,178 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 ),
             ),
             graph.service_ingress_route_facts(),
+        )
+
+    def test_exposes_directory_entry_facts_for_service_host_and_nas_ingress_routes(self):
+        model = inventory_model(
+            hosts={
+                "wintermute": {
+                    "ingress": {
+                        "proxmox_web_ui": {
+                            "enabled": True,
+                            "hostname": "wintermute.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "Wintermute",
+                                "group": "Infrastructure",
+                            },
+                        },
+                    },
+                },
+            },
+            services={
+                "hermes": {
+                    "backend": {"vm": "app01"},
+                    "ingress_routes": [
+                        {
+                            "name": "gateway",
+                            "hostname": "hermes.fearn.cloud",
+                            "published_port": 8080,
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "Hermes",
+                                "group": "Apps",
+                            },
+                        },
+                    ],
+                },
+            },
+            nas_endpoints={
+                "truenas": {
+                    "ingress": {
+                        "web_ui": {
+                            "enabled": True,
+                            "hostname": "truenas.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "TrueNAS",
+                                "group": "Infrastructure",
+                            },
+                        },
+                    },
+                },
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(
+            (
+                DirectoryEntryFact(
+                    route_kind="service_ingress_route",
+                    owner_name="hermes",
+                    route_name="gateway",
+                    label="Hermes",
+                    group="Apps",
+                    destination="https://hermes.fearn.cloud",
+                ),
+                DirectoryEntryFact(
+                    route_kind="nas_ingress_route",
+                    owner_name="truenas",
+                    route_name="web_ui",
+                    label="TrueNAS",
+                    group="Infrastructure",
+                    destination="https://truenas.fearn.cloud",
+                ),
+                DirectoryEntryFact(
+                    route_kind="host_ingress_route",
+                    owner_name="wintermute",
+                    route_name="proxmox_web_ui",
+                    label="Wintermute",
+                    group="Infrastructure",
+                    destination="https://wintermute.fearn.cloud",
+                ),
+            ),
+            graph.directory_entry_facts(),
+        )
+
+    def test_directory_entry_facts_are_sorted_and_derive_destinations_from_routes(self):
+        model = inventory_model(
+            hosts={
+                "wintermute": {
+                    "ingress": {
+                        "proxmox_web_ui": {
+                            "enabled": True,
+                            "hostname": "wintermute.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "Wintermute",
+                                "group": "Infrastructure",
+                                "destination": "https://wrong.example",
+                            },
+                        },
+                    },
+                },
+            },
+            services={
+                "bazarr": {
+                    "ingress_routes": [
+                        {
+                            "name": "web",
+                            "hostname": "bazarr.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "Bazarr",
+                                "group": "Media",
+                            },
+                        },
+                    ],
+                },
+                "sonarr": {
+                    "ingress_routes": [
+                        {
+                            "name": "web",
+                            "hostname": "sonarr.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": False,
+                                "label": "Sonarr",
+                                "group": "Media",
+                            },
+                        },
+                        {
+                            "name": "anime",
+                            "hostname": "sonarr-anime.fearn.cloud",
+                            "directory_entry": {
+                                "enabled": True,
+                                "label": "Anime",
+                                "group": "Media",
+                            },
+                        },
+                    ],
+                },
+            },
+        )
+
+        graph = InventoryEntityGraph(model)
+
+        self.assertEqual(
+            (
+                DirectoryEntryFact(
+                    route_kind="host_ingress_route",
+                    owner_name="wintermute",
+                    route_name="proxmox_web_ui",
+                    label="Wintermute",
+                    group="Infrastructure",
+                    destination="https://wintermute.fearn.cloud",
+                ),
+                DirectoryEntryFact(
+                    route_kind="service_ingress_route",
+                    owner_name="sonarr",
+                    route_name="anime",
+                    label="Anime",
+                    group="Media",
+                    destination="https://sonarr-anime.fearn.cloud",
+                ),
+                DirectoryEntryFact(
+                    route_kind="service_ingress_route",
+                    owner_name="bazarr",
+                    route_name="web",
+                    label="Bazarr",
+                    group="Media",
+                    destination="https://bazarr.fearn.cloud",
+                ),
+            ),
+            graph.directory_entry_facts(),
         )
 
 

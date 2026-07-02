@@ -49,6 +49,16 @@
           "pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"
         }
       }
+    },
+    "directory_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "label": { "type": "string", "minLength": 1 },
+        "group": { "type": "string", "minLength": 1 }
+      }
     }
   },
   "type": "object",
@@ -126,6 +136,7 @@
           "published_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
           "exposure": { "enum": ["lan_only"] },
           "tls": { "enum": ["letsencrypt_dns"] },
+          "directory_entry": { "$ref": "#/$defs/directory_entry" },
           "auth": {
             "type": "object",
             "additionalProperties": false,

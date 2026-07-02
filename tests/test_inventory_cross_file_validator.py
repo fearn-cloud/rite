@@ -24,6 +24,31 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
         self.assertEqual(model.template_verification_policy["vmid"], 8901)
 
+    def test_repo_inventory_declares_service_directory_homepage_service(self):
+        model = load_inventory_tree(REPO_ROOT)
+        service = model.services["service-directory"]
+
+        self.assertEqual("service-directory", service["name"])
+        self.assertEqual("observability-vm", service["backend"]["vm"])
+        self.assertNotEqual("observability", service.get("service_group"))
+        self.assertIn(
+            {
+                "name": "web",
+                "hostname": "directory.fearn.cloud",
+                "published_port": 3001,
+                "exposure": "lan_only",
+                "tls": "letsencrypt_dns",
+                "auth": {"type": "none"},
+                "directory_entry": {
+                    "enabled": True,
+                    "label": "Service Directory",
+                    "group": "Operations",
+                },
+            },
+            service["ingress_routes"],
+        )
+        self.assertEqual([], validate_inventory_tree(REPO_ROOT))
+
     def test_inventory_model_loads_backup_policies(self):
         model = load_inventory_tree(FIXTURES / "inventory_valid")
 
@@ -650,6 +675,73 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
             self.assertNotIn("missing_service_ingress_route_published_port", codes)
             self.assertNotIn("non_tcp_service_ingress_route_published_port", codes)
 
+    def test_enabled_directory_entry_requires_routable_service_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            self.write_service_with_ingress_routes(
+                root,
+                routes=[("web", "photos.fearn.cloud", 9000)],
+                directory_entry=True,
+                published_ports=(2283,),
+            )
+
+            self.assertIn(
+                "directory_entry_route_not_routable",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_valid_directory_entries_on_service_host_and_nas_routes_pass_validation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            self.write_service_with_ingress_routes(
+                root,
+                routes=[("web", "photos.fearn.cloud", 2283)],
+                directory_entry=True,
+            )
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "network:\n"
+                "  management_address: 10.0.0.10\n"
+                "  bridges:\n"
+                "    - name: vmbr0\n"
+                "      managed: false\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: wintermute.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Wintermute\n"
+                "      group: Hosts\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: TrueNAS\n"
+                "      group: Storage\n"
+            )
+
+            self.assertEqual(validate_inventory_tree(root), [])
+
     @unittest.skip("legacy duplicate Service hostname validation replaced by route namespace validation")
     def test_duplicate_hostnames_only_matter_for_ingress_enabled_services(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -881,6 +973,60 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 {error.code for error in validate_inventory_tree(root)},
             )
 
+    def test_enabled_directory_entry_requires_enabled_host_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "network:\n"
+                "  management_address: 10.0.0.10\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: false\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Wintermute\n"
+                "      group: Hosts\n"
+            )
+
+            self.assertIn(
+                "directory_entry_route_not_routable",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_enabled_directory_entry_requires_routable_host_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: wintermute.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Wintermute\n"
+                "      group: Hosts\n"
+            )
+
+            self.assertIn(
+                "directory_entry_route_not_routable",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
     def test_nas_ingress_routes_require_trusted_source_range_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1038,6 +1184,59 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
 
             self.assertIn(
                 "missing_nas_ingress_management_address",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_enabled_directory_entry_requires_enabled_nas_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "management_address: 10.0.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: false\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: TrueNAS\n"
+                "      group: Storage\n"
+            )
+
+            self.assertIn(
+                "directory_entry_route_not_routable",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_enabled_directory_entry_requires_routable_nas_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "group_vars" / "all.yaml").write_text(
+                "domain: fearn.cloud\n"
+                "nas:\n"
+                "  default_options:\n"
+                "    - nfsvers=4.2\n"
+                "ingress:\n"
+                "  trusted_source_ranges:\n"
+                "    - 10.20.0.0/24\n"
+            )
+            (root / "inventory" / "nas" / "truenas.yaml").write_text(
+                "name: truenas\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: TrueNAS\n"
+                "      group: Storage\n"
+            )
+
+            self.assertIn(
+                "directory_entry_route_not_routable",
                 {error.code for error in validate_inventory_tree(root)},
             )
 
@@ -2165,6 +2364,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
         routes=(),
         published_ports=(2283, 8080),
         published_port_protocol="tcp",
+        directory_entry=False,
     ):
         route_yaml = ""
         for route_name, hostname, published_port in routes:
@@ -2177,6 +2377,13 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
                 "    auth:\n"
                 "      type: none\n"
             )
+            if directory_entry:
+                route_yaml += (
+                    "    directory_entry:\n"
+                    "      enabled: true\n"
+                    f"      label: {route_name.title()}\n"
+                    "      group: Media\n"
+                )
         published_port_yaml = "".join(
             f"        - container: {port}\n          host: {port}\n          protocol: {published_port_protocol}\n"
             for port in published_ports

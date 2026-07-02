@@ -82,6 +82,14 @@ _Avoid_: dashboard config, Grafana JSON, monitoring page.
 An internal-ingress-bound operator-facing page that summarizes the health and uptime of opted-in Services.
 _Avoid_: Availability View, public status page, customer status page.
 
+**Service Directory**:
+An internal-ingress-bound operator-facing page derived from selected Service and management route declarations for operator navigation.
+_Avoid_: dashboard, homepage, portal.
+
+**Directory Entry**:
+A route-local presentation declaration that opts an existing ingress route into the Service Directory for operator navigation. It is not a separate routing declaration.
+_Avoid_: link, bookmark, shortcut.
+
 **Observability View Profile**:
 A named reusable view shape that Rite can generate from compatible Instrumentation.
 _Avoid_: dashboard template, panel preset, Grafana model.
@@ -299,6 +307,10 @@ _Avoid_: app launch, full deploy.
 **Ingress Regeneration**:
 The operator workflow that regenerates and reloads Ingress routing and Ingress DNS Records from current Inventory.
 _Avoid_: Service Deploy, DNS deploy.
+
+**Directory Regeneration**:
+The operator workflow that regenerates and reloads the Service Directory from current Inventory.
+_Avoid_: Service Deploy, Homepage deploy.
 
 **NAS Reconcile**:
 An operator workflow that validates declared Datasets and converges derived Shares without deleting ordinary Dataset contents.
@@ -627,6 +639,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - The **Observability VM** is `observability-vm` at `10.40.0.17/24` on the `straylight` Host.
 - The **Observability VM** groups Prometheus, Alertmanager, Grafana, Loki, and Blackbox Exporter.
 - The `observability` **Service Group** is launchable on the **Observability VM**.
+- The **Service Directory** is the `service-directory` **Service**; Homepage is its first implementation.
+- The first **Service Directory** hostname is `directory.fearn.cloud`.
 - The **Headscale VM** is `headscale-vm` at `10.40.0.14/24` on the `straylight` Host.
 - The **Headscale VM** is local-only; remote devices must be enrolled while local or with a short-lived pre-auth key minted while local.
 - The **Identity VM** is an Infrastructure VLAN **VM** and must remain local-only.
@@ -823,6 +837,9 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - Absent planned DNS peers do not block regeneration.
 - **Ingress Regeneration** updates and reloads generated routing and DNS files; it does not perform **Service Deploy** for the **Ingress** or DNS **Services**.
 - **Service Deploy** owns stable **Ingress** installation and Caddy scaffolding; **Ingress Regeneration** owns the generated Caddy routes imported by that scaffolding.
+- **Service Deploy** owns stable **Service Directory** installation and Homepage scaffolding; **Directory Regeneration** owns the generated Homepage configuration derived from **Directory Entries**.
+- **Directory Regeneration** is explicit because **Directory Entries** are distributed across route declarations while the generated **Service Directory** artifact is consumed by the `service-directory` **Service**.
+- First-pass **Directory Entries** declare only enabled state, label, and group; the destination URL is derived from the owning ingress route.
 - **Ingress Regeneration** is non-transactional but succeeds only when every targeted **Ingress** and DNS reload succeeds.
 - Static validation proves **Ingress DNS Targets** are well-formed in **Inventory**; **Ingress Regeneration** proves live reachability and reload success.
 - **Ingress Auth** is explicit per **Service** and is not applied globally by default.
@@ -899,6 +916,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Launch** treats **Backup Readiness** as a prerequisite for **Backup Targets** and does not run **Backup Configure**.
 - **Service Launch** treats **Ingress** infrastructure readiness as a prerequisite and does not launch **Ingress** or DNS **Services**.
 - **Service Launch** runs **Ingress Regeneration** after **Service Deploy** only when the **Service** declares **Ingress**.
+- **Service Launch** runs **Directory Regeneration** after **Service Deploy** only when the **Service** declares **Directory Entries**.
 - **Service Launch** deploys only the named **Service**, even when other **Services** share its **Backend** **VM** or **Service Group**.
 - **Service Launch** does not roll back or destroy a durable **Backend** **VM** after downstream **Service Deploy** or **Ingress Regeneration** failure.
 - **Service Launch** is invoked for exactly one **Service** and passes operator confirmation policy through to underlying workflows.
@@ -911,6 +929,7 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Service Group Launch** deploys group **Services** through **Service Deploy** and does not add **Service Update** restart or active-check semantics.
 - **Service Group Launch** may deploy Quadlet and Native **Services** because **Service Group** membership is independent of deployment substrate.
 - **Service Group Launch** runs **Ingress Regeneration** once after all group **Service Deploy** phases complete, and only when at least one launched **Service** declares **Ingress**.
+- **Service Group Launch** runs **Directory Regeneration** once after all group **Service Deploy** phases complete, and only when at least one launched **Service** declares **Directory Entries**.
 - **Update** keeps the selected **Entity**'s identity, placement, and declared shape intact.
 - **Update** avoids package removals and release-transition behavior by default; those belong to **Upgrade**.
 - **Host Update**, **VM Update**, **Template Update**, and **Service Update** are separate operator workflows because their blast radius and safety gates differ.

@@ -8,6 +8,7 @@ from .validation.datasets import (
     validate_dataset_names,
     validate_dataset_nas_refs,
 )
+from .validation.directory_entries import validate_directory_entries
 from .validation.dns_filtering_exceptions import validate_dns_filtering_exceptions
 from .validation.errors import ValidationError
 from .validation.hosts import (
@@ -45,6 +46,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     service_runtime_intent = analyze_service_runtime_intent(model)
     errors.extend(validate_service_backends(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_service_ingress_contract(model))
+    errors.extend(validate_directory_entries(model, service_runtime_intent))
     errors.extend(validate_ingress_dns_targets(model))
     errors.extend(validate_service_hostnames(model))
     errors.extend(validate_host_proxmox_endpoints(model))

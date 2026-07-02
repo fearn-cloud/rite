@@ -127,6 +127,51 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
                 list(plan.steps[2].command),
             )
 
+    def test_service_launch_plan_regenerates_directory_when_service_declares_directory_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "photos",
+                "media01",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=True,
+            )
+
+            plan = build_service_launch_plan(root, "photos", auto_confirm=True)
+
+            self.assertEqual(
+                ["vm-lifecycle", "service-deploy", "ingress-regeneration", "directory-regeneration"],
+                [step.id for step in plan.steps],
+            )
+            directory_regeneration = plan.steps[-1]
+            self.assertIsInstance(directory_regeneration, CommandPhase)
+            self.assertEqual("Directory Regeneration", directory_regeneration.display_name)
+            self.assertEqual(
+                [str(root / "scripts" / "directory-regenerate")],
+                list(directory_regeneration.command),
+            )
+
+    def test_service_launch_plan_skips_directory_regeneration_when_directory_entry_is_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "photos",
+                "media01",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=False,
+            )
+
+            plan = build_service_launch_plan(root, "photos", auto_confirm=True)
+
+            self.assertEqual(
+                ["vm-lifecycle", "service-deploy", "ingress-regeneration"],
+                [step.id for step in plan.steps],
+            )
+
     def test_just_service_launch_calls_workflow_script(self):
         justfile = (REPO_ROOT / "justfile").read_text()
 
@@ -186,6 +231,39 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
                     "vm-up media01",
                     "service-deploy instrumented",
                     "service-update observability --auto-confirm",
+                ],
+                calls_log.read_text().splitlines(),
+            )
+
+    def test_service_launch_runs_directory_regeneration_when_service_declares_directory_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "photos",
+                "media01",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=True,
+            )
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-launch"), "photos"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                [
+                    "vm-up media01",
+                    "service-deploy photos",
+                    "ingress-regenerate",
+                    "directory-regenerate",
                 ],
                 calls_log.read_text().splitlines(),
             )
@@ -406,7 +484,14 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
         )
         self._write_service(root, "immich", "media01", ingress_enabled=True)
         calls_log = root / "calls.log"
-        for name in ["backup-readiness", "vm-up", "service-deploy", "service-update", "ingress-regenerate"]:
+        for name in [
+            "backup-readiness",
+            "vm-up",
+            "service-deploy",
+            "service-update",
+            "ingress-regenerate",
+            "directory-regenerate",
+        ]:
             script = root / "scripts" / name
             script.write_text(
                 "#!/usr/bin/env bash\n"
@@ -429,9 +514,17 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
         instrumentation_enabled=False,
         observability_view_enabled=False,
         ingress_routes=False,
+        directory_entry_enabled=None,
     ):
         ingress = "true" if ingress_enabled else "false"
         group = f"service_group: {service_group}\n" if service_group else ""
+        directory_entry = (
+            "    directory_entry:\n"
+            f"      enabled: {str(directory_entry_enabled).lower()}\n"
+            "      group: Media\n"
+            if directory_entry_enabled is not None
+            else ""
+        )
         routes = (
             "ingress_routes:\n"
             "  - name: web\n"
@@ -441,6 +534,7 @@ class ServiceLaunchWorkflowTests(unittest.TestCase):
             "    tls: letsencrypt_dns\n"
             "    auth:\n"
             "      type: none\n"
+            f"{directory_entry}"
             if ingress_routes or ingress_enabled
             else ""
         )

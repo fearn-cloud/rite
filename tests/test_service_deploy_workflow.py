@@ -265,6 +265,45 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 extra_vars["fortress_service_data_reconcile_directories"],
             )
 
+    def test_service_deploy_installs_stable_service_directory_homepage_scaffolding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            subprocess.run(["cp", "-R", str(REPO_ROOT / "inventory") + "/.", str(root / "inventory")], check=True)
+            scripts_dir = root / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            calls_log = root / "calls.log"
+            self._fake_decrypt_keys(scripts_dir / "decrypt-keys", calls_log)
+            env = os.environ.copy()
+            env["FORTRESS_ROOT"] = str(root)
+            env["CALLS_LOG"] = str(calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-deploy"), "service-directory"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            extra_vars = json.loads(calls_log.read_text().split("--extra-vars ", 1)[1])
+            self.assertEqual("observability-vm", extra_vars["deploy_service_backend_vm"])
+            self.assertEqual([], extra_vars["fortress_service_data_files"])
+            self.assertIn(
+                {"path": "/srv/services/service-directory/config", "uid": 1000, "gid": 1000},
+                extra_vars["fortress_service_data_directories"],
+            )
+            homepage_container = next(
+                artifact
+                for artifact in extra_vars["fortress_quadlet_artifacts"]
+                if artifact["filename"] == "fortress-service-directory-homepage.container"
+            )
+            self.assertIn("Image=ghcr.io/gethomepage/homepage:v1.4.6\n", homepage_container["content"])
+            self.assertIn("PublishPort=0.0.0.0:3001:3000/tcp\n", homepage_container["content"])
+            self.assertIn("Environment=HOMEPAGE_ALLOWED_HOSTS=directory.fearn.cloud\n", homepage_container["content"])
+            self.assertIn("Volume=/srv/services/service-directory/config:/app/config:rw\n", homepage_container["content"])
+
     def test_service_deploy_requires_service_sibling_sops_file_only_when_service_secrets_are_declared(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

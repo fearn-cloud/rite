@@ -155,3 +155,7 @@ template-destroy host template delete_template_yaml="false":
 # Generate the Caddy ingress config from Inventory.
 ingress-regenerate:
     @./scripts/ingress-regenerate
+
+# Generate the Homepage Service Directory config from Inventory.
+directory-regenerate:
+    @./scripts/directory-regenerate

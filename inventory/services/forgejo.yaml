@@ -12,6 +12,10 @@ ingress_routes:
     tls: letsencrypt_dns
     auth:
       type: none
+    directory_entry:
+      enabled: true
+      label: Forgejo
+      group: Development
 deploy:
   type: quadlet
   containers:

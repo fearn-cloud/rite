@@ -31,6 +31,10 @@ ingress:
   proxmox_web_ui:
     enabled: true
     hostname: molly.fearn.cloud
+    directory_entry:
+      enabled: true
+      label: Molly Proxmox
+      group: Hosts
 gpu_passthrough:
   enabled: false
   vendor: none

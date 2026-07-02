@@ -94,6 +94,16 @@ class ServiceIngressRouteFact:
 
 
 @dataclass(frozen=True)
+class DirectoryEntryFact:
+    route_kind: str
+    owner_name: str
+    route_name: str
+    label: str | None
+    group: str | None
+    destination: str
+
+
+@dataclass(frozen=True)
 class ObservabilityViewIntent:
     view_id: str
     entity_kind: str
@@ -107,6 +117,7 @@ class ServiceLaunchIntent:
     service_name: str
     backend_vm_name: str
     requires_ingress_regeneration: bool
+    requires_directory_regeneration: bool
 
 
 @dataclass(frozen=True)
@@ -115,6 +126,7 @@ class ServiceGroupLaunchIntent:
     backend_vm_name: str
     service_names: tuple[str, ...]
     requires_ingress_regeneration: bool
+    requires_directory_regeneration: bool
 
 
 @dataclass(frozen=True)
@@ -277,6 +289,54 @@ class InventoryEntityGraph:
             for route in intent.service_ingress_routes
         )
 
+    def directory_entry_facts(self):
+        facts = []
+        for service_name, service in self._model.services.items():
+            for route in service.get("ingress_routes", []) or []:
+                fact = _directory_entry_fact(
+                    route_kind="service_ingress_route",
+                    owner_name=service_name,
+                    route_name=route.get("name"),
+                    route=route,
+                )
+                if fact is not None:
+                    facts.append(fact)
+
+        for host_name, host in self._model.hosts.items():
+            route = (host.get("ingress") or {}).get("proxmox_web_ui") or {}
+            fact = _directory_entry_fact(
+                route_kind="host_ingress_route",
+                owner_name=host_name,
+                route_name="proxmox_web_ui",
+                route=route,
+            )
+            if fact is not None:
+                facts.append(fact)
+
+        for endpoint_name, endpoint in self._model.nas_endpoints.items():
+            route = (endpoint.get("ingress") or {}).get("web_ui") or {}
+            fact = _directory_entry_fact(
+                route_kind="nas_ingress_route",
+                owner_name=endpoint_name,
+                route_name="web_ui",
+                route=route,
+            )
+            if fact is not None:
+                facts.append(fact)
+
+        return tuple(
+            sorted(
+                facts,
+                key=lambda fact: (
+                    fact.group or "",
+                    fact.label or "",
+                    fact.route_kind,
+                    fact.owner_name,
+                    fact.route_name,
+                ),
+            )
+        )
+
     def observability_view_intents(self, excluded_vm_names=()):
         return self.vm_observability_view_intents(
             excluded_vm_names=excluded_vm_names
@@ -327,6 +387,7 @@ class InventoryEntityGraph:
             service_name=service_name,
             backend_vm_name=backend_vm_name,
             requires_ingress_regeneration=_service_requires_ingress_regeneration(service),
+            requires_directory_regeneration=_service_requires_directory_regeneration(service),
         )
 
     def service_group_launch_intent(self, service_group_name):
@@ -395,6 +456,10 @@ class InventoryEntityGraph:
             service_names=service_names,
             requires_ingress_regeneration=any(
                 _service_requires_ingress_regeneration(self._model.services.get(service_name) or {})
+                for service_name in service_names
+            ),
+            requires_directory_regeneration=any(
+                _service_requires_directory_regeneration(self._model.services.get(service_name) or {})
                 for service_name in service_names
             ),
         )
@@ -891,3 +956,28 @@ def _is_ordinary_vm(vm):
 
 def _service_requires_ingress_regeneration(service):
     return bool(service.get("ingress_routes") or [])
+
+
+def _service_requires_directory_regeneration(service):
+    return any(
+        ((route.get("directory_entry") or {}).get("enabled") is True)
+        for route in service.get("ingress_routes", []) or []
+    )
+
+
+def _directory_entry_fact(route_kind, owner_name, route_name, route):
+    entry = route.get("directory_entry") or {}
+    if entry.get("enabled") is not True:
+        return None
+    return DirectoryEntryFact(
+        route_kind=route_kind,
+        owner_name=owner_name,
+        route_name=route_name,
+        label=entry.get("label"),
+        group=entry.get("group"),
+        destination=_https_destination(route.get("hostname")),
+    )
+
+
+def _https_destination(hostname):
+    return f"https://{hostname}"

@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.validate import validate_inventory_model
+from fortress_services.service_directory_config import service_directory_service_data_files
+
+
+SERVICE_NAME = "service-directory"
+HOMEPAGE_UNIT = "fortress-service-directory-homepage.service"
+
+
+def main():
+    if sys.argv[1:]:
+        print("usage: scripts/directory-regenerate", file=sys.stderr)
+        return 2
+
+    repo_root = Path(
+        os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1])
+    )
+    model = load_inventory_tree(repo_root)
+    try:
+        backend_vm = _service_directory_backend_vm(model)
+    except ValueError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    errors = validate_inventory_model(model)
+    if errors:
+        for error in errors:
+            print(f"{error.code}: {error.path}: {error.message}", file=sys.stderr)
+        return 1
+
+    files = service_directory_service_data_files(model)
+
+    print("Regenerating Service Directory from Inventory...", flush=True)
+    for file in files:
+        if not _run_step(
+            repo_root,
+            f"push Service Directory generated config to {backend_vm}",
+            backend_vm,
+            ["sudo", "install", "-D", "-m", file.mode, "/dev/stdin", file.path],
+            stdin=file.content,
+        ):
+            return 1
+    if not _run_step(
+        repo_root,
+        f"restart Homepage on {backend_vm}",
+        backend_vm,
+        ["sudo", "systemctl", "restart", HOMEPAGE_UNIT],
+    ):
+        return 1
+
+    print("Service Directory regeneration complete.", flush=True)
+    return 0
+
+
+def _run_step(repo_root, description, vm, command, stdin=""):
+    print(f"running: {description}", flush=True)
+    result = subprocess.run(
+        [str(repo_root / "scripts" / "vm-shell"), vm, "--", *command],
+        input=stdin,
+        text=True,
+    )
+    if result.returncode == 0:
+        print(f"ok: {description}", flush=True)
+        return True
+    print(f"failed: {description}", file=sys.stderr)
+    return False
+
+
+def _service_directory_backend_vm(model):
+    service = model.services.get(SERVICE_NAME)
+    if service is None:
+        raise ValueError("service-directory Service is required for Directory Regeneration")
+    backend_vm = (service.get("backend") or {}).get("vm")
+    if not backend_vm:
+        raise ValueError(
+            "service-directory Service must declare a Backend VM for Directory Regeneration"
+        )
+    if backend_vm not in model.vms:
+        raise ValueError(
+            f"service-directory Backend VM {backend_vm} is required for Directory Regeneration"
+        )
+    return backend_vm
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

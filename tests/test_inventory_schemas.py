@@ -205,6 +205,28 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_host_schema_accepts_directory_entry_on_host_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            host_yaml = Path(tmp) / "wintermute.yaml"
+            host_yaml.write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "network:\n"
+                "  management_address: 10.10.0.11\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: wintermute.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Wintermute\n"
+                "      group: Hosts\n"
+            )
+
+            result = self.run_schema("inventory/hosts/_schema.json", str(host_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_nas_schema_accepts_web_ui_ingress_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             nas_yaml = Path(tmp) / "truenas.yaml"
@@ -224,6 +246,99 @@ class InventorySchemaTests(unittest.TestCase):
             result = self.run_schema("inventory/nas/_schema.json", str(nas_yaml))
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_nas_schema_accepts_directory_entry_on_nas_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nas_yaml = Path(tmp) / "truenas.yaml"
+            nas_yaml.write_text(
+                "name: truenas\n"
+                "management_address: 10.10.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "tls_verify: false\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+                "    scheme: http\n"
+                "    port: 80\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: TrueNAS\n"
+                "      group: Storage\n"
+            )
+
+            result = self.run_schema("inventory/nas/_schema.json", str(nas_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_directory_entry_schema_rejects_destination_url(self):
+        cases = [
+            (
+                "inventory/services/_schema.json",
+                "hermes.yaml",
+                "name: hermes\n"
+                "backend:\n"
+                "  vm: app01\n"
+                "ingress_routes:\n"
+                "  - name: gateway\n"
+                "    hostname: hermes.fearn.cloud\n"
+                "    published_port: 8080\n"
+                "    exposure: lan_only\n"
+                "    tls: letsencrypt_dns\n"
+                "    auth:\n"
+                "      type: none\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Hermes Gateway\n"
+                "      group: Platform\n"
+                "      url: https://other.example.test\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: gateway\n"
+                "      image: ghcr.io/example/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+            ),
+            (
+                "inventory/hosts/_schema.json",
+                "wintermute.yaml",
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+                "ingress:\n"
+                "  proxmox_web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: wintermute.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Wintermute\n"
+                "      group: Hosts\n"
+                "      url: https://other.example.test\n",
+            ),
+            (
+                "inventory/nas/_schema.json",
+                "truenas.yaml",
+                "name: truenas\n"
+                "management_address: 10.10.0.15\n"
+                "share_address: 10.40.0.15\n"
+                "ingress:\n"
+                "  web_ui:\n"
+                "    enabled: true\n"
+                "    hostname: truenas.fearn.cloud\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: TrueNAS\n"
+                "      group: Storage\n"
+                "      url: https://other.example.test\n",
+            ),
+        ]
+        for schema_path, filename, content in cases:
+            with self.subTest(schema=schema_path), tempfile.TemporaryDirectory() as tmp:
+                yaml_path = Path(tmp) / filename
+                yaml_path.write_text(content)
+
+                result = self.run_schema(schema_path, str(yaml_path))
+
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("url", result.stdout + result.stderr)
 
     def test_service_schema_accepts_explicit_service_network(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -727,6 +842,39 @@ class InventorySchemaTests(unittest.TestCase):
                 "          host: 8080\n"
                 "        - container: 8081\n"
                 "          host: 8081\n"
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_service_schema_accepts_directory_entry_on_service_ingress_route(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service_yaml = Path(tmp) / "hermes.yaml"
+            service_yaml.write_text(
+                "name: hermes\n"
+                "backend:\n"
+                "  vm: app01\n"
+                "ingress_routes:\n"
+                "  - name: gateway\n"
+                "    hostname: hermes.fearn.cloud\n"
+                "    published_port: 8080\n"
+                "    exposure: lan_only\n"
+                "    tls: letsencrypt_dns\n"
+                "    auth:\n"
+                "      type: none\n"
+                "    directory_entry:\n"
+                "      enabled: true\n"
+                "      label: Hermes Gateway\n"
+                "      group: Platform\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: gateway\n"
+                "      image: ghcr.io/example/hermes@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                "      published_ports:\n"
+                "        - container: 8080\n"
+                "          host: 8080\n"
             )
 
             result = self.run_schema("inventory/services/_schema.json", str(service_yaml))

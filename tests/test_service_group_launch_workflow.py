@@ -156,12 +156,64 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
                 list(plan.steps[-1].command),
             )
 
+    def test_service_group_launch_plan_regenerates_directory_once_when_any_service_declares_directory_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "sonarr",
+                "media01",
+                deploy_type="quadlet",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=True,
+            )
+
+            plan = build_service_group_launch_plan(root, "media")
+
+            self.assertEqual(
+                service_group_launch_step_ids(include_ingress=True, include_directory=True),
+                [step.id for step in plan.steps],
+            )
+            directory_regeneration = plan.steps[-1]
+            self.assertIsInstance(directory_regeneration, CommandPhase)
+            self.assertEqual("Directory Regeneration", directory_regeneration.display_name)
+            self.assertEqual(
+                [str(root / "scripts" / "directory-regenerate")],
+                list(directory_regeneration.command),
+            )
+
+    def test_service_group_launch_plan_skips_directory_regeneration_when_no_service_has_enabled_directory_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, _calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "sonarr",
+                "media01",
+                deploy_type="quadlet",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=False,
+            )
+
+            plan = build_service_group_launch_plan(root, "media")
+
+            self.assertEqual(
+                service_group_launch_step_ids(include_ingress=True),
+                [step.id for step in plan.steps],
+            )
+
     def test_observability_service_group_launch_plan_uses_observability_vm_and_service(self):
         plan = build_service_group_launch_plan(REPO_ROOT, "observability", auto_confirm=True)
 
         self.assertEqual("service-group-launch:observability", plan.id)
         self.assertEqual(
-            ["vm-lifecycle", "service-deploy:observability", "ingress-regeneration"],
+            [
+                "vm-lifecycle",
+                "service-deploy:observability",
+                "ingress-regeneration",
+                "directory-regeneration",
+            ],
             [step.id for step in plan.steps],
         )
         self.assertEqual(
@@ -264,6 +316,42 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
                     "service-deploy prowlarr",
                     "service-deploy sonarr",
                     "service-update observability --auto-confirm",
+                ],
+                calls_log.read_text().splitlines(),
+            )
+
+    def test_service_group_launch_script_runs_directory_regeneration_once_after_service_deploys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._workflow_fixture(tmp)
+            self._write_service(
+                root,
+                "sonarr",
+                "media01",
+                deploy_type="quadlet",
+                ingress_enabled=False,
+                ingress_routes=True,
+                directory_entry_enabled=True,
+            )
+            self._write_fake_command_scripts(root)
+            env = self._workflow_env(root, calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "service-group-launch"), "media"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                [
+                    "vm-up media01",
+                    "service-deploy prowlarr",
+                    "service-deploy sonarr",
+                    "ingress-regenerate",
+                    "directory-regenerate",
                 ],
                 calls_log.read_text().splitlines(),
             )
@@ -373,8 +461,16 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
         instrumentation_enabled=False,
         observability_view_enabled=False,
         ingress_routes=False,
+        directory_entry_enabled=None,
     ):
         ingress = "true" if ingress_enabled else "false"
+        directory_entry = (
+            "    directory_entry:\n"
+            f"      enabled: {str(directory_entry_enabled).lower()}\n"
+            "      group: Media\n"
+            if directory_entry_enabled is not None
+            else ""
+        )
         routes = (
             "ingress_routes:\n"
             "  - name: web\n"
@@ -384,6 +480,7 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
             "    tls: letsencrypt_dns\n"
             "    auth:\n"
             "      type: none\n"
+            f"{directory_entry}"
             if ingress_routes or ingress_enabled
             else ""
         )
@@ -436,7 +533,7 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
         )
 
     def _write_fake_command_scripts(self, root):
-        for name in ["vm-up", "service-deploy", "service-update", "ingress-regenerate"]:
+        for name in ["vm-up", "service-deploy", "service-update", "ingress-regenerate", "directory-regenerate"]:
             script = root / "scripts" / name
             script.write_text(
                 "#!/usr/bin/env bash\n"
@@ -457,10 +554,12 @@ class ServiceGroupLaunchWorkflowTests(unittest.TestCase):
         return env
 
 
-def service_group_launch_step_ids(include_ingress=False):
+def service_group_launch_step_ids(include_ingress=False, include_directory=False):
     step_ids = ["vm-lifecycle", "service-deploy:prowlarr", "service-deploy:sonarr"]
     if include_ingress:
         step_ids.append("ingress-regeneration")
+    if include_directory:
+        step_ids.append("directory-regeneration")
     return step_ids
 
 

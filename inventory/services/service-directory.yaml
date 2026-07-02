@@ -1,0 +1,35 @@
+name: service-directory
+service_data_owner:
+  uid: 1000
+  gid: 1000
+backend:
+  vm: observability-vm
+ingress_routes:
+  - name: web
+    hostname: directory.fearn.cloud
+    published_port: 3001
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
+    directory_entry:
+      enabled: true
+      label: Service Directory
+      group: Operations
+deploy:
+  type: quadlet
+  containers:
+    - name: homepage
+      image: ghcr.io/gethomepage/homepage:v1.4.6
+      published_ports:
+        - bind: 0.0.0.0
+          host: 3001
+          container: 3000
+      env:
+        HOMEPAGE_ALLOWED_HOSTS: directory.fearn.cloud
+        PUID: 1000
+        PGID: 1000
+      volumes:
+        - service_path: config
+          container: /app/config
+          access: read_write

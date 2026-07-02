@@ -241,6 +241,19 @@ class NewServiceRunbookTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, content)
 
+    def test_service_directory_runbook_explains_operator_path(self):
+        content = (REPO_ROOT / "runbooks" / "service-directory.md").read_text()
+
+        for phrase in [
+            "service-deploy service-directory",
+            "directory-regenerate",
+            "Service Launch and Service Group Launch refresh the Service Directory automatically",
+            "Host and NAS Directory Entry changes require explicit Directory Regeneration",
+            "Do not copy `service_group` by default",
+        ]:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, content)
+
 
 if __name__ == "__main__":
     unittest.main()

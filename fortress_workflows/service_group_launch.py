@@ -65,6 +65,16 @@ def build_service_group_launch_plan(
                 streaming=True,
             )
         )
+    if intent.requires_directory_regeneration:
+        steps.append(
+            CommandPhase(
+                id="directory-regeneration",
+                display_name="Directory Regeneration",
+                command=[str(repo_root / "scripts" / "directory-regenerate")],
+                diagnostic_label=f"Directory Regeneration failed for Service Group Launch {service_group}",
+                streaming=True,
+            )
+        )
 
     return OperatorWorkflowPlan(
         id=f"service-group-launch:{service_group}",

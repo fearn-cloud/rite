@@ -33,6 +33,10 @@ ingress:
   proxmox_web_ui:
     enabled: true
     hostname: straylight.fearn.cloud
+    directory_entry:
+      enabled: true
+      label: Straylight Proxmox
+      group: Hosts
 gpu_passthrough:
   enabled: false
   vendor: intel

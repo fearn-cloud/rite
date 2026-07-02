@@ -36,6 +36,10 @@ ingress:
   proxmox_web_ui:
     enabled: true
     hostname: neuromancer.fearn.cloud
+    directory_entry:
+      enabled: true
+      label: Neuromancer Proxmox
+      group: Hosts
 gpu_passthrough:
   enabled: true
   vendor: intel

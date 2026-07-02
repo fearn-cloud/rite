@@ -8,3 +8,7 @@ ingress:
     hostname: truenas.fearn.cloud
     scheme: http
     port: 80
+    directory_entry:
+      enabled: true
+      label: TrueNAS
+      group: Storage

@@ -114,6 +114,10 @@ Trusted VLAN is the admin workstation network. Known is the ordinary non-admin c
 
 The Tailnet Subnet Router is attached to the Trusted VLAN because it extends trusted Operator reachability. During early bring-up, it advertises Management, Trusted, Known, IoT, Infrastructure, Apps, DMZ, and Guest VLAN routes to the Hosted Tailnet. Tighten this route scope after remote operations and firewall policy are stable.
 
+| ID | Source | Destination | Protocol | Port(s) | Required | Reason |
+| --- | --- | --- | --- | --- | --- | --- |
+| `TAIL-003-ALLOW-EXIT-NODE-EGRESS` | `tailnet-subnet-router-vm` | Internet | TCP/UDP | required outbound | Yes, when Tailnet Exit Node is enabled | Remote Operator Workstations may manually use the Tailnet Exit Node for secured public-network egress during Remote Operator Sessions |
+
 ## Internal Ingress and Identity
 
 | ID | Source | Destination | Protocol | Port(s) | Required | Reason |

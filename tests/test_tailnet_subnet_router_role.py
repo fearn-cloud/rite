@@ -33,6 +33,13 @@ class TailnetSubnetRouterRoleTests(unittest.TestCase):
     def test_role_advertises_declared_routes_without_reusing_auth_key_after_enrollment(self):
         tasks = (REPO_ROOT / "ansible" / "roles" / "tailnet_subnet_router" / "tasks" / "main.yml").read_text()
 
-        self.assertIn("--advertise-routes={{ fortress_vm.tailnet_subnet_router.advertise_routes | join(',') }}", tasks)
+        self.assertIn("fortress_tailnet_advertisement_args", tasks)
+        self.assertIn("'--advertise-routes=' ~ (fortress_vm.tailnet_subnet_router.advertise_routes | join(','))", tasks)
         self.assertIn("when: fortress_tailscale_status.rc == 0", tasks)
         self.assertIn("--accept-dns=false", tasks)
+
+    def test_role_optionally_advertises_exit_node_from_inventory(self):
+        tasks = (REPO_ROOT / "ansible" / "roles" / "tailnet_subnet_router" / "tasks" / "main.yml").read_text()
+
+        self.assertIn("--advertise-exit-node", tasks)
+        self.assertIn("advertise_exit_node | default(false)", tasks)

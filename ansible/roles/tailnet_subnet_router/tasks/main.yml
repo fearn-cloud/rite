@@ -47,6 +47,15 @@
   failed_when: false
   register: fortress_tailscale_status
 
+- name: Build Tailscale advertisement arguments
+  ansible.builtin.set_fact:
+    fortress_tailnet_advertisement_args: >-
+      {{
+        ['--advertise-routes=' ~ (fortress_vm.tailnet_subnet_router.advertise_routes | join(','))]
+        + (['--advertise-exit-node'] if (fortress_vm.tailnet_subnet_router.advertise_exit_node | default(false)) else [])
+        + ['--accept-dns=false']
+      }}
+
 - name: Read Tailnet Auth Key from VM Sibling SOPS File
   ansible.builtin.command:
     argv:
@@ -64,12 +73,7 @@
 
 - name: Enroll Tailnet Subnet Router
   ansible.builtin.command:
-    argv:
-      - tailscale
-      - up
-      - "--auth-key={{ fortress_tailnet_auth_key.stdout | trim }}"
-      - "--advertise-routes={{ fortress_vm.tailnet_subnet_router.advertise_routes | join(',') }}"
-      - --accept-dns=false
+    argv: "{{ ['tailscale', 'up', '--auth-key=' ~ (fortress_tailnet_auth_key.stdout | trim)] + fortress_tailnet_advertisement_args }}"
   changed_when: true
   register: fortress_tailscale_up
   no_log: true
@@ -77,10 +81,6 @@
 
 - name: Ensure advertised fortress VLAN routes
   ansible.builtin.command:
-    argv:
-      - tailscale
-      - up
-      - "--advertise-routes={{ fortress_vm.tailnet_subnet_router.advertise_routes | join(',') }}"
-      - --accept-dns=false
+    argv: "{{ ['tailscale', 'up'] + fortress_tailnet_advertisement_args }}"
   changed_when: false
   when: fortress_tailscale_status.rc == 0

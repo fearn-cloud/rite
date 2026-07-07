@@ -162,6 +162,7 @@
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
         },
+        "advertise_exit_node": { "type": "boolean" },
         "auth_key_extract": { "type": "string", "minLength": 1 }
       }
     },

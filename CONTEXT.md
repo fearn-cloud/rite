@@ -236,6 +236,10 @@ _Avoid_: Headscale, local tailnet, VPN.
 A tailnet-enrolled network router that advertises selected fortress VLAN routes to Remote Operator Workstations.
 _Avoid_: installing Tailscale everywhere, VPN VM.
 
+**Tailnet Exit Node**:
+An optional Tailnet Subnet Router capability that lets Remote Operator Workstations send general internet traffic through the fortress network during Remote Operator Sessions. It is not a separate VM role.
+_Avoid_: VPN gateway, separate exit VM.
+
 **Tailnet Auth Key**:
 An encrypted Tailscale enrollment credential used by the Tailnet Subnet Router during VM Configure.
 _Avoid_: VPN password, login token, machine credential.
@@ -617,9 +621,16 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Remote Operator Workstation** gains workflow authority only during a **Remote Operator Session**.
 - A **Remote Operator Workstation** uses the **Hosted Tailnet** for immediate remote reachability while the **Headscale VM** is not ready.
 - A **Remote Operator Workstation** reaches fortress networks through a **Tailnet Subnet Router** rather than direct Tailscale installs on each VM.
+- A **Remote Operator Workstation** may use the **Tailnet Exit Node** only as part of a **Remote Operator Session**.
 - The initial **Tailnet Subnet Router** is `tailnet-subnet-router-vm` at `10.20.0.20/24` on the `molly` **Host**.
 - The initial **Tailnet Subnet Router** is declared as an ordinary long-lived **VM** in **Inventory**.
 - The initial **Tailnet Subnet Router** is attached to the **Trusted VLAN** because it extends trusted Operator reachability.
+- **Tailnet Exit Node** egress is treated as **Trusted VLAN** egress from the **Tailnet Subnet Router**.
+- **Tailnet Exit Node** behavior is an explicit **Inventory** opt-in on a **Tailnet Subnet Router**.
+- **Tailnet Exit Node** behavior initially covers IPv4 internet egress only.
+- Rite configures the **Tailnet Exit Node** advertisement, but the **Hosted Tailnet** controls approval and client eligibility.
+- The **Operator** manually selects the **Tailnet Exit Node** for each **Remote Operator Session** that needs secured public-network egress.
+- A **Remote Operator Session** that uses the **Tailnet Exit Node** still resolves through the **DNS VMs**; the **Tailnet Subnet Router** is not a DNS resolver.
 - The **Tailnet Subnet Router** is routing-only; it is not a Remote Operator Workstation.
 - The **Tailnet Subnet Router** enrolls into the **Hosted Tailnet** using a **Tailnet Auth Key** stored in its **Sibling SOPS File**.
 - **Tailnet Subnet Router** setup is VM-level configuration, not a **Service**.

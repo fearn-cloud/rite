@@ -24,4 +24,16 @@ just vm-up vm=tailnet-subnet-router-vm
 
 After Configure completes, approve the advertised subnet routes in the Tailscale admin console. During early bring-up, this VM advertises all fortress VLANs so the Operator can recover or continue implementation work remotely.
 
+If `tailnet_subnet_router.advertise_exit_node` is enabled in Inventory, also approve the advertised exit node in the Tailscale admin console. Only Remote Operator Workstations should be eligible to use it.
+
+For a Remote Operator Session on an untrusted public network:
+
+1. Connect the Remote Operator Workstation to the Hosted Tailnet.
+2. Manually select `tailnet-subnet-router-vm` as the exit node for the session.
+3. Confirm fortress hostnames resolve through the DNS VMs.
+4. Run the needed Operator Workflows.
+5. Disable exit-node use when the Remote Operator Session ends.
+
+The exit node secures general IPv4 internet egress through the fortress Trusted VLAN. DNS still belongs to the DNS VMs; the Tailnet Subnet Router is not a resolver.
+
 The router VM is routing-only. Do not use it as a remote shell, editor, or credential-holding Operator environment.

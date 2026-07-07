@@ -549,6 +549,7 @@ class InventorySchemaTests(unittest.TestCase):
                 "cloud_init:\n"
                 "  hostname: tailnet-subnet-router-vm\n"
                 "tailnet_subnet_router:\n"
+                "  advertise_exit_node: true\n"
                 "  advertise_routes:\n"
                 "    - 10.10.0.0/24\n"
                 "    - 10.40.0.0/24\n"

@@ -14,6 +14,10 @@ ingress_routes:
     tls: letsencrypt_dns
     auth:
       type: none
+    directory_entry:
+      enabled: true
+      label: qBittorrent
+      group: Download
 deploy:
   type: quadlet
   containers:

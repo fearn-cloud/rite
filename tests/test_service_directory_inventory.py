@@ -18,6 +18,8 @@ class ServiceDirectoryInventoryTests(unittest.TestCase):
         self.assertEqual(
             [
                 ("service_ingress_route", "forgejo", "web", "Forgejo", "Development"),
+                ("service_ingress_route", "sabnzbd", "web", "SABnzbd", "Download"),
+                ("service_ingress_route", "qbittorrent", "web", "qBittorrent", "Download"),
                 ("host_ingress_route", "molly", "proxmox_web_ui", "Molly Proxmox", "Hosts"),
                 ("host_ingress_route", "neuromancer", "proxmox_web_ui", "Neuromancer Proxmox", "Hosts"),
                 ("host_ingress_route", "straylight", "proxmox_web_ui", "Straylight Proxmox", "Hosts"),
@@ -53,6 +55,11 @@ class ServiceDirectoryInventoryTests(unittest.TestCase):
             "- Development:\n"
             "  - Forgejo:\n"
             "      href: https://git.fearn.cloud\n"
+            "- Download:\n"
+            "  - SABnzbd:\n"
+            "      href: https://sabnzbd.fearn.cloud\n"
+            "  - qBittorrent:\n"
+            "      href: https://qbittorrent.fearn.cloud\n"
             "- Hosts:\n"
             "  - Molly Proxmox:\n"
             "      href: https://molly.fearn.cloud\n"

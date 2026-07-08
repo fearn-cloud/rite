@@ -211,6 +211,12 @@ class TofuGenerationTests(unittest.TestCase):
         self.assertIn("each.value.ssh_public_key", module)
         self.assertIn("run Prepare first", module)
 
+    def test_vm_partition_projects_secondary_addresses_into_network_intent(self):
+        module = (REPO_ROOT / "tofu" / "modules" / "vm-partition" / "main.tf").read_text()
+
+        self.assertIn("secondary_addresses = try(interface.secondary_addresses, [])", module)
+        self.assertIn("yamlencode({ interfaces = local.vm_network_interfaces[each.key] })", module)
+
     def test_vm_partition_attaches_cloud_init_on_scsi_for_q35_ovmf_templates(self):
         module = (REPO_ROOT / "tofu" / "modules" / "vm-partition" / "main.tf").read_text()
 

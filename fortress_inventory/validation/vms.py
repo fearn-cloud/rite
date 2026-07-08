@@ -1,3 +1,5 @@
+from ipaddress import ip_address, ip_interface
+
 from .errors import ValidationError
 
 
@@ -69,6 +71,64 @@ def validate_vm_refs(model):
                     f"VM {vm_name} references missing Template {template_name}",
                 )
             )
+    return errors
+
+
+def validate_vm_addresses_and_management_ssh_policy(model):
+    errors = []
+    for vm_name, vm in model.vms.items():
+        owned_addresses = {}
+        for interface_index, interface in enumerate(vm.get("network", {}).get("interfaces", []) or []):
+            primary_address = interface.get("address")
+            if primary_address:
+                address = _normalized_ipv4_interface_address(primary_address)
+                if address:
+                    _append_duplicate_vm_owned_address_error(
+                        errors,
+                        owned_addresses,
+                        address,
+                        f"inventory/vms/{vm_name}.yaml.network.interfaces[{interface_index}].address",
+                        vm_name,
+                    )
+
+            for secondary_index, secondary_address in enumerate(interface.get("secondary_addresses", []) or []):
+                path = (
+                    f"inventory/vms/{vm_name}.yaml.network.interfaces"
+                    f"[{interface_index}].secondary_addresses[{secondary_index}]"
+                )
+                address = _normalized_ipv4_interface_address(secondary_address)
+                if not address:
+                    errors.append(
+                        ValidationError(
+                            "invalid_vm_secondary_address",
+                            path,
+                            f"VM {vm_name} declares malformed Secondary VM Address {secondary_address!r}",
+                        )
+                    )
+                    continue
+                _append_duplicate_vm_owned_address_error(errors, owned_addresses, address, path, vm_name)
+
+        policy = vm.get("management_ssh_policy") or {}
+        for listener_index, listener_address in enumerate(policy.get("listen_addresses", []) or []):
+            path = f"inventory/vms/{vm_name}.yaml.management_ssh_policy.listen_addresses[{listener_index}]"
+            address = _normalized_bare_ipv4_address(listener_address)
+            if not address:
+                errors.append(
+                    ValidationError(
+                        "invalid_management_ssh_listener_address",
+                        path,
+                        f"VM {vm_name} Management SSH Policy listener address {listener_address!r} is not a bare IPv4 address",
+                    )
+                )
+                continue
+            if address not in owned_addresses:
+                errors.append(
+                    ValidationError(
+                        "management_ssh_listener_address_not_vm_owned",
+                        path,
+                        f"VM {vm_name} Management SSH Policy listener address {address} is not declared on that VM",
+                    )
+                )
     return errors
 
 
@@ -236,3 +296,35 @@ def _vm_static_addresses(vm):
         if address:
             addresses.append(address.split("/", 1)[0])
     return addresses
+
+
+def _normalized_ipv4_interface_address(value):
+    try:
+        parsed = ip_interface(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.version != 4:
+        return None
+    return str(parsed.ip)
+
+
+def _normalized_bare_ipv4_address(value):
+    try:
+        parsed = ip_address(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.version != 4:
+        return None
+    return str(parsed)
+
+
+def _append_duplicate_vm_owned_address_error(errors, owned_addresses, address, path, vm_name):
+    existing_path = owned_addresses.setdefault(address, path)
+    if existing_path != path:
+        errors.append(
+            ValidationError(
+                "duplicate_vm_owned_address",
+                path,
+                f"VM {vm_name} declares duplicate VM-owned address {address}",
+            )
+        )

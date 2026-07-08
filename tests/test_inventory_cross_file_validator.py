@@ -19,6 +19,135 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_valid_inventory_tree_has_no_cross_file_errors(self):
         self.assertEqual(validate_inventory_tree(FIXTURES / "inventory_valid"), [])
 
+    def test_vm_secondary_addresses_and_management_ssh_policy_are_valid_when_vm_owned(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(
+                vm_path.read_text().replace(
+                    "      address: 10.0.10.101/24\n",
+                    "      address: 10.0.10.101/24\n"
+                    "      secondary_addresses:\n"
+                    "        - 10.0.10.102/24\n"
+                    "management_ssh_policy:\n"
+                    "  listen_addresses:\n"
+                    "    - 10.0.10.101\n",
+                )
+            )
+
+            self.assertEqual([], validate_inventory_tree(root))
+
+    def test_vm_secondary_addresses_must_be_valid_and_unique_vm_owned_ipv4_addresses(self):
+        cases = [
+            (
+                "bad-secondary",
+                "      secondary_addresses:\n        - not-an-address\n",
+                "invalid_vm_secondary_address",
+            ),
+            (
+                "duplicate-primary",
+                "      secondary_addresses:\n        - 10.0.10.101/24\n",
+                "duplicate_vm_owned_address",
+            ),
+            (
+                "duplicate-secondary",
+                "      secondary_addresses:\n        - 10.0.10.102/24\n        - 10.0.10.102/24\n",
+                "duplicate_vm_owned_address",
+            ),
+        ]
+        for name, inserted_yaml, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                    vm_path = root / "inventory" / "vms" / "media01.yaml"
+                    vm_path.write_text(
+                        vm_path.read_text().replace(
+                            "      address: 10.0.10.101/24\n",
+                            "      address: 10.0.10.101/24\n" + inserted_yaml,
+                        )
+                    )
+
+                    self.assertIn(expected_code, {error.code for error in validate_inventory_tree(root)})
+
+    def test_management_ssh_policy_listener_addresses_must_be_declared_on_same_vm(self):
+        cases = [
+            ("malformed", "not-an-address", "invalid_management_ssh_listener_address"),
+            ("other-vm", "10.40.0.16", "management_ssh_listener_address_not_vm_owned"),
+            ("undeclared", "10.0.10.199", "management_ssh_listener_address_not_vm_owned"),
+        ]
+        for name, listen_address, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                    vm_path = root / "inventory" / "vms" / "media01.yaml"
+                    vm_path.write_text(
+                        vm_path.read_text()
+                        + "management_ssh_policy:\n"
+                        + "  listen_addresses:\n"
+                        + f"    - {listen_address}\n"
+                    )
+
+                    self.assertIn(expected_code, {error.code for error in validate_inventory_tree(root)})
+
+    def test_service_tcp_ingress_listener_address_must_be_owned_by_ingress_vm(self):
+        cases = [
+            ("owned-secondary", "10.40.0.21", False),
+            ("backend-vm", "10.0.10.101", True),
+            ("undeclared", "10.40.0.199", True),
+        ]
+        for name, listen_address, should_error in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                    (root / "inventory" / "vms" / "internal-ingress-vm.yaml").write_text(
+                        "vmid: 1006\n"
+                        "placement:\n"
+                        "  host: wintermute\n"
+                        "source:\n"
+                        "  template: debian-13-base\n"
+                        "hardware:\n"
+                        "  cores: 1\n"
+                        "  memory: 1024\n"
+                        "network:\n"
+                        "  interfaces:\n"
+                        "    - bridge: vmbr0\n"
+                        "      address: 10.40.0.16/24\n"
+                        "      secondary_addresses:\n"
+                        "        - 10.40.0.21/24\n"
+                        "cloud_init:\n"
+                        "  hostname: internal-ingress-vm\n"
+                        "backup:\n"
+                        "  enabled: true\n"
+                    )
+                    (root / "inventory" / "services" / "internal-ingress.yaml").write_text(
+                        "name: internal-ingress\n"
+                        "backend:\n"
+                        "  vm: internal-ingress-vm\n"
+                        "deploy:\n"
+                        "  type: native\n"
+                        "  package: caddy\n"
+                    )
+                    immich = root / "inventory" / "services" / "immich.yaml"
+                    immich.write_text(
+                        immich.read_text()
+                        + "ingress_tcp_routes:\n"
+                        + "  - name: ssh\n"
+                        + "    hostname: photos-ssh.fearn.cloud\n"
+                        + f"    listen_address: {listen_address}\n"
+                        + "    listen_port: 22\n"
+                        + "    published_port: 2283\n"
+                    )
+
+                    codes = {error.code for error in validate_inventory_tree(root)}
+                    if should_error:
+                        self.assertIn("service_tcp_ingress_listener_address_not_ingress_vm_owned", codes)
+                    else:
+                        self.assertNotIn("service_tcp_ingress_listener_address_not_ingress_vm_owned", codes)
+
     def test_inventory_model_loads_template_verification_policy(self):
         model = load_inventory_tree(REPO_ROOT)
 

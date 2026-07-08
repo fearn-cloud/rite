@@ -36,15 +36,17 @@ locals {
           bridge  = "vmbr0"
           gateway = null
           model   = "virtio"
+          secondary_addresses = []
           vlan    = null
         }
         ] : [
         for interface in vm.network.interfaces : {
-          address = try(interface.address, "dhcp")
-          bridge  = interface.bridge
-          gateway = try(interface.gateway, null)
-          model   = try(interface.model, "virtio")
-          vlan    = try(interface.vlan, null)
+          address             = try(interface.address, "dhcp")
+          bridge              = interface.bridge
+          gateway             = try(interface.gateway, null)
+          model               = try(interface.model, "virtio")
+          secondary_addresses = try(interface.secondary_addresses, [])
+          vlan                = try(interface.vlan, null)
         }
       ]
     )

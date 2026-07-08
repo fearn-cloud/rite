@@ -28,6 +28,7 @@ from .validation.services import (
     validate_service_tcp_ingress_contract,
 )
 from .validation.vms import (
+    validate_vm_addresses_and_management_ssh_policy,
     validate_vm_launchable_service_groups,
     validate_vm_inventory_policy,
     validate_vm_mounts,
@@ -58,6 +59,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(validate_native_services(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_service_share_backed_volumes(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_vm_inventory_policy(model))
+    errors.extend(validate_vm_addresses_and_management_ssh_policy(model))
     errors.extend(validate_vm_refs(model))
     errors.extend(validate_vm_launchable_service_groups(model))
     errors.extend(validate_backup_policies(model))

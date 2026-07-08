@@ -1,0 +1,42 @@
+- name: Ensure fortress network convergence script is installed
+  ansible.builtin.template:
+    src: fortress-network-addresses.sh.j2
+    dest: /usr/local/sbin/fortress-network-addresses
+    owner: root
+    group: root
+    mode: "0755"
+  register: fortress_vm_network_addresses_script
+
+- name: Ensure fortress network convergence unit is installed
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/fortress-network-addresses.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Converge Rite-declared VM network addresses from /etc/fortress-network-intent.yaml
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/fortress-network-addresses
+
+      [Install]
+      WantedBy=multi-user.target
+  register: fortress_vm_network_addresses_unit
+
+- name: Reload systemd when network convergence unit changes
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: fortress_vm_network_addresses_unit.changed
+
+- name: Enable fortress network convergence
+  ansible.builtin.systemd:
+    name: fortress-network-addresses.service
+    enabled: true
+
+- name: Run fortress network convergence
+  ansible.builtin.command: /usr/local/sbin/fortress-network-addresses
+  changed_when: false

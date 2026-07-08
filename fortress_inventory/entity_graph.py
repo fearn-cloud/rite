@@ -682,6 +682,40 @@ class InventoryEntityGraph:
             return ()
         addresses = []
         for interface_index, interface in enumerate(vm.get("network", {}).get("interfaces", []) or []):
+            declared_addresses = []
+            primary_address = interface.get("address")
+            if primary_address:
+                declared_addresses.append(("address", primary_address))
+            for secondary_index, secondary_address in enumerate(interface.get("secondary_addresses", []) or []):
+                declared_addresses.append((f"secondary_addresses[{secondary_index}]", secondary_address))
+            for field_name, address in declared_addresses:
+                try:
+                    parsed = ip_interface(address)
+                except ValueError as error:
+                    raise InventoryEntityGraphError(
+                        f"VM {vm_name} declares invalid network.interfaces[{interface_index}].{field_name} {address!r}"
+                    ) from error
+                if parsed.version == 4:
+                    addresses.append(str(parsed.ip))
+        return tuple(addresses)
+
+    def vm_nfs_client_addresses(self, vm_name):
+        return self.vm_static_ipv4_addresses(vm_name)
+
+    def vm_static_ipv4_address(self, vm_name):
+        addresses = self._vm_primary_static_ipv4_addresses(vm_name)
+        if not addresses:
+            return None
+        if len(addresses) > 1:
+            raise InventoryEntityGraphError(f"VM {vm_name} must declare at most one static IPv4 address")
+        return addresses[0]
+
+    def _vm_primary_static_ipv4_addresses(self, vm_name):
+        vm = self._model.vms.get(vm_name)
+        if not vm:
+            return ()
+        addresses = []
+        for interface_index, interface in enumerate(vm.get("network", {}).get("interfaces", []) or []):
             address = interface.get("address")
             if not address:
                 continue
@@ -694,17 +728,6 @@ class InventoryEntityGraph:
             if parsed.version == 4:
                 addresses.append(str(parsed.ip))
         return tuple(addresses)
-
-    def vm_nfs_client_addresses(self, vm_name):
-        return self.vm_static_ipv4_addresses(vm_name)
-
-    def vm_static_ipv4_address(self, vm_name):
-        addresses = self.vm_static_ipv4_addresses(vm_name)
-        if not addresses:
-            return None
-        if len(addresses) > 1:
-            raise InventoryEntityGraphError(f"VM {vm_name} must declare at most one static IPv4 address")
-        return addresses[0]
 
     def host_management_ipv4_address(self, host_name):
         host = self._model.hosts.get(host_name)

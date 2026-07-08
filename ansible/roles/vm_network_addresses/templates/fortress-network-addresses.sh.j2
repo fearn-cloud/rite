@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+test -f /etc/fortress-network-intent.yaml
+
+{% for interface in fortress_vm.network.interfaces | default([]) %}
+{% set primary_address = interface.address | default('') %}
+{% if primary_address %}
+primary_address="{{ primary_address }}"
+primary_device="$(ip -o -4 address show | awk -v address="$primary_address" '$4 == address {print $2; exit}')"
+if [ -z "$primary_device" ]; then
+{% if interface.gateway is defined %}
+  primary_device="$(ip route get "{{ interface.gateway }}" | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
+{% else %}
+  primary_device="$(ip -o link show | awk -F': ' '$2 != "lo" {print $2; exit}')"
+{% endif %}
+fi
+if [ -n "$primary_device" ]; then
+{% for declared_address in [primary_address] + (interface.secondary_addresses | default([])) %}
+  if ! ip -4 address show dev "$primary_device" | awk '{print $2}' | grep -Fxq "{{ declared_address }}"; then
+    ip address add "{{ declared_address }}" dev "$primary_device"
+  fi
+{% endfor %}
+fi
+{% endif %}
+{% endfor %}

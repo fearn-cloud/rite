@@ -172,6 +172,37 @@ class InventorySchemaTests(unittest.TestCase):
             self.assertNotEqual(invalid.returncode, 0, invalid.stdout + invalid.stderr)
             self.assertIn("pci_devices", invalid.stdout + invalid.stderr)
 
+    def test_vm_schema_accepts_secondary_addresses_and_management_ssh_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vm_yaml = Path(tmp) / "ingress.yaml"
+            vm_yaml.write_text(
+                "vmid: 106\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 1\n"
+                "  memory: 1024\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      vlan: 40\n"
+                "      address: 10.40.0.16/24\n"
+                "      gateway: 10.40.0.1\n"
+                "      secondary_addresses:\n"
+                "        - 10.40.0.21/24\n"
+                "management_ssh_policy:\n"
+                "  listen_addresses:\n"
+                "    - 10.40.0.16\n"
+                "cloud_init:\n"
+                "  hostname: internal-ingress-vm\n"
+            )
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_media_vm_declares_neuromancer_igpu_assignment(self):
         media_vm = REPO_ROOT / "inventory" / "vms" / "media-vm.yaml"
         content = media_vm.read_text()

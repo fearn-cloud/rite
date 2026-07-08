@@ -1,0 +1,25 @@
+- name: Ensure sshd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render managed OpenSSH listener policy
+  ansible.builtin.template:
+    src: fortress-listen-addresses.conf.j2
+    dest: /etc/ssh/sshd_config.d/90-fortress-listen-addresses.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: fortress_management_ssh_policy_dropin
+
+- name: Validate OpenSSH configuration
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  when: fortress_management_ssh_policy_dropin.changed
+
+- name: Reload OpenSSH for managed listener policy
+  ansible.builtin.command: systemctl reload sshd
+  when: fortress_management_ssh_policy_dropin.changed

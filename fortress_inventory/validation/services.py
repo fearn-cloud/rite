@@ -1,3 +1,5 @@
+from ipaddress import ip_address
+
 from fortress_inventory.service_runtime_intent import analyze_service_runtime_intent
 
 from .errors import ValidationError
@@ -69,6 +71,7 @@ def validate_service_ingress_contract(model):
 def validate_service_tcp_ingress_contract(model):
     errors = []
     listeners = {}
+    ingress_owned_addresses = _ingress_vm_owned_ipv4_addresses(model)
     for service_name, service in model.services.items():
         seen_route_names = {}
         published_ports = _service_published_ports(service)
@@ -110,6 +113,16 @@ def validate_service_tcp_ingress_contract(model):
                 )
 
             listener = (route.get("listen_address"), route.get("listen_port"))
+            listen_address = _normalized_bare_ipv4_address(route.get("listen_address"))
+            if listen_address and ingress_owned_addresses and listen_address not in ingress_owned_addresses:
+                errors.append(
+                    ValidationError(
+                        "service_tcp_ingress_listener_address_not_ingress_vm_owned",
+                        f"{route_path}.listen_address",
+                        f"Service TCP Ingress Route {service_name}/{route_name} listener address "
+                        f"{listen_address} is not declared on the Ingress VM",
+                    )
+                )
             existing_route = listeners.setdefault(listener, (service_name, route_name))
             if existing_route != (service_name, route_name):
                 existing_service, existing_name = existing_route
@@ -122,6 +135,22 @@ def validate_service_tcp_ingress_contract(model):
                     )
                 )
     return errors
+
+
+def _ingress_vm_owned_ipv4_addresses(model):
+    ingress_service = model.services.get("internal-ingress") or {}
+    backend = ingress_service.get("backend") if isinstance(ingress_service, dict) else {}
+    vm_name = backend.get("vm") if isinstance(backend, dict) else None
+    vm = model.vms.get(vm_name)
+    if not vm:
+        return set()
+    addresses = set()
+    for interface in vm.get("network", {}).get("interfaces", []) or []:
+        for value in [interface.get("address"), *(interface.get("secondary_addresses", []) or [])]:
+            address = _normalized_vm_interface_ipv4_address(value)
+            if address:
+                addresses.add(address)
+    return addresses
 
 
 def validate_ingress_dns_targets(model):
@@ -260,6 +289,28 @@ def _service_published_ports(service):
             if protocol in ("udp", "tcp_udp"):
                 ports.add((host_port, "udp"))
     return ports
+
+
+def _normalized_vm_interface_ipv4_address(value):
+    if not value:
+        return None
+    try:
+        parsed = ip_address(str(value).split("/", 1)[0])
+    except (TypeError, ValueError):
+        return None
+    if parsed.version != 4:
+        return None
+    return str(parsed)
+
+
+def _normalized_bare_ipv4_address(value):
+    try:
+        parsed = ip_address(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed.version != 4:
+        return None
+    return str(parsed)
 
 
 def _validate_service_telemetry_targets(model, runtime_intent=None):

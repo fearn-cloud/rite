@@ -1037,7 +1037,11 @@ class InventoryEntityGraphTests(unittest.TestCase):
                 "media01": {
                     "network": {
                         "interfaces": [
-                            {"bridge": "vmbr0", "address": "10.0.10.101/24"},
+                            {
+                                "bridge": "vmbr0",
+                                "address": "10.0.10.101/24",
+                                "secondary_addresses": ["10.0.10.102/24"],
+                            },
                             {"bridge": "vmbr1", "address": "2001:db8::10/64"},
                         ],
                     },
@@ -1047,12 +1051,23 @@ class InventoryEntityGraphTests(unittest.TestCase):
 
         graph = InventoryEntityGraph(model)
 
-        self.assertEqual(("10.0.10.101",), graph.vm_static_ipv4_addresses("media01"))
+        self.assertEqual(("10.0.10.101", "10.0.10.102"), graph.vm_static_ipv4_addresses("media01"))
 
     def test_singular_vm_static_ipv4_address_returns_none_for_absence_and_rejects_ambiguity(self):
         model = inventory_model(
             vms={
                 "dynamic01": {"network": {"interfaces": [{"bridge": "vmbr0"}]}},
+                "secondary01": {
+                    "network": {
+                        "interfaces": [
+                            {
+                                "bridge": "vmbr0",
+                                "address": "10.0.10.102/24",
+                                "secondary_addresses": ["10.0.10.202/24"],
+                            },
+                        ],
+                    },
+                },
                 "multi01": {
                     "network": {
                         "interfaces": [
@@ -1067,6 +1082,7 @@ class InventoryEntityGraphTests(unittest.TestCase):
         graph = InventoryEntityGraph(model)
 
         self.assertIsNone(graph.vm_static_ipv4_address("dynamic01"))
+        self.assertEqual("10.0.10.102", graph.vm_static_ipv4_address("secondary01"))
         with self.assertRaisesRegex(
             InventoryEntityGraphError,
             "VM multi01 must declare at most one static IPv4 address",

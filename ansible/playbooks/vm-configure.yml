@@ -11,6 +11,17 @@
       ansible.builtin.command: cloud-init status --wait
       changed_when: false
 
+    - name: Converge declared VM network addresses
+      ansible.builtin.include_role:
+        name: vm_network_addresses
+      tags: [vm_network_addresses]
+
+    - name: Converge Management SSH Policy
+      ansible.builtin.include_role:
+        name: management_ssh_policy
+      when: fortress_vm.management_ssh_policy is defined
+      tags: [management_ssh_policy]
+
     - name: Configure NFS mount units
       ansible.builtin.include_role:
         name: vm_nfs_mounts

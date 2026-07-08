@@ -16,6 +16,11 @@ network:
       vlan: 40
       address: 10.40.0.16/24
       gateway: 10.40.0.1
+      secondary_addresses:
+        - 10.40.0.21/24
+management_ssh_policy:
+  listen_addresses:
+    - 10.40.0.16
 cloud_init:
   hostname: internal-ingress-vm
 backup:

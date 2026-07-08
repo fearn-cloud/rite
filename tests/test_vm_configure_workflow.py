@@ -139,6 +139,45 @@ class VMConfigureWorkflowTests(unittest.TestCase):
             playbook.index("name: vm_admin_user"),
         )
 
+    def test_vm_configure_playbook_converges_network_addresses_before_other_roles(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
+        role = (REPO_ROOT / "ansible" / "roles" / "vm_network_addresses" / "tasks" / "main.yml").read_text()
+        template = (
+            REPO_ROOT / "ansible" / "roles" / "vm_network_addresses" / "templates" / "fortress-network-addresses.sh.j2"
+        ).read_text()
+
+        self.assertIn("name: vm_network_addresses", playbook)
+        self.assertLess(
+            playbook.index("name: vm_network_addresses"),
+            playbook.index("name: vm_nfs_mounts"),
+        )
+        self.assertIn("/etc/fortress-network-intent.yaml", role)
+        self.assertIn("secondary_addresses", template)
+        self.assertIn("ip address add", template)
+        self.assertNotIn("ip address del", template)
+
+    def test_vm_configure_playbook_converges_management_ssh_policy_after_network_addresses(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
+        role = (REPO_ROOT / "ansible" / "roles" / "management_ssh_policy" / "tasks" / "main.yml").read_text()
+        template = (
+            REPO_ROOT / "ansible" / "roles" / "management_ssh_policy" / "templates" / "fortress-listen-addresses.conf.j2"
+        ).read_text()
+
+        self.assertIn("name: management_ssh_policy", playbook)
+        self.assertLess(
+            playbook.index("name: vm_network_addresses"),
+            playbook.index("name: management_ssh_policy"),
+        )
+        self.assertLess(
+            playbook.index("name: management_ssh_policy"),
+            playbook.index("name: vm_nfs_mounts"),
+        )
+        self.assertIn("when: fortress_vm.management_ssh_policy is defined", playbook)
+        self.assertIn("sshd -t", role)
+        self.assertIn("systemctl reload sshd", role)
+        self.assertIn("when: fortress_management_ssh_policy_dropin.changed", role)
+        self.assertIn("ListenAddress {{ listen_address }}", template)
+
     def test_vm_configure_playbook_configures_tailnet_subnet_router_before_admin_finalization(self):
         playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
 

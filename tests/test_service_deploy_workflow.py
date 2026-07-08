@@ -1124,6 +1124,7 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
         caddyfile = (REPO_ROOT / "inventory" / "services" / "internal-ingress.native.d" / "Caddyfile.j2").read_text()
 
         self.assertIn("admin {$CADDY_ADMIN}", caddyfile)
+        self.assertIn("import /etc/caddy/fortress/generated-layer4.caddy", caddyfile)
         self.assertIn("import /etc/caddy/fortress/generated-routes.caddy", caddyfile)
         self.assertNotIn("git.fearn.cloud {", caddyfile)
         self.assertNotIn("reverse_proxy 10.", caddyfile)
@@ -1186,7 +1187,11 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
                 {
                     "package": "github.com/caddy-dns/cloudflare",
                     "module": "dns.providers.cloudflare",
-                }
+                },
+                {
+                    "package": "github.com/mholt/caddy-l4",
+                    "module": "layer4",
+                },
             ],
             service["deploy"]["caddy_modules"],
         )

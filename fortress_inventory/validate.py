@@ -25,6 +25,7 @@ from .validation.services import (
     validate_service_hostnames,
     validate_service_ingress_contract,
     validate_service_share_backed_volumes,
+    validate_service_tcp_ingress_contract,
 )
 from .validation.vms import (
     validate_vm_launchable_service_groups,
@@ -46,6 +47,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     service_runtime_intent = analyze_service_runtime_intent(model)
     errors.extend(validate_service_backends(model, runtime_intent=service_runtime_intent))
     errors.extend(validate_service_ingress_contract(model))
+    errors.extend(validate_service_tcp_ingress_contract(model))
     errors.extend(validate_directory_entries(model, service_runtime_intent))
     errors.extend(validate_ingress_dns_targets(model))
     errors.extend(validate_service_hostnames(model))

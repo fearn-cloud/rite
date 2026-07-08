@@ -40,7 +40,7 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 | `forgejo-vm` | `10.40.0.12` | `straylight` | Forgejo | VM-local |
 | `pbs-vm` | `10.40.0.13` | `straylight` | Proxmox Backup Server | NFS Datastore from NAS |
 | `headscale-vm` | `10.40.0.14` | `straylight` | Headscale | VM-local |
-| `internal-ingress-vm` | `10.40.0.16` | `straylight` | Caddy | VM-local |
+| `internal-ingress-vm` | `10.40.0.16`, `10.40.0.21` | `straylight` | Caddy HTTP ingress, Forgejo SSH ingress | VM-local |
 | `observability-vm` | `10.40.0.17` | `straylight` | Prometheus, Alertmanager, Grafana, Loki, Blackbox Exporter | VM-local unless later expanded |
 | `dns-secondary-vm` | `10.40.0.18` | `molly` | Pi-hole, Unbound | VM-local |
 | `identity-vm` | `10.40.0.19` | `straylight` | Authentik | VM-local |

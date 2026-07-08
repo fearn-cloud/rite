@@ -148,6 +148,21 @@
         }
       }
     },
+    "ingress_tcp_routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "hostname", "listen_address", "listen_port", "published_port"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "hostname": { "type": "string", "minLength": 1 },
+          "listen_address": { "type": "string", "minLength": 1 },
+          "listen_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "published_port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        }
+      }
+    },
     "instrumentation": {
       "type": "object",
       "additionalProperties": false,

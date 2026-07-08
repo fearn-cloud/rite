@@ -138,6 +138,10 @@ _Avoid_: exposed port (overloaded between container metadata and host publishing
 A Service-level Ingress route from a hostname to one HTTP-family VM host port exposed by a Published Port on the Service's Backend VM. It never routes directly to a container-only port.
 _Avoid_: sibling Service, direct VM port, Host Ingress Route.
 
+**Service TCP Ingress Route**:
+A Service-level Ingress route from a hostname and listener address/port to one raw TCP VM host port exposed by a Published Port on the Service's Backend VM. It is separate from Service Ingress Route because it is not HTTP-family traffic and may need a distinct Ingress listener address.
+_Avoid_: HTTP route, SSH config workaround, container-only port.
+
 **Service Ingress Route Name**:
 A Service-local stable identifier for one Service Ingress Route, independent of container names and hostnames.
 _Avoid_: container alias, DNS label, route hostname.
@@ -393,7 +397,7 @@ The escape-hatch substrate: an apt package plus a systemd unit, configured by An
 _Avoid_: bare-metal (the VM is still a VM); package install.
 
 **Ingress**:
-The VM named `internal-ingress-vm`, placed on the `straylight` Host, that terminates TLS and reverse-proxies internal HTTP traffic to backing Services.
+The VM named `internal-ingress-vm`, placed on the `straylight` Host, that terminates TLS and reverse-proxies internal HTTP traffic to backing Services and can forward declared raw TCP traffic through Caddy layer4.
 _Avoid_: edge, gateway, proxy (reserve "proxy" for the verb).
 
 **Ingress DNS Record**:

@@ -9,7 +9,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fortress_ingress.generate import GENERATED_CADDY_ROUTES_PATH, render_caddy_routes, render_ingress_dns_record_sets
+from fortress_ingress.generate import (
+    GENERATED_CADDY_LAYER4_ROUTES_PATH,
+    GENERATED_CADDY_ROUTES_PATH,
+    render_caddy_layer4_routes,
+    render_caddy_routes,
+    render_ingress_dns_record_sets,
+)
 from fortress_inventory.entity_graph import InventoryEntityGraph
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.validate import validate_inventory_model
@@ -34,6 +40,7 @@ def main():
 
     try:
         caddy_routes = render_caddy_routes(model)
+        caddy_layer4_routes = render_caddy_layer4_routes(model)
         dns_record_sets = render_ingress_dns_record_sets(model)
     except ValueError as error:
         print(str(error), file=sys.stderr)
@@ -43,12 +50,20 @@ def main():
         print(caddy_routes, end="")
         return 0
 
-    return regenerate_ingress(repo_root, model, caddy_routes, dns_record_sets)
+    return regenerate_ingress(repo_root, model, caddy_routes, caddy_layer4_routes, dns_record_sets)
 
 
-def regenerate_ingress(repo_root, model, caddy_routes, dns_record_sets):
+def regenerate_ingress(repo_root, model, caddy_routes, caddy_layer4_routes, dns_record_sets):
     ingress_vm = model.services["internal-ingress"]["backend"]["vm"]
     print("Regenerating ingress from Inventory...", flush=True)
+    if not _run_step(
+        repo_root,
+        f"push Caddy layer4 routes to {ingress_vm}",
+        ingress_vm,
+        ["sudo", "install", "-D", "-m", "0644", "/dev/stdin", GENERATED_CADDY_LAYER4_ROUTES_PATH],
+        stdin=caddy_layer4_routes,
+    ):
+        return 1
     if not _run_step(
         repo_root,
         f"push Caddy routes to {ingress_vm}",
@@ -106,12 +121,11 @@ def _run_step(repo_root, description, vm, command, stdin=""):
 
 def _prove_dns_records_loaded(model, service_name, vm, content):
     resolver = _resolver_address(model, vm)
-    expected_address = _ingress_address(model)
-    hostnames = _generated_record_hostnames(content)
+    records = _generated_records(content)
     print(f"running: prove Ingress DNS records for {service_name} through {resolver}", flush=True)
     deadline = time.monotonic() + DNS_PROOF_TIMEOUT_SECONDS
     while True:
-        last_error = _dns_record_set_error(resolver, expected_address, hostnames)
+        last_error = _dns_record_set_error(resolver, records)
         if not last_error:
             print(f"ok: prove Ingress DNS records for {service_name} through {resolver}", flush=True)
             return True
@@ -132,36 +146,27 @@ def _resolver_address(model, vm):
     return addresses[0]
 
 
-def _ingress_address(model):
-    graph = InventoryEntityGraph(model)
-    vm = graph.service_backend_vm_name("internal-ingress")
-    addresses = graph.vm_static_ipv4_addresses(vm)
-    if len(addresses) != 1:
-        raise ValueError(f"Ingress VM {vm} must declare exactly one static IPv4 address")
-    return addresses[0]
-
-
-def _generated_record_hostnames(content):
-    hostnames = []
+def _generated_records(content):
+    records = []
     for line in content.splitlines():
         if not line.startswith("address=/"):
             continue
-        _prefix, hostname, _address = line.split("/", 2)
-        hostnames.append(hostname)
-    return tuple(hostnames)
+        _prefix, hostname, address = line.split("/", 2)
+        records.append((hostname, address))
+    return tuple(records)
 
 
-def _dns_record_set_error(resolver, expected_address, hostnames):
+def _dns_record_set_error(resolver, records):
     if os.environ.get("FORTRESS_FAKE_DNS_PROOF_FAIL"):
         return os.environ["FORTRESS_FAKE_DNS_PROOF_FAIL"]
 
     fake_log = os.environ.get("CALLS_LOG")
     if fake_log:
         with open(fake_log, "a") as log:
-            log.write(f"dns-proof @{resolver} {len(hostnames)} hostnames -> {expected_address}\n")
+            log.write(f"dns-proof @{resolver} {len(records)} hostnames\n")
         return ""
 
-    for hostname in hostnames:
+    for hostname, expected_address in records:
         try:
             answers = dns_a_query(resolver, hostname)
         except OSError as error:

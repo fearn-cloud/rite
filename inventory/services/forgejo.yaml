@@ -16,6 +16,12 @@ ingress_routes:
       enabled: true
       label: Forgejo
       group: Development
+ingress_tcp_routes:
+  - name: ssh
+    hostname: git.fearn.cloud
+    listen_address: 10.40.0.21
+    listen_port: 22
+    published_port: 2222
 deploy:
   type: quadlet
   containers:

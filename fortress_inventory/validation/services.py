@@ -66,6 +66,64 @@ def validate_service_ingress_contract(model):
     return errors
 
 
+def validate_service_tcp_ingress_contract(model):
+    errors = []
+    listeners = {}
+    for service_name, service in model.services.items():
+        seen_route_names = {}
+        published_ports = _service_published_ports(service)
+        for route_index, route in enumerate(service.get("ingress_tcp_routes", []) or []):
+            route_name = route.get("name")
+            route_path = f"inventory/services/{service_name}.yaml.ingress_tcp_routes[{route_index}]"
+            if route_name:
+                if route_name in seen_route_names:
+                    errors.append(
+                        ValidationError(
+                            "duplicate_service_tcp_ingress_route_name",
+                            f"{route_path}.name",
+                            f"Service {service_name} declares duplicate Service TCP Ingress Route name {route_name}",
+                        )
+                    )
+                else:
+                    seen_route_names[route_name] = route_index
+
+            hostname = route.get("hostname")
+            if model.globals.get("domain") and not _hostname_is_under_domain(hostname, model.globals["domain"]):
+                errors.append(
+                    ValidationError(
+                        "service_tcp_ingress_route_hostname_not_fleet_fqdn",
+                        f"{route_path}.hostname",
+                        f"Service TCP Ingress Route {service_name}/{route_name} hostname {hostname} "
+                        f"must be an explicit FQDN under {model.globals['domain']}",
+                    )
+                )
+
+            published_port = route.get("published_port")
+            published_port_key = (published_port, "tcp")
+            if published_port and published_port_key not in published_ports:
+                errors.append(
+                    ValidationError(
+                        "missing_service_tcp_ingress_route_published_port",
+                        f"{route_path}.published_port",
+                        f"Service TCP Ingress Route {service_name}/{route_name} references missing TCP Published Port {published_port}",
+                    )
+                )
+
+            listener = (route.get("listen_address"), route.get("listen_port"))
+            existing_route = listeners.setdefault(listener, (service_name, route_name))
+            if existing_route != (service_name, route_name):
+                existing_service, existing_name = existing_route
+                errors.append(
+                    ValidationError(
+                        "duplicate_service_tcp_ingress_listener",
+                        f"{route_path}.listen_port",
+                        f"Service TCP Ingress Route {service_name}/{route_name} listener "
+                        f"{listener[0]}:{listener[1]} collides with {existing_service}/{existing_name}",
+                    )
+                )
+    return errors
+
+
 def validate_ingress_dns_targets(model):
     errors = []
     for service_name, service in model.services.items():
@@ -187,6 +245,21 @@ def _validate_published_ports(model, runtime_intent=None):
         runtime_intent or analyze_service_runtime_intent(model),
         PUBLISHED_PORT_RUNTIME_DIAGNOSTICS,
     )
+
+
+def _service_published_ports(service):
+    ports = set()
+    if service.get("deploy", {}).get("type") != "quadlet":
+        return ports
+    for container in service.get("deploy", {}).get("containers", []) or []:
+        for published_port in container.get("published_ports", []) or []:
+            host_port = published_port.get("host", published_port.get("container"))
+            protocol = published_port.get("protocol", "tcp")
+            if protocol in ("tcp", "tcp_udp"):
+                ports.add((host_port, "tcp"))
+            if protocol in ("udp", "tcp_udp"):
+                ports.add((host_port, "udp"))
+    return ports
 
 
 def _validate_service_telemetry_targets(model, runtime_intent=None):

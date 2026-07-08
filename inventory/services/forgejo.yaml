@@ -20,7 +20,7 @@ deploy:
   type: quadlet
   containers:
     - name: server
-      image: codeberg.org/forgejo/forgejo:11.0.1
+      image: codeberg.org/forgejo/forgejo:15.0.3
       published_ports:
         - bind: 0.0.0.0
           host: 3000

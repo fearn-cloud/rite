@@ -18,6 +18,14 @@ _Avoid_: substituting "node" for "host"; reserve "node" for the PVE-internal ide
 A guest declared in `inventory/vms/<vm>.yaml`, provisioned by OpenTofu, configured by Ansible. Pinned to exactly one Host via `placement.host`.
 _Avoid_: guest, instance.
 
+**Secondary VM Address**:
+A non-primary static IPv4 address owned by a VM interface in addition to its primary `address`; used when a VM must bind a distinct listener address without changing its management address.
+_Avoid_: additional address, IP alias, Service address.
+
+**Management SSH Policy**:
+A VM-level declaration of the addresses where the VM's OpenSSH server should listen for Rite/operator management access. When absent, Rite leaves OpenSSH listener binding unmanaged, while the VM's primary `address` remains the default Rite connection address.
+_Avoid_: Service SSH, Git SSH, generic ssh config.
+
 **VM PCI Device Assignment**:
 A Host PCI device declared as VM hardware so one VM can own that device. Distinct from Container Device Access, which exposes a VM-local device into a Service container.
 _Avoid_: container device, Service device, GPU passthrough.
@@ -141,6 +149,10 @@ _Avoid_: sibling Service, direct VM port, Host Ingress Route.
 **Service TCP Ingress Route**:
 A Service-level Ingress route from a hostname and listener address/port to one raw TCP VM host port exposed by a Published Port on the Service's Backend VM. It is separate from Service Ingress Route because it is not HTTP-family traffic and may need a distinct Ingress listener address.
 _Avoid_: HTTP route, SSH config workaround, container-only port.
+
+**Service TCP Listener Address**:
+The literal bare IPv4 address a Service TCP Ingress Route asks the Ingress to bind; it must be owned by the Ingress VM as either its primary address or a Secondary VM Address.
+_Avoid_: named address, magic ingress IP, Backend address.
 
 **Service Ingress Route Name**:
 A Service-local stable identifier for one Service Ingress Route, independent of container names and hostnames.
@@ -1040,6 +1052,8 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - A **Share-backed Volume** subpath under an **Adopted Dataset** must already exist unless an explicit creation workflow is modeled later.
 - **Application Configuration Artifacts** may consume fortress-generated paths, ports, secrets, and hostnames, but their application-specific settings remain outside the first-party fortress schema.
 - An **Application Configuration Template** must render only into its owning **Service Data Directory** unless a later explicit exception is modeled.
+- VM-level network identity and **Management SSH Policy** convergence happen early in **VM Configure**, before configuration roles that may rely on the VM's declared address shape.
+- **Management SSH Policy** convergence validates generated OpenSSH configuration before reloading sshd, reloads only when the managed listener drop-in changes, and fails rather than silently restarting if reload cannot apply the policy.
 - A declared **Mount** must be active and accessible during **VM Configure** before later VM configuration or Service deployment may rely on it.
 - Service deployment validates the **Share-backed Volume** subpaths used by that **Service** before starting containers.
 - A **Mount** with a declared ownership mapping must prove read/write/delete access as the mapped UID/GID during **VM Configure**.
@@ -1058,7 +1072,11 @@ _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 - **Hostname conventions**: A **Service**'s `hostname` is the Ingress-only end-user FQDN (`photos.fearn.cloud`); a **VM**'s `cloud_init.hostname` is the short form (`web01`), with FQDN derived as `<short>.fearn.cloud`; a **Container Alias** is private Podman network DNS. The split is intentional, but easy to reverse by accident.
 - **"update" vs "upgrade"**: Resolved. **Update** is routine in-place advancement within the current compatibility band; **Upgrade** is reserved for version-boundary or migration-bearing advancement.
 - **Non-Ingress Service names**: Deferred. A non-Ingress **Service** must not use `hostname`; direct DNS names for non-HTTP or administration surfaces need a separate modeled concept later.
-- **Multi-address Ingress VM**: Deferred. The **Ingress DNS Record** target address is unambiguous while the **Ingress** **VM** has one client-facing static address; explicit address selection belongs in a later model if the **Ingress** **VM** gains multiple client-facing addresses.
+- **Multi-address VM interfaces**: Resolved. `secondary_addresses` is a general VM interface field, not an Ingress-only escape hatch; every declared primary and **Secondary VM Address** is VM-owned, while existing features that require one unambiguous VM client identity continue to use the primary `address` unless separately modeled.
+- **Service TCP listener address ownership**: Resolved. A **Service TCP Listener Address** remains a literal IP in Service inventory, but validation must reject values not declared on the **Ingress** **VM**.
+- **Management SSH listener address ownership**: Resolved. Every **Management SSH Policy** listen address must be declared on that same **VM** as either its primary address or a **Secondary VM Address**.
+- **HTTP-family Ingress address selection**: Deferred. Ordinary HTTP-family **Service Ingress Routes** continue to use the primary **Ingress** address; only **Service TCP Ingress Routes** select an explicit listener address.
+- **VM address pruning**: Deferred. VM Configure ensures declared primary and **Secondary VM Addresses** are present and persistent, but does not remove undeclared live guest addresses until an explicit pruning workflow is modeled.
 - **Ingress health name**: Deferred. A dedicated health-check hostname would need its own explicit route concept; it is not implied by the **Ingress** **VM** existing.
 - **`ingress.exposure` enum**: Only `lan_only` appears in [docs/architecture.md](docs/architecture.md). Whether `internet_exposed` (or similar) is a planned value, and what it would imply for the Caddy/Cloudflare wiring, is unresolved.
 - **`ingress.auth` enum**: The Firewall Matrix requires **File Browser** to use **Ingress Auth**, but the current Service schema only accepts `auth.type: none`. Inventory may temporarily encode the Service as unauthenticated while preserving the policy gap here.

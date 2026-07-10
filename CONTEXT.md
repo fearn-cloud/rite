@@ -449,8 +449,12 @@ The Infrastructure VLAN VM that runs Forgejo and does not run CI runner workload
 _Avoid_: git server, runner host.
 
 **Forgejo Runner VM**:
-A future VM for Forgejo runner workloads, separate from the Forgejo VM.
+A future Infrastructure VLAN VM for Forgejo runner workloads, separate from the Forgejo VM. The first Forgejo Runner VM is placed on the `neuromancer` Host and is an Unprotected VM because phase-one runner state is reproducible.
 _Avoid_: co-located runner, build container on Forgejo.
+
+**Forgejo Runner Runtime**:
+The VM-local Forgejo Actions execution substrate on the Forgejo Runner VM: a Native runner systemd service using the dedicated runner user's Podman socket for CI job containers. Job containers are runtime artifacts, not fortress Services, and they do not receive container-runtime socket access by default.
+_Avoid_: runner Service, job Service, containerized runner.
 
 **Observability VM**:
 The Infrastructure VLAN VM that runs metrics, alerting, dashboard, log aggregation, and blackbox-check Services.

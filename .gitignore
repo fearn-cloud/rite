@@ -1,5 +1,6 @@
 .agents/
 .claude/
+.scratch/*/backups/*.zip
 *__pycache__/
 inventory/*/tmp-*.yaml
 inventory/*/tmp-*/

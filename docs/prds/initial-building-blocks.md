@@ -246,7 +246,7 @@ One **orchestration module** (declarative + bash):
 
 - **One SOPS file per entity, structured key entries.** Single SOPS file per host/VM/service holds all that entity's secrets. Each key entry is a structured block with metadata (type, created, rotation/version, public_key, private_key) so future automation can answer "how old is this" without re-derivation.
 
-- **Single age recipient + offline backup recipient.** One operator key on the workstation, one offline backup. CI runner key deferred. Recovery from workstation loss requires the offline key.
+- **Single age recipient + offline backup recipient.** One operator key on the workstation, one offline backup. Phase-one CI runner key intentionally absent. Recovery from workstation loss requires the offline key.
 
 - **Tofu never reads SOPS.** A wrapper script decrypts only the PVE API tokens into ephemeral environment variables before invoking tofu. Tokens marked `sensitive = true` so they do not appear in plan output or state. Keeps the secrets pipeline out of HCL entirely.
 
@@ -312,7 +312,7 @@ None. Greenfield project; no existing test patterns to mirror. Test scaffolding 
 
 ## Out of Scope
 
-- **CI runner setup.** The system is designed for single-operator local execution. Adding a CI runner is a known future addition that requires generating a runner age key and re-encrypting via `sops updatekeys`. Integration tests for workflow modules are also gated on this.
+- **Deployment runner setup.** Phase-one Forgejo Actions are limited to non-mutating repository validation. Any deployment runner that decrypts SOPS or converges live infrastructure is a known future addition that requires a separate design before generating a runner age key and re-encrypting via `sops updatekeys`.
 - **Off-site backup of PBS.** Acknowledged gap. Local-only backups do not survive a site loss (TrueNAS shares the site). Off-site is its own subproject (provider selection, encryption-in-transit policy, restore drills).
 - **Host firewall** (PVE firewall or host-level nftables/ufw). Risks lock-out, not blocking v1.
 - **Monitoring and observability stack.** Defer to when the service stack stabilizes.

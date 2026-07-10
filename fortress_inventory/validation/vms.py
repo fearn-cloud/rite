@@ -272,6 +272,106 @@ def validate_vm_launchable_service_groups(model):
     return errors
 
 
+def validate_forgejo_runner_runtime_intent(model):
+    errors = []
+    declaring_vms_by_forgejo_service = {}
+    forbidden_label_tokens = {
+        "ansible",
+        "deploy",
+        "deployment",
+        "host",
+        "manage",
+        "management",
+        "nas",
+        "pbs",
+        "prod",
+        "production",
+        "proxmox",
+        "secret",
+        "secrets",
+        "service",
+        "sops",
+        "tofu",
+        "vm",
+    }
+    for vm_name, vm in model.vms.items():
+        runtime = vm.get("forgejo_runner_runtime")
+        if not isinstance(runtime, dict):
+            continue
+
+        forgejo_service_name = runtime.get("forgejo_service")
+        if not forgejo_service_name:
+            continue
+
+        path = f"inventory/vms/{vm_name}.yaml.forgejo_runner_runtime.forgejo_service"
+        forgejo_service = model.services.get(forgejo_service_name)
+        if forgejo_service is None:
+            errors.append(
+                ValidationError(
+                    "missing_forgejo_runner_target_service",
+                    path,
+                    f"VM {vm_name} Forgejo Runner Runtime references missing Service {forgejo_service_name}",
+                )
+            )
+            continue
+
+        if forgejo_service.get("name", forgejo_service_name) != "forgejo":
+            errors.append(
+                ValidationError(
+                    "forgejo_runner_target_service_not_forgejo",
+                    path,
+                    f"VM {vm_name} Forgejo Runner Runtime references non-Forgejo Service {forgejo_service_name}",
+                )
+            )
+
+        existing_vm_name = declaring_vms_by_forgejo_service.setdefault(forgejo_service_name, vm_name)
+        if existing_vm_name != vm_name:
+            errors.append(
+                ValidationError(
+                    "duplicate_forgejo_runner_runtime_target",
+                    path,
+                    (
+                        f"Forgejo Runner Runtime for Service {forgejo_service_name} is declared by both "
+                        f"{existing_vm_name} and {vm_name}"
+                    ),
+                )
+            )
+
+        job_containers = runtime.get("job_containers") or {}
+        if job_containers.get("expose_container_runtime_socket") is True:
+            errors.append(
+                ValidationError(
+                    "forgejo_runner_job_container_runtime_socket_exposed",
+                    f"inventory/vms/{vm_name}.yaml.forgejo_runner_runtime.job_containers.expose_container_runtime_socket",
+                    (
+                        f"VM {vm_name} Forgejo Runner Runtime exposes the container runtime socket to CI jobs; "
+                        "phase-one CI is validation-only and requires a later design before socket exposure"
+                    ),
+                )
+            )
+
+        for label_index, label in enumerate(runtime.get("labels") or []):
+            label_name = str(label).split(":", 1)[0]
+            label_tokens = {
+                token
+                for token in label_name.replace("_", "-").replace(".", "-").split("-")
+                if token
+            }
+            forbidden_tokens = sorted(label_tokens & forbidden_label_tokens)
+            if forbidden_tokens:
+                errors.append(
+                    ValidationError(
+                        "forgejo_runner_label_implies_management_authority",
+                        f"inventory/vms/{vm_name}.yaml.forgejo_runner_runtime.labels[{label_index}]",
+                        (
+                            f"VM {vm_name} Forgejo Runner label {label!r} includes management/deployment token "
+                            f"{forbidden_tokens[0]!r}; phase-one labels must describe validation capabilities only"
+                        ),
+                    )
+                )
+    return errors
+
+
 def _service_backend_vm_name(service):
     backend = service.get("backend", {})
     if not isinstance(backend, dict):

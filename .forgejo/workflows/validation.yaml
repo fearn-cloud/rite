@@ -1,0 +1,27 @@
+name: Fortress validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  repository-validation:
+    name: Repository validation
+    runs-on: debian-13:docker://debian:13
+    steps:
+      - name: Prepare validation tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git nodejs python3
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate inventory relationships
+        run: python3 -m fortress_inventory.validate_inventory .
+
+      - name: Run Forgejo runner policy tests
+        run: python3 -m unittest tests.test_forgejo_inventory tests.test_forgejo_phase_one_ci_policy

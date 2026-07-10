@@ -1,0 +1,31 @@
+vmid: 1010
+description: Stateless Infrastructure VLAN Forgejo Runner VM; rebuild with VM Up, then recover runtime state with VM Configure.
+placement:
+  host: neuromancer
+source:
+  template: debian-13-base
+hardware:
+  cores: 2
+  memory: 4096
+  disks:
+    - storage: local-lvm
+      size: 32G
+network:
+  interfaces:
+    - bridge: vmbr0
+      vlan: 40
+      address: 10.40.0.20/24
+      gateway: 10.40.0.1
+cloud_init:
+  hostname: forgejo-runner-vm
+forgejo_runner_runtime:
+  forgejo_service: forgejo
+  scope: instance
+  labels: ["debian-13:docker://debian:13"]
+  concurrency: 1
+  cleanup:
+    workspace: after_job
+    cache: disposable
+backup:
+  enabled: false
+  reason: Forgejo Runner VM state is reproducible from Inventory and VM Configure; workspaces, image caches, and job artifacts are disposable.

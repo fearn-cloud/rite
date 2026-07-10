@@ -56,6 +56,63 @@ class FortressInventoryPluginTests(unittest.TestCase):
         self.assertEqual(media01["fortress_entity_kind"], "VM")
         self.assertEqual(media01["fortress_vm"]["placement"]["host"], "wintermute")
 
+    def test_inventory_plugin_exposes_forgejo_runner_registration_facts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "inventory" / "hosts").mkdir(parents=True)
+            (root / "inventory" / "vms").mkdir()
+            (root / "inventory" / "services").mkdir()
+            (root / "inventory" / "templates").mkdir()
+            (root / "inventory" / "group_vars").mkdir()
+            (root / "fortress.yaml").write_text("plugin: fortress\nroot: .\n")
+            (root / "inventory" / "hosts" / "wintermute.yaml").write_text(
+                "proxmox:\n"
+                "  pve_node_name: wintermute\n"
+            )
+            (root / "inventory" / "services" / "forgejo.yaml").write_text(
+                "name: forgejo\n"
+                "backend:\n"
+                "  vm: forgejo-vm\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: codeberg.org/forgejo/forgejo:15.0.3\n"
+                "      env:\n"
+                "        FORGEJO__server__ROOT_URL: https://git.example.test/\n"
+            )
+            (root / "inventory" / "vms" / "forgejo-runner-vm.yaml").write_text(
+                "vmid: 1010\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: forgejo-runner-vm\n"
+                "forgejo_runner_runtime:\n"
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n"
+            )
+
+            inventory = self.load_inventory(root / "fortress.yaml")
+            runner = ansible_value(inventory["_meta"]["hostvars"]["forgejo-runner-vm"])
+            registration = runner["fortress_forgejo_runner_registration"]
+
+            self.assertEqual("fortress-forgejo-runner-vm", registration["name"])
+            self.assertEqual("forgejo-vm", registration["forgejo_backend_vm"])
+            self.assertEqual("", registration["cli_scope"])
+            self.assertEqual("https://git.example.test/", registration["url"])
+            self.assertEqual(["debian-13:docker://debian:13"], registration["labels"])
+            self.assertRegex(registration["secret_token"], r"^[0-9a-f]{40}$")
+
     def test_inventory_plugin_exposes_datasets_to_ansible(self):
         inventory = self.load_inventory()
         media01 = ansible_value(inventory["_meta"]["hostvars"]["media01"])

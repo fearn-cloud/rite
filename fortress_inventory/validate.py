@@ -28,6 +28,7 @@ from .validation.services import (
     validate_service_tcp_ingress_contract,
 )
 from .validation.vms import (
+    validate_forgejo_runner_runtime_intent,
     validate_vm_addresses_and_management_ssh_policy,
     validate_vm_launchable_service_groups,
     validate_vm_inventory_policy,
@@ -62,6 +63,7 @@ def validate_inventory_model(model, allow_ephemeral_datasets=False):
     errors.extend(validate_vm_addresses_and_management_ssh_policy(model))
     errors.extend(validate_vm_refs(model))
     errors.extend(validate_vm_launchable_service_groups(model))
+    errors.extend(validate_forgejo_runner_runtime_intent(model))
     errors.extend(validate_backup_policies(model))
     errors.extend(validate_dns_filtering_exceptions(model))
     errors.extend(validate_pbs_substrate(model))

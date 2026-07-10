@@ -31,6 +31,7 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 | `10.10.0.15` | `NAS` | Management | TrueNAS management address |
 | `10.20.0.20` | `tailnet-subnet-router-vm` | Trusted | Tailnet Subnet Router |
 | `10.40.0.15` | `NAS` | Infrastructure | TrueNAS share address |
+| `10.40.0.20` | `forgejo-runner-vm` | Infrastructure | Stateless Forgejo Runner VM |
 
 ## Infrastructure VMs
 
@@ -44,12 +45,13 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 | `observability-vm` | `10.40.0.17` | `straylight` | Prometheus, Alertmanager, Grafana, Loki, Blackbox Exporter | VM-local unless later expanded |
 | `dns-secondary-vm` | `10.40.0.18` | `molly` | Pi-hole, Unbound | VM-local |
 | `identity-vm` | `10.40.0.19` | `straylight` | Authentik | VM-local |
+| `forgejo-runner-vm` | `10.40.0.20` | `neuromancer` | Forgejo Runner | VM-local disposable state |
 
 Primary and secondary DNS VMs are functionally identical peers. Headscale is local-only; remote devices must be enrolled while local or with a short-lived pre-auth key minted while local. Headscale does not depend on Authentik until a later explicit OIDC integration decision.
 
 Caddy remains the internal Ingress for routing and TLS. Authentik provides optional per-Service Ingress Auth and does not replace Caddy.
 
-Forgejo runners must not run on `forgejo-vm`. Add a separate runner VM when runner workload trust and placement are defined.
+Forgejo runners must not run on `forgejo-vm`. The phase-one Runner VM is an Infrastructure workload with narrow egress, not a Trusted client. It may reach Forgejo through the declared Forgejo HTTP and SSH ingress paths, internal DNS and time, and public dependency sources needed for validation jobs. It must not receive direct management reachability to Proxmox Hosts, NAS management, PBS, or ordinary Service Backend ports.
 
 ## Apps VMs
 
@@ -94,6 +96,8 @@ DMZ is future-only for this internal baseline. DMZ workloads will use a separate
 
 Guest must not use internal DNS and must not resolve internal `*.fearn.cloud` records.
 
+For `forgejo-runner-vm`, DNS and time access is limited to `DNS-001-ALLOW-INTERNAL-RESOLUTION` and `NTP-001-ALLOW-TIME-SYNC`; those baseline rules do not imply general Trusted VLAN behavior.
+
 ## Administration
 
 | ID | Source | Destination | Protocol | Port(s) | Required | Reason |
@@ -101,8 +105,9 @@ Guest must not use internal DNS and must not resolve internal `*.fearn.cloud` re
 | `ADMIN-001-ALLOW-TRUSTED-PROXMOX` | Trusted | Proxmox Hosts | TCP | 8006, 22 | Yes | Proxmox UI and SSH administration |
 | `ADMIN-002-ALLOW-TRUSTED-UDM` | Trusted | UDM SE | TCP/UDP | admin UI and management ports | Yes | Router/firewall administration |
 | `ADMIN-003-ALLOW-TRUSTED-NAS` | Trusted | NAS management address | TCP | 443, 22 | Yes | TrueNAS administration and recovery |
-| `ADMIN-004-ALLOW-TRUSTED-INFRA` | Trusted | Infrastructure VMs | TCP | 22, service admin ports | Yes | Direct service administration during bootstrap and incidents |
+| `ADMIN-004-ALLOW-TRUSTED-INFRA` | Trusted | Infrastructure VMs except `forgejo-runner-vm` | TCP | 22, service admin ports | Yes | Direct service administration during bootstrap and incidents |
 | `ADMIN-005-DENY-NONADMIN-ADMIN-PORTS` | Known, IoT, Guest | Management, Infrastructure admin ports | Any | Any | Yes | Non-admin networks cannot reach admin surfaces |
+| `ADMIN-006-ALLOW-RUNNER-SSH` | Trusted, tailnet-routed Operator workstations | `forgejo-runner-vm` | TCP | 22 | Yes | Operator SSH is the only intended inbound management path to the Runner VM |
 
 Trusted VLAN is the admin workstation network. Known is the ordinary non-admin client network.
 
@@ -138,7 +143,10 @@ Ingress Auth is explicit per Service. It is not applied globally.
 | `PBS-002-ALLOW-PBS-DATASTORE` | `pbs-vm` | NAS share address | TCP/UDP | NFS ports | Yes | PBS Datastore mounted from NAS |
 | `PBS-003-ALLOW-TRUSTED-PBS` | Trusted | `pbs-vm` | TCP | 8007, 22 | Yes | PBS administration and recovery |
 | `GIT-001-ALLOW-TRUSTED-FORGEJO` | Trusted | `forgejo-vm` | TCP | 22, 443 | Yes | Git over SSH/HTTPS from admin workstation |
-| `GIT-002-ALLOW-FUTURE-RUNNERS` | Forgejo Runner VMs | `forgejo-vm` | TCP | 443, 22 as configured | Future | Runner registration and job execution after runner placement is defined |
+| `GIT-002-ALLOW-RUNNER-FORGEJO` | `forgejo-runner-vm` | `internal-ingress-vm` Forgejo HTTP and SSH ingress addresses | TCP | 443, 22 | Yes | Runner registration, polling, repository checkout, and job execution against the Forgejo service |
+| `RUNNER-001-ALLOW-DEPENDENCY-EGRESS` | `forgejo-runner-vm` | Internet | TCP | 80, 443 | Yes | Package installs, base image pulls, and public dependency downloads for validation jobs |
+| `RUNNER-002-DENY-MANAGEMENT-REACHABILITY` | `forgejo-runner-vm` | Proxmox Hosts, NAS management address, `pbs-vm`, ordinary Service Backend ports | Any | Any | Yes | Phase-one CI is not a deployment or management principal |
+| `RUNNER-003-DENY-TRUSTED-CLIENT-BEHAVIOR` | `forgejo-runner-vm` | Trusted-only client/admin surfaces | Any | Any | Yes | The Runner VM does not inherit Trusted VLAN bypass or recovery access |
 | `TAIL-001-ALLOW-LOCAL-HEADSCALE` | Trusted, tailnet-routed clients | `headscale-vm` | TCP | 443 | Yes | Local-only Headscale control-plane access |
 | `TAIL-002-ALLOW-HEADSCALE-OUTBOUND` | `headscale-vm` | Internet | TCP | 443 | Yes | Headscale external coordination as required |
 

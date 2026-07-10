@@ -1,0 +1,10 @@
+---
+forgejo_runner_runtime_user: forgejo-runner
+forgejo_runner_runtime_state_dir: /var/lib/forgejo-runner
+forgejo_runner_runtime_config_dir: /etc/forgejo-runner
+forgejo_runner_runtime_config_path: /etc/forgejo-runner/config.yaml
+forgejo_runner_runtime_workspace_dir: /var/lib/forgejo-runner/workspaces
+forgejo_runner_runtime_version: "12.7.3"
+forgejo_runner_runtime_arch: linux-amd64
+forgejo_runner_runtime_download_url: "https://code.forgejo.org/forgejo/runner/releases/download/v{{ forgejo_runner_runtime_version }}/forgejo-runner-{{ forgejo_runner_runtime_version }}-{{ forgejo_runner_runtime_arch }}"
+forgejo_runner_runtime_checksum: ""

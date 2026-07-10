@@ -93,6 +93,73 @@ class VMConfigureWorkflowTests(unittest.TestCase):
             self.assertIn('"fortress_vm_sops_file":', calls)
             self.assertIn("inventory/vms/media01.sops.yaml", calls)
 
+    def test_vm_configure_predecrypts_forgejo_backend_key_for_runner_registration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root, calls_log = self._configure_fixture(tmp)
+            vm_dir = root / "inventory" / "vms"
+            service_dir = root / "inventory" / "services"
+            service_dir.mkdir(exist_ok=True)
+            (service_dir / "forgejo.yaml").write_text(
+                "name: forgejo\n"
+                "backend:\n"
+                "  vm: forgejo-vm\n"
+                "deploy:\n"
+                "  type: quadlet\n"
+                "  containers:\n"
+                "    - name: server\n"
+                "      image: codeberg.org/forgejo/forgejo:15.0.3\n"
+            )
+            (vm_dir / "forgejo-vm.yaml").write_text(
+                "vmid: 102\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: forgejo-vm\n"
+            )
+            (vm_dir / "forgejo-vm.sops.yaml").write_text("encrypted forgejo vm material\n")
+            media_vm = vm_dir / "media01.yaml"
+            media_vm.write_text(
+                media_vm.read_text()
+                + "forgejo_runner_runtime:\n"
+                + "  forgejo_service: forgejo\n"
+                + "  scope: instance\n"
+                + "  labels: [\"debian-13:docker://debian:13\"]\n"
+                + "  concurrency: 1\n"
+                + "  cleanup:\n"
+                + "    workspace: after_job\n"
+                + "    cache: disposable\n"
+            )
+            env = os.environ.copy()
+            env["FORTRESS_ROOT"] = str(root)
+            env["CALLS_LOG"] = str(calls_log)
+
+            result = subprocess.run(
+                [str(REPO_ROOT / "scripts" / "vm-configure"), "media01"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = calls_log.read_text()
+            self.assertIn(str(vm_dir / "media01.sops.yaml"), calls)
+            self.assertIn(str(vm_dir / "forgejo-vm.sops.yaml"), calls)
+            self.assertLess(
+                calls.index(str(vm_dir / "media01.sops.yaml")),
+                calls.index("-- ansible-playbook"),
+            )
+            self.assertLess(
+                calls.index(str(vm_dir / "forgejo-vm.sops.yaml")),
+                calls.index("-- ansible-playbook"),
+            )
+
     def test_vm_configure_returns_child_failure_without_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, _calls_log = self._configure_fixture(tmp)
@@ -219,6 +286,100 @@ class VMConfigureWorkflowTests(unittest.TestCase):
         self.assertNotIn("GRUB_DEFAULT='${advanced_id}>${kernel_id}'", role)
         self.assertIn("update-grub", role)
         self.assertIn("stdout_lines", role)
+
+    def test_vm_configure_playbook_converges_forgejo_runner_runtime_from_vm_intent(self):
+        playbook = (REPO_ROOT / "ansible" / "playbooks" / "vm-configure.yml").read_text()
+        role = (REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "tasks" / "main.yml").read_text()
+        unit_template = (
+            REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "templates" / "forgejo-runner.service.j2"
+        ).read_text()
+
+        self.assertIn("name: forgejo_runner_runtime", playbook)
+        self.assertIn("when: fortress_vm.forgejo_runner_runtime is defined", playbook)
+        self.assertLess(
+            playbook.index("name: forgejo_runner_runtime"),
+            playbook.index("name: vm_admin_user"),
+        )
+        self.assertIn("forgejo-runner", role)
+        self.assertIn("podman", role)
+        self.assertIn("git", role)
+        self.assertIn("loginctl enable-linger", role)
+        self.assertIn("systemctl --user -M {{ forgejo_runner_runtime_user }}@ enable --now podman.socket", role)
+        self.assertIn("Register declared Forgejo Runner with Forgejo", role)
+        self.assertIn("delegate_to: \"{{ fortress_forgejo_runner_registration.forgejo_backend_vm }}\"", role)
+        self.assertIn("fortress-forgejo-server", role)
+        self.assertIn("forgejo-cli", role)
+        self.assertIn("actions", role)
+        self.assertIn("register", role)
+        self.assertIn("fortress_forgejo_runner_registration.secret_token", role)
+        self.assertIn("ConditionPathExists={{ forgejo_runner_runtime_state_dir }}/.runner", unit_template)
+
+    def test_forgejo_runner_runtime_renders_runner_config_from_vm_intent(self):
+        config_template = (
+            REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "templates" / "config.yaml.j2"
+        ).read_text()
+
+        self.assertIn("file: {{ forgejo_runner_runtime_state_dir }}/.runner", config_template)
+        self.assertIn("capacity: {{ fortress_vm.forgejo_runner_runtime.concurrency }}", config_template)
+        self.assertIn("labels:", config_template)
+        self.assertIn("{% for label in fortress_vm.forgejo_runner_runtime.labels %}", config_template)
+        self.assertIn("- {{ label | to_json }}", config_template)
+        self.assertIn('docker_host: "-"', config_template)
+        self.assertNotIn("automount", config_template)
+        self.assertNotIn("/var/run/docker.sock", config_template)
+
+    def test_forgejo_runner_runtime_systemd_unit_uses_runner_user_podman_socket(self):
+        unit_template = (
+            REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "templates" / "forgejo-runner.service.j2"
+        ).read_text()
+
+        self.assertIn("User={{ forgejo_runner_runtime_user }}", unit_template)
+        self.assertIn("Group={{ forgejo_runner_runtime_user }}", unit_template)
+        self.assertIn("WorkingDirectory={{ forgejo_runner_runtime_state_dir }}", unit_template)
+        self.assertIn(
+            "Environment=DOCKER_HOST=unix:///run/user/{{ forgejo_runner_runtime_uid.stdout }}/podman/podman.sock",
+            unit_template,
+        )
+        self.assertIn("ExecStart=/usr/local/bin/forgejo-runner daemon -c {{ forgejo_runner_runtime_config_path }}", unit_template)
+        self.assertIn("Restart=on-failure", unit_template)
+
+    def test_forgejo_runner_runtime_renders_registered_runner_state_before_service_start(self):
+        role = (REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "tasks" / "main.yml").read_text()
+        state_template = (
+            REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "templates" / "runner-state.json.j2"
+        ).read_text()
+
+        self.assertLess(
+            role.index("Render Forgejo Runner registration state"),
+            role.index("Enable Forgejo Runner service and cleanup timer"),
+        )
+        self.assertIn("forgejo_runner_runtime_registration.stdout", state_template)
+        self.assertIn("fortress_forgejo_runner_registration.name", state_template)
+        self.assertIn("fortress_forgejo_runner_registration.secret_token", state_template)
+        self.assertIn("fortress_forgejo_runner_registration.url", state_template)
+        self.assertIn("fortress_forgejo_runner_registration.labels", state_template)
+
+    def test_forgejo_runner_runtime_installs_cleanup_schedule_for_disposable_workspaces(self):
+        role = (REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "tasks" / "main.yml").read_text()
+        cleanup_template = (
+            REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime" / "templates" / "cleanup.sh.j2"
+        ).read_text()
+
+        self.assertIn("fortress-forgejo-runner-cleanup.service", role)
+        self.assertIn("fortress-forgejo-runner-cleanup.timer", role)
+        self.assertIn("podman system prune --force --filter until=168h", cleanup_template)
+        self.assertIn('find "{{ forgejo_runner_runtime_workspace_dir }}"', cleanup_template)
+        self.assertIn("-mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf -- {} +", cleanup_template)
+
+    def test_forgejo_runner_runtime_does_not_model_job_containers_as_services(self):
+        role_dir = REPO_ROOT / "ansible" / "roles" / "forgejo_runner_runtime"
+        role_text = "\n".join(path.read_text() for path in sorted(role_dir.rglob("*")) if path.is_file())
+        service_schema = (REPO_ROOT / "inventory" / "services" / "_schema.json").read_text()
+
+        self.assertNotIn("/etc/containers/systemd", role_text)
+        self.assertNotIn(".container", role_text)
+        self.assertNotIn("quadlet", role_text.lower())
+        self.assertNotIn("forgejo_runner_runtime", service_schema)
 
     def test_vm_admin_user_role_uses_only_builtin_modules_for_configure(self):
         role = (REPO_ROOT / "ansible" / "roles" / "vm_admin_user" / "tasks" / "main.yml").read_text()

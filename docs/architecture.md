@@ -11,7 +11,7 @@ fortress manages four Proxmox 9 hosts and the VMs / services that run on them. T
 - **Tooling split**: OpenTofu provisions VM shells (the qemu/proxmox layer); Ansible configures everything else (host-level config, in-VM config, services).
 - **Secrets stay encrypted in the repo**: SOPS + age, single age recipient (operator) plus an offline backup recipient. Only the age private keys live outside the repo.
 
-The system is designed for a single operator, no CI yet (CI is a known future addition that will require adding a runner age recipient via `sops updatekeys`).
+The system is designed for a single operator plus phase-one Forgejo Actions for non-mutating repository validation. Phase-one CI is not an automation principal for live infrastructure and is not an age recipient.
 
 ---
 
@@ -202,7 +202,7 @@ The `ssh_keys.bootstrap` shape is the canonical Host SSH key shape. `pve_api_tok
 
 - **Primary recipient**: operator's age key on the workstation, at `~/.config/sops/age/keys.txt`.
 - **Backup recipient**: an offline age key kept on encrypted external media (paper backup or USB in a safe). Recovery from "I dropped my laptop in a lake."
-- **No CI recipient yet** — when CI is added, generate a runner key and `sops updatekeys` over all SOPS files to add it.
+- **No CI recipient** — phase-one Forgejo Actions are limited to non-mutating repository validation. The Runner VM is not an age Recipient and does not decrypt Fortress SOPS secrets. Deployment runners require a separate later design before any runner key or `sops updatekeys` ceremony is considered.
 
 `age/recipients.txt` lists the public keys; `.sops.yaml` references them in encryption rules.
 
@@ -905,7 +905,7 @@ All rotations follow hard-cutover policy (no grace-period overlap; recovery via 
 ## 19. Open Items / Deferred
 
 - **Off-site backup** (PBS protecting itself) — own subproject when ready.
-- **CI runner** — deferred; will need `sops updatekeys` to add a new age recipient.
+- **Deployment runner** — deferred; phase-one CI labels describe validation capabilities only, and live Host, VM, NAS, PBS, and Service convergence remains Operator-owned. Deployment runners require a separate later design before any SOPS recipient, management reachability, or live convergence authority is added.
 - **Initial-setup runbook** — needs writing once building blocks are implemented.
 - **TrueNAS-side coordination** — every new NFS-mounting VM is a manual TrueNAS-side ACL update.
 - **Renovate** for image-tag PRs — easy to add later.

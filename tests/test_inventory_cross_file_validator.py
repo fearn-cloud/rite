@@ -19,6 +19,153 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
     def test_valid_inventory_tree_has_no_cross_file_errors(self):
         self.assertEqual(validate_inventory_tree(FIXTURES / "inventory_valid"), [])
 
+    def test_forgejo_runner_runtime_intent_is_valid_when_target_service_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "services" / "forgejo.yaml").write_text(
+                "name: forgejo\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "deploy:\n"
+                "  type: native\n"
+                "  package: forgejo\n"
+            )
+            vm_path = root / "inventory" / "vms" / "media01.yaml"
+            vm_path.write_text(
+                vm_path.read_text()
+                + "forgejo_runner_runtime:\n"
+                + "  forgejo_service: forgejo\n"
+                + "  scope: instance\n"
+                + "  labels: [\"debian-13:docker://debian:13\"]\n"
+                + "  concurrency: 1\n"
+                + "  cleanup:\n"
+                + "    workspace: after_job\n"
+                + "    cache: disposable\n"
+            )
+
+            self.assertEqual([], validate_inventory_tree(root))
+
+    def test_forgejo_runner_runtime_target_service_must_resolve_to_forgejo(self):
+        cases = [
+            ("missing", "forgejo", "missing_forgejo_runner_target_service"),
+            ("wrong-service", "immich", "forgejo_runner_target_service_not_forgejo"),
+        ]
+        for name, forgejo_service, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                    vm_path = root / "inventory" / "vms" / "media01.yaml"
+                    vm_path.write_text(
+                        vm_path.read_text()
+                        + "forgejo_runner_runtime:\n"
+                        + f"  forgejo_service: {forgejo_service}\n"
+                        + "  scope: instance\n"
+                        + "  labels: [\"debian-13:docker://debian:13\"]\n"
+                        + "  concurrency: 1\n"
+                        + "  cleanup:\n"
+                        + "    workspace: after_job\n"
+                        + "    cache: disposable\n"
+                    )
+
+                    self.assertIn(expected_code, {error.code for error in validate_inventory_tree(root)})
+
+    def test_forgejo_runner_runtime_rejects_ambiguous_duplicate_targets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+            (root / "inventory" / "services" / "forgejo.yaml").write_text(
+                "name: forgejo\n"
+                "backend:\n"
+                "  vm: media01\n"
+                "deploy:\n"
+                "  type: native\n"
+                "  package: forgejo\n"
+            )
+            runner_runtime_yaml = (
+                "forgejo_runner_runtime:\n"
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n"
+            )
+            media_vm_path = root / "inventory" / "vms" / "media01.yaml"
+            media_vm_path.write_text(media_vm_path.read_text() + runner_runtime_yaml)
+            (root / "inventory" / "vms" / "runner02.yaml").write_text(
+                "vmid: 102\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: runner02\n"
+                "network:\n"
+                "  interfaces:\n"
+                "    - bridge: vmbr0\n"
+                "      address: 10.0.10.102/24\n"
+                f"{runner_runtime_yaml}"
+            )
+
+            self.assertIn(
+                "duplicate_forgejo_runner_runtime_target",
+                {error.code for error in validate_inventory_tree(root)},
+            )
+
+    def test_forgejo_runner_runtime_rejects_phase_one_socket_or_authority_labels(self):
+        cases = [
+            (
+                "runtime-socket",
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  job_containers:\n"
+                "    expose_container_runtime_socket: true\n",
+                "forgejo_runner_job_container_runtime_socket_exposed",
+            ),
+            (
+                "deployment-label",
+                "  labels: [\"deployment:docker://debian:13\"]\n",
+                "forgejo_runner_label_implies_management_authority",
+            ),
+            (
+                "management-label",
+                "  labels: [\"host-management:docker://debian:13\"]\n",
+                "forgejo_runner_label_implies_management_authority",
+            ),
+        ]
+        for name, runtime_variation, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    shutil.copytree(FIXTURES / "inventory_valid", root, dirs_exist_ok=True)
+                    (root / "inventory" / "services" / "forgejo.yaml").write_text(
+                        "name: forgejo\n"
+                        "backend:\n"
+                        "  vm: media01\n"
+                        "deploy:\n"
+                        "  type: native\n"
+                        "  package: forgejo\n"
+                    )
+                    vm_path = root / "inventory" / "vms" / "media01.yaml"
+                    vm_path.write_text(
+                        vm_path.read_text()
+                        + "forgejo_runner_runtime:\n"
+                        + "  forgejo_service: forgejo\n"
+                        + "  scope: instance\n"
+                        + runtime_variation
+                        + "  concurrency: 1\n"
+                        + "  cleanup:\n"
+                        + "    workspace: after_job\n"
+                        + "    cache: disposable\n"
+                    )
+
+                    self.assertIn(expected_code, {error.code for error in validate_inventory_tree(root)})
+
     def test_vm_secondary_addresses_and_management_ssh_policy_are_valid_when_vm_owned(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -423,8 +570,11 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
         backup_by_vm = {vm_name: vm.get("backup") for vm_name, vm in model.vms.items()}
         self.assertEqual({"enabled": False, "reason": backup_by_vm["pbs-vm"]["reason"]}, backup_by_vm["pbs-vm"])
         self.assertGreater(len(backup_by_vm["pbs-vm"]["reason"]), 0)
+        unprotected_vms = {"pbs-vm", "forgejo-runner-vm"}
         for vm_name, backup in backup_by_vm.items():
-            if vm_name == "pbs-vm":
+            if vm_name in unprotected_vms:
+                self.assertEqual({"enabled": False, "reason": backup["reason"]}, backup, vm_name)
+                self.assertGreater(len(backup["reason"]), 0, vm_name)
                 continue
             self.assertEqual({"enabled": True, "policy": "default"}, backup, vm_name)
 

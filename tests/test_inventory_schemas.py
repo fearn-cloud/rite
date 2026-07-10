@@ -203,6 +203,103 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_vm_schema_accepts_forgejo_runner_runtime_intent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            vm_yaml = Path(tmp) / "forgejo-runner.yaml"
+            vm_yaml.write_text(
+                "vmid: 1010\n"
+                "placement:\n"
+                "  host: wintermute\n"
+                "source:\n"
+                "  template: debian-13-base\n"
+                "hardware:\n"
+                "  cores: 2\n"
+                "  memory: 4096\n"
+                "cloud_init:\n"
+                "  hostname: forgejo-runner-vm\n"
+                "forgejo_runner_runtime:\n"
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n"
+                "  job_containers:\n"
+                "    expose_container_runtime_socket: false\n"
+            )
+
+            result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_vm_schema_rejects_malformed_forgejo_runner_runtime_intent(self):
+        cases = {
+            "missing-labels": (
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n",
+                "labels",
+            ),
+            "empty-labels": (
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  labels: []\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n",
+                "labels",
+            ),
+            "non-instance-scope": (
+                "  forgejo_service: forgejo\n"
+                "  scope: repository\n"
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  concurrency: 1\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n",
+                "scope",
+            ),
+            "zero-concurrency": (
+                "  forgejo_service: forgejo\n"
+                "  scope: instance\n"
+                "  labels: [\"debian-13:docker://debian:13\"]\n"
+                "  concurrency: 0\n"
+                "  cleanup:\n"
+                "    workspace: after_job\n"
+                "    cache: disposable\n",
+                "concurrency",
+            ),
+        }
+        for name, (runtime_yaml, expected_output) in cases.items():
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    vm_yaml = Path(tmp) / "forgejo-runner.yaml"
+                    vm_yaml.write_text(
+                        "vmid: 1010\n"
+                        "placement:\n"
+                        "  host: wintermute\n"
+                        "source:\n"
+                        "  template: debian-13-base\n"
+                        "hardware:\n"
+                        "  cores: 2\n"
+                        "  memory: 4096\n"
+                        "cloud_init:\n"
+                        "  hostname: forgejo-runner-vm\n"
+                        "forgejo_runner_runtime:\n"
+                        f"{runtime_yaml}"
+                    )
+
+                    result = self.run_schema("inventory/vms/_schema.json", str(vm_yaml))
+                    output = result.stdout + result.stderr
+
+                    self.assertNotEqual(result.returncode, 0, output)
+                    self.assertIn(expected_output, output)
+
     def test_media_vm_declares_neuromancer_igpu_assignment(self):
         media_vm = REPO_ROOT / "inventory" / "vms" / "media-vm.yaml"
         content = media_vm.read_text()

@@ -1,0 +1,34 @@
+log:
+  level: info
+
+runner:
+  file: {{ forgejo_runner_runtime_state_dir }}/.runner
+  capacity: {{ fortress_vm.forgejo_runner_runtime.concurrency }}
+  envs: {}
+  env_file: ""
+  timeout: 3h
+  shutdown_timeout: 0s
+  insecure: false
+  fetch_timeout: 5s
+  fetch_interval: 2s
+  report_interval: 1s
+  labels:
+{% for label in fortress_vm.forgejo_runner_runtime.labels %}
+    - {{ label | to_json }}
+{% endfor %}
+
+cache:
+  enabled: false
+
+container:
+  network: ""
+  privileged: false
+  options: ""
+  workdir_parent: "{{ forgejo_runner_runtime_workspace_dir }}"
+  valid_volumes: []
+  docker_host: "-"
+  force_pull: true
+  force_rebuild: false
+
+host:
+  workdir_parent: "{{ forgejo_runner_runtime_workspace_dir }}"

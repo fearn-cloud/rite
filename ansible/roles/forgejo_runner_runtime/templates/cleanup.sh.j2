@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p "{{ forgejo_runner_runtime_workspace_dir }}"
+find "{{ forgejo_runner_runtime_workspace_dir }}" -mindepth 1 -maxdepth 1 -mtime +1 -exec rm -rf -- {} +
+
+podman system prune --force --filter until=168h

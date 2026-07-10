@@ -1,0 +1,177 @@
+---
+- name: Install Forgejo Runner Runtime packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - git
+      - podman
+    state: present
+    update_cache: true
+  when: forgejo_runner_runtime_manage_packages | default(true) | bool
+
+- name: Install Forgejo Runner binary
+  ansible.builtin.get_url:
+    url: "{{ forgejo_runner_runtime_download_url }}"
+    dest: /usr/local/bin/forgejo-runner
+    checksum: "{{ forgejo_runner_runtime_checksum | default(omit, true) }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: forgejo_runner_runtime_manage_packages | default(true) | bool
+
+- name: Ensure dedicated Forgejo Runner Unix user exists
+  ansible.builtin.user:
+    name: "{{ forgejo_runner_runtime_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ forgejo_runner_runtime_state_dir }}"
+    create_home: true
+
+- name: Resolve Forgejo Runner Unix user uid
+  ansible.builtin.command:
+    argv:
+      - id
+      - -u
+      - "{{ forgejo_runner_runtime_user }}"
+  changed_when: false
+  register: forgejo_runner_runtime_uid
+
+- name: Ensure Forgejo Runner directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(forgejo_runner_runtime_user) }}"
+    group: "{{ item.group | default(forgejo_runner_runtime_user) }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ forgejo_runner_runtime_state_dir }}"
+      mode: "0750"
+    - path: "{{ forgejo_runner_runtime_workspace_dir }}"
+      mode: "0750"
+    - path: "{{ forgejo_runner_runtime_config_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+
+- name: Enable linger for the Forgejo Runner user
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ forgejo_runner_runtime_user }}"
+    creates: "/var/lib/systemd/linger/{{ forgejo_runner_runtime_user }}"
+  when: forgejo_runner_runtime_manage_services | default(true) | bool
+
+- name: Enable the Forgejo Runner user's Podman socket
+  ansible.builtin.command:
+    cmd: "systemctl --user -M {{ forgejo_runner_runtime_user }}@ enable --now podman.socket"
+  changed_when: false
+  when: forgejo_runner_runtime_manage_services | default(true) | bool
+
+- name: Render Forgejo Runner configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ forgejo_runner_runtime_config_path }}"
+    owner: root
+    group: "{{ forgejo_runner_runtime_user }}"
+    mode: "0640"
+  notify: Restart Forgejo Runner
+
+- name: Render Forgejo Runner native systemd service
+  ansible.builtin.template:
+    src: forgejo-runner.service.j2
+    dest: /etc/systemd/system/forgejo-runner.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Forgejo Runner
+
+- name: Register declared Forgejo Runner with Forgejo
+  ansible.builtin.command:
+    argv:
+      - podman
+      - exec
+      - --user
+      - git
+      - fortress-forgejo-server
+      - forgejo
+      - forgejo-cli
+      - actions
+      - register
+      - --name
+      - "{{ fortress_forgejo_runner_registration.name }}"
+      - --scope
+      - "{{ fortress_forgejo_runner_registration.cli_scope }}"
+      - --labels
+      - "{{ fortress_forgejo_runner_registration.labels | join(',') }}"
+      - --secret
+      - "{{ fortress_forgejo_runner_registration.secret_token }}"
+  delegate_to: "{{ fortress_forgejo_runner_registration.forgejo_backend_vm }}"
+  become: true
+  changed_when: false
+  register: forgejo_runner_runtime_registration
+
+- name: Refuse empty Forgejo Runner registration result
+  ansible.builtin.fail:
+    msg: "Forgejo Runner registration for {{ fortress_forgejo_runner_registration.name }} did not return a runner UUID"
+  when: forgejo_runner_runtime_registration.stdout | trim == ""
+
+- name: Render Forgejo Runner registration state
+  ansible.builtin.template:
+    src: runner-state.json.j2
+    dest: "{{ forgejo_runner_runtime_state_dir }}/.runner"
+    owner: "{{ forgejo_runner_runtime_user }}"
+    group: "{{ forgejo_runner_runtime_user }}"
+    mode: "0600"
+  notify: Restart Forgejo Runner
+
+- name: Install Forgejo Runner cleanup script
+  ansible.builtin.template:
+    src: cleanup.sh.j2
+    dest: /usr/local/sbin/fortress-forgejo-runner-cleanup
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Forgejo Runner cleanup service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/fortress-forgejo-runner-cleanup.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Clean disposable Forgejo Runner workspaces and stale Podman cache
+
+      [Service]
+      Type=oneshot
+      User={{ forgejo_runner_runtime_user }}
+      Group={{ forgejo_runner_runtime_user }}
+      Environment=XDG_RUNTIME_DIR=/run/user/{{ forgejo_runner_runtime_uid.stdout }}
+      Environment=DOCKER_HOST=unix:///run/user/{{ forgejo_runner_runtime_uid.stdout }}/podman/podman.sock
+      ExecStart=/usr/local/sbin/fortress-forgejo-runner-cleanup
+
+- name: Install Forgejo Runner cleanup timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/fortress-forgejo-runner-cleanup.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Run Forgejo Runner disposable workspace and cache cleanup
+
+      [Timer]
+      OnCalendar=hourly
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Enable Forgejo Runner service and cleanup timer
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    daemon_reload: true
+    enabled: true
+    state: started
+  loop:
+    - forgejo-runner.service
+    - fortress-forgejo-runner-cleanup.timer
+  when: forgejo_runner_runtime_manage_services | default(true) | bool

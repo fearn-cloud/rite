@@ -12,7 +12,12 @@ def main():
         return 2
 
     vm = sys.argv[1].removeprefix("vm=")
-    repo_root = Path(os.environ.get("FORTRESS_ROOT", Path(__file__).resolve().parents[1]))
+    script_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(os.environ.get("FORTRESS_ROOT", script_root))
+    if str(script_root) not in sys.path:
+        sys.path.insert(0, str(script_root))
+    from fortress_inventory.model import load_inventory_tree
+
     vm_yaml = repo_root / "inventory" / "vms" / f"{vm}.yaml"
     vm_sops = repo_root / "inventory" / "vms" / f"{vm}.sops.yaml"
     if not vm_yaml.is_file():
@@ -22,10 +27,20 @@ def main():
         print(f"VM Sibling SOPS File is required at {vm_sops}. Run VM Prepare first.", file=sys.stderr)
         return 1
 
+    sops_files = [str(vm_sops)]
+    model = load_inventory_tree(repo_root)
+    runner_runtime = model.vms.get(vm, {}).get("forgejo_runner_runtime")
+    if isinstance(runner_runtime, dict):
+        forgejo_service = model.services.get(runner_runtime.get("forgejo_service"), {})
+        forgejo_backend_vm = forgejo_service.get("backend", {}).get("vm")
+        forgejo_backend_sops = repo_root / "inventory" / "vms" / f"{forgejo_backend_vm}.sops.yaml"
+        if forgejo_backend_vm and forgejo_backend_sops.is_file():
+            sops_files.append(str(forgejo_backend_sops))
+
     result = subprocess.run(
         [
             str(repo_root / "scripts" / "decrypt-keys"),
-            str(vm_sops),
+            *sops_files,
             "--",
             "ansible-playbook",
             str(repo_root / "ansible" / "playbooks" / "vm-configure.yml"),

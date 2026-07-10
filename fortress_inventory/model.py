@@ -77,6 +77,13 @@ def _default_vm(vm):
         instrumentation = dict(vm.get("instrumentation") or {})
         instrumentation.setdefault("enabled", True)
         vm["instrumentation"] = instrumentation
+    forgejo_runner_runtime = vm.get("forgejo_runner_runtime")
+    if isinstance(forgejo_runner_runtime, dict):
+        forgejo_runner_runtime = dict(forgejo_runner_runtime)
+        job_containers = dict(forgejo_runner_runtime.get("job_containers") or {})
+        job_containers.setdefault("expose_container_runtime_socket", False)
+        forgejo_runner_runtime["job_containers"] = job_containers
+        vm["forgejo_runner_runtime"] = forgejo_runner_runtime
     backup = dict(vm.get("backup") or {})
     if backup.get("enabled") is True:
         backup.setdefault("policy", "default")

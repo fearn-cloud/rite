@@ -1,0 +1,20 @@
+[Unit]
+Description=Forgejo Runner
+After=network-online.target user-runtime-dir@{{ forgejo_runner_runtime_uid.stdout }}.service user@{{ forgejo_runner_runtime_uid.stdout }}.service
+Wants=network-online.target
+Requires=user-runtime-dir@{{ forgejo_runner_runtime_uid.stdout }}.service user@{{ forgejo_runner_runtime_uid.stdout }}.service
+ConditionPathExists={{ forgejo_runner_runtime_state_dir }}/.runner
+
+[Service]
+Type=simple
+User={{ forgejo_runner_runtime_user }}
+Group={{ forgejo_runner_runtime_user }}
+WorkingDirectory={{ forgejo_runner_runtime_state_dir }}
+Environment=XDG_RUNTIME_DIR=/run/user/{{ forgejo_runner_runtime_uid.stdout }}
+Environment=DOCKER_HOST=unix:///run/user/{{ forgejo_runner_runtime_uid.stdout }}/podman/podman.sock
+ExecStart=/usr/local/bin/forgejo-runner daemon -c {{ forgejo_runner_runtime_config_path }}
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -187,6 +187,38 @@
         "auth_key_extract": { "type": "string", "minLength": 1 }
       }
     },
+    "forgejo_runner_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["forgejo_service", "scope", "labels", "concurrency", "cleanup"],
+      "properties": {
+        "forgejo_service": { "type": "string", "minLength": 1 },
+        "scope": { "enum": ["instance"] },
+        "labels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "concurrency": { "type": "integer", "minimum": 1 },
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspace", "cache"],
+          "properties": {
+            "workspace": { "enum": ["after_job"] },
+            "cache": { "enum": ["disposable"] }
+          }
+        },
+        "job_containers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expose_container_runtime_socket": { "type": "boolean" }
+          }
+        }
+      }
+    },
     "backup": {
       "type": "object",
       "additionalProperties": false,

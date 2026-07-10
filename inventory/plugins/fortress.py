@@ -14,6 +14,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.forgejo_runner_registration import (
+    desired_forgejo_runner_registrations,
+    forgejo_runner_registration_vars,
+)
 
 
 DOCUMENTATION = r"""
@@ -51,6 +55,10 @@ class InventoryModule(BaseInventoryPlugin):
         if not root.is_absolute():
             root = Path(path).resolve().parent / root
         model = load_inventory_tree(root)
+        forgejo_runner_registrations = {
+            registration.vm_name: forgejo_runner_registration_vars(registration)
+            for registration in desired_forgejo_runner_registrations(model)
+        }
 
         self.inventory.add_group("proxmox_hosts")
         self.inventory.add_group("vms")
@@ -74,6 +82,12 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.add_host(vm_name, "vms")
             self.inventory.set_variable(vm_name, "fortress_entity_kind", "VM")
             self.inventory.set_variable(vm_name, "fortress_vm", vm)
+            if vm_name in forgejo_runner_registrations:
+                self.inventory.set_variable(
+                    vm_name,
+                    "fortress_forgejo_runner_registration",
+                    forgejo_runner_registrations[vm_name],
+                )
             management_address = _first_vm_address(vm)
             if management_address:
                 self.inventory.set_variable(vm_name, "ansible_host", management_address)

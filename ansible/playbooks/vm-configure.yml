@@ -43,6 +43,12 @@
         name: vm_pci_device_assignment
       tags: [vm_pci_device_assignment]
 
+    - name: Configure Forgejo Runner Runtime
+      ansible.builtin.include_role:
+        name: forgejo_runner_runtime
+      when: fortress_vm.forgejo_runner_runtime is defined
+      tags: [forgejo_runner_runtime]
+
     - name: Finalize VM admin user
       ansible.builtin.include_role:
         name: vm_admin_user

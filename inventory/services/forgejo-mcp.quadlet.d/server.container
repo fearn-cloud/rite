@@ -1,0 +1,4 @@
+[Container]
+# forgejo-vm's current resolver does not serve the internal ingress zone. Keep
+# the upstream's public hostname for TLS/SNI and map it to internal ingress.
+AddHost=git.fearn.cloud:10.40.0.21

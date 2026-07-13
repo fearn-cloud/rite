@@ -8,7 +8,9 @@ from fortress_ingress.generate import (
     render_ingress_dns_record_sets,
 )
 from fortress_inventory.model import load_inventory_tree
+from fortress_inventory.service_runtime_intent import analyze_service_runtime_intent
 from fortress_inventory.validate import validate_inventory_tree
+from fortress_services.quadlet import render_quadlet_service
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +155,17 @@ class ForgejoInventoryTests(unittest.TestCase):
         self.assertIn(
             "address=/mcp.git.fearn.cloud/10.40.0.16",
             render_ingress_dns_record_sets(model)[0]["content"],
+        )
+
+        rendered = render_quadlet_service(
+            forgejo_mcp,
+            model.vms["forgejo-vm"],
+            inventory_root=REPO_ROOT / "inventory",
+            runtime_intent=analyze_service_runtime_intent(model),
+        )
+        self.assertIn(
+            "AddHost=git.fearn.cloud:10.40.0.21",
+            rendered.artifacts_by_filename["fortress-forgejo-mcp-server.container"].content,
         )
 
 

@@ -143,6 +143,7 @@ Ingress Auth is explicit per Service. It is not applied globally.
 | `PBS-002-ALLOW-PBS-DATASTORE` | `pbs-vm` | NAS share address | TCP/UDP | NFS ports | Yes | PBS Datastore mounted from NAS |
 | `PBS-003-ALLOW-TRUSTED-PBS` | Trusted | `pbs-vm` | TCP | 8007, 22 | Yes | PBS administration and recovery |
 | `GIT-001-ALLOW-TRUSTED-FORGEJO` | Trusted | `forgejo-vm` | TCP | 22, 443 | Yes | Git over SSH/HTTPS from admin workstation |
+| `MCP-001-ALLOW-TRUSTED-FORGEJO-MCP` | Trusted | `internal-ingress-vm` MCP ingress route, then `forgejo-vm` | TCP | 443 | Yes | Streamable HTTP MCP clients reach `https://mcp.git.fearn.cloud/mcp`; reachability matches Forgejo clients |
 | `GIT-002-ALLOW-RUNNER-FORGEJO` | `forgejo-runner-vm` | `internal-ingress-vm` Forgejo HTTP and SSH ingress addresses | TCP | 443, 22 | Yes | Runner registration, polling, repository checkout, and job execution against the Forgejo service |
 | `RUNNER-001-ALLOW-DEPENDENCY-EGRESS` | `forgejo-runner-vm` | Internet | TCP | 80, 443 | Yes | Package installs, base image pulls, and public dependency downloads for validation jobs |
 | `RUNNER-002-DENY-MANAGEMENT-REACHABILITY` | `forgejo-runner-vm` | Proxmox Hosts, NAS management address, `pbs-vm`, ordinary Service Backend ports | Any | Any | Yes | Phase-one CI is not a deployment or management principal |

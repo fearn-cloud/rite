@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""Prove forgejo-mcp's HTTP authentication boundary without logging tokens."""
+
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+
+MAX_RESPONSE_BYTES = 1024 * 1024
+ACCEPT = "application/json, text/event-stream"
+
+
+def fail(message):
+    print(f"failed: {message}", file=sys.stderr)
+    return 1
+
+
+def endpoint_url():
+    url = os.environ.get("FORGEJO_MCP_URL", "").rstrip("/")
+    if not url:
+        raise ValueError("FORGEJO_MCP_URL is required")
+    return url if url.endswith("/mcp") else f"{url}/mcp"
+
+
+def required(name):
+    value = os.environ.get(name, "")
+    if not value:
+        raise ValueError(f"{name} is required")
+    return value
+
+
+def request(url, body, authorization=None, origin=None, session_id=None):
+    headers = {"Accept": ACCEPT, "Content-Type": "application/json"}
+    if authorization:
+        headers["Authorization"] = authorization
+    if origin:
+        headers["Origin"] = origin
+    if session_id:
+        headers["Mcp-Session-Id"] = session_id
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="POST")
+    try:
+        response = urllib.request.urlopen(req, timeout=20)
+    except urllib.error.HTTPError as error:
+        response = error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"request failed: {error.reason}") from error
+
+    with response:
+        data = response.read(MAX_RESPONSE_BYTES + 1)
+        if len(data) > MAX_RESPONSE_BYTES:
+            raise RuntimeError("response exceeded 1 MiB safety limit")
+        return {
+            "status": response.status,
+            "headers": response.headers,
+            "content_type": response.headers.get("Content-Type", ""),
+            "body": data,
+        }
+
+
+def decoded_response(response):
+    """Parse JSON or JSON-bearing SSE; never print an untrusted response body."""
+    content_type = response["content_type"].split(";", 1)[0].lower()
+    text = response["body"].decode("utf-8", errors="replace")
+    if content_type == "application/json":
+        try:
+            return "json", json.loads(text)
+        except json.JSONDecodeError:
+            return "invalid-json", None
+    if content_type == "text/event-stream":
+        events = []
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                try:
+                    events.append(json.loads(line.removeprefix("data:").strip()))
+                except json.JSONDecodeError:
+                    continue
+        return "sse", events[-1] if events else None
+    return "other", None
+
+
+def response_login(payload):
+    if not isinstance(payload, dict):
+        return None
+    candidates = [payload]
+    result = payload.get("result")
+    if isinstance(result, dict):
+        candidates.append(result)
+        content = result.get("content")
+        if isinstance(content, list):
+            candidates.extend(item for item in content if isinstance(item, dict))
+    for candidate in candidates:
+        if isinstance(candidate.get("login"), str):
+            return candidate["login"]
+        text = candidate.get("text")
+        if isinstance(text, str):
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(decoded, dict) and isinstance(decoded.get("login"), str):
+                return decoded["login"]
+    return None
+
+
+def rejected(response):
+    if response["status"] >= 400:
+        return True
+    _kind, payload = decoded_response(response)
+    if isinstance(payload, dict):
+        if payload.get("error") is not None:
+            return True
+        result = payload.get("result")
+        return isinstance(result, dict) and result.get("isError") is True
+    return False
+
+
+def initialize_body(request_id):
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "fortress-auth-proof", "version": "1"},
+        },
+    }
+
+
+def user_info_body(request_id):
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "tools/call",
+        "params": {"name": "get_my_user_info", "arguments": {}},
+    }
+
+
+def main():
+    try:
+        url = endpoint_url()
+        token_auth = required("FORGEJO_MCP_TOKEN_AUTH_TOKEN")
+        bearer_auth = required("FORGEJO_MCP_BEARER_AUTH_TOKEN")
+        token_login = required("FORGEJO_MCP_TOKEN_AUTH_LOGIN")
+        bearer_login = required("FORGEJO_MCP_BEARER_AUTH_LOGIN")
+    except ValueError as error:
+        return fail(str(error))
+    if token_login == bearer_login:
+        return fail("the two expected logins must be distinct to prove per-request identity")
+
+    try:
+        init = request(url, initialize_body(1))
+    except RuntimeError as error:
+        return fail(str(error))
+    session_id = init["headers"].get("Mcp-Session-Id", "")
+    if not 200 <= init["status"] < 300 or not session_id:
+        return fail("initialize did not return a successful response with Mcp-Session-Id")
+    print("ok: initialize reached /mcp with MCP Accept and JSON Content-Type headers")
+
+    checks = [
+        ("no Authorization", None, None),
+        ("token Authorization", f"token {token_auth}", token_login),
+        ("Bearer Authorization", f"Bearer {bearer_auth}", bearer_login),
+        ("bad Authorization", "Bearer fortress-invalid-token", None),
+    ]
+    for request_id, (label, authorization, expected_login) in enumerate(checks, start=2):
+        try:
+            response = request(url, user_info_body(request_id), authorization=authorization, session_id=session_id)
+        except RuntimeError as error:
+            return fail(f"{label}: {error}")
+        kind, payload = decoded_response(response)
+        actual_login = response_login(payload)
+        if expected_login:
+            if not 200 <= response["status"] < 300 or actual_login != expected_login:
+                return fail(f"{label} did not produce its expected Forgejo identity (response type: {kind})")
+            print(f"ok: {label} used its expected Forgejo identity")
+            continue
+        if actual_login in {token_login, bearer_login}:
+            return fail(f"{label} authenticated as a configured proof identity")
+        if not rejected(response):
+            return fail(f"{label} was neither rejected nor proven unable to authenticate (response type: {kind})")
+        print(f"ok: {label} was rejected without a fallback identity")
+
+    try:
+        origin = request(url, initialize_body(6), origin="https://fortress-origin-probe.invalid")
+    except RuntimeError as error:
+        return fail(f"Origin probe: {error}")
+    kind, _payload = decoded_response(origin)
+    cors = "present" if origin["headers"].get("Access-Control-Allow-Origin") else "absent"
+    print(f"recorded: Origin probe returned HTTP {origin['status']} ({kind}; Access-Control-Allow-Origin {cors})")
+    print("warning: upstream forgejo-mcp v2.30.2 does not validate Origin; see runbooks/forgejo-mcp.md")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

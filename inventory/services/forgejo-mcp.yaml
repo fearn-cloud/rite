@@ -1,0 +1,22 @@
+name: forgejo-mcp
+backend:
+  vm: forgejo-vm
+ingress_routes:
+  - name: mcp
+    hostname: mcp.git.fearn.cloud
+    published_port: 8080
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
+deploy:
+  type: quadlet
+  containers:
+    - name: server
+      image: codeberg.org/goern/forgejo-mcp:v2.30.2
+      # MCP clients use the streamable HTTP endpoint at /mcp on this port.
+      published_ports:
+        - bind: 0.0.0.0
+          host: 8080
+          container: 8080
+      command: ["--transport", "http", "--http-port", "8080", "--url", "https://git.fearn.cloud"]

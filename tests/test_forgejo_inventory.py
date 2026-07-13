@@ -1,7 +1,12 @@
 import unittest
 from pathlib import Path
 
-from fortress_ingress.generate import build_caddy_layer4_route_model, render_ingress_dns_record_sets
+from fortress_ingress.generate import (
+    build_caddy_layer4_route_model,
+    build_caddy_route_model,
+    render_caddy_routes,
+    render_ingress_dns_record_sets,
+)
 from fortress_inventory.model import load_inventory_tree
 from fortress_inventory.validate import validate_inventory_tree
 
@@ -96,6 +101,57 @@ class ForgejoInventoryTests(unittest.TestCase):
         )
         self.assertIn(
             "address=/git.fearn.cloud/10.40.0.21",
+            render_ingress_dns_record_sets(model)[0]["content"],
+        )
+
+    def test_forgejo_mcp_streamable_http_ingress_is_inventory_owned(self):
+        model = load_inventory_tree(REPO_ROOT)
+        forgejo_mcp = model.services["forgejo-mcp"]
+
+        self.assertEqual("forgejo-vm", forgejo_mcp["backend"]["vm"])
+        self.assertEqual(
+            [
+                {
+                    "name": "mcp",
+                    "hostname": "mcp.git.fearn.cloud",
+                    "published_port": 8080,
+                    "exposure": "lan_only",
+                    "tls": "letsencrypt_dns",
+                    "auth": {"type": "none"},
+                }
+            ],
+            forgejo_mcp["ingress_routes"],
+        )
+        self.assertEqual([], validate_inventory_tree(REPO_ROOT))
+
+        route = next(
+            route
+            for route in build_caddy_route_model(model)["routes"]
+            if route["owner"] == "forgejo-mcp"
+        )
+        self.assertEqual(
+            {
+                "kind": "service",
+                "hostname": "mcp.git.fearn.cloud",
+                "target": "http://10.40.0.12:8080",
+                "owner": "forgejo-mcp",
+                "route": "mcp",
+                "tls": "letsencrypt_dns",
+            },
+            route,
+        )
+
+        self.assertIn(
+            "mcp.git.fearn.cloud {\n"
+            "\ttls {\n"
+            "\t\tdns cloudflare {$CLOUDFLARE_API_TOKEN}\n"
+            "\t}\n"
+            "\treverse_proxy http://10.40.0.12:8080\n"
+            "}",
+            render_caddy_routes(model),
+        )
+        self.assertIn(
+            "address=/mcp.git.fearn.cloud/10.40.0.16",
             render_ingress_dns_record_sets(model)[0]["content"],
         )
 

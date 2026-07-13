@@ -2,11 +2,11 @@
 
 ### Issue tracker
 
-Issues live as local markdown files under `.scratch/<feature>/` in this repo. See `docs/agents/issue-tracker.md`.
+Issues live in Forgejo for `fearn-cloud/rite`, accessed through the `forgejo-mcp` server at `mcp.git.fearn.cloud`; load its credentials from `.env/forgejo-mcp/fortress.env` before communicating. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default canonical labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) recorded as a `Status:` line in issue files. See `docs/agents/triage-labels.md`.
+Canonical Forgejo labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

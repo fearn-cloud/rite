@@ -51,7 +51,13 @@ class ForgejoMcpAuthProofTests(unittest.TestCase):
                     self.end_headers()
                     self.wfile.write(b'{"jsonrpc":"2.0","id":2,"result":{"isError":true}}')
                     return
-                body = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"text": json.dumps({"login": login})}]}}).encode()
+                body = json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "result": {"content": [{"text": json.dumps({"Result": {"login": login}})}]},
+                    }
+                ).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()

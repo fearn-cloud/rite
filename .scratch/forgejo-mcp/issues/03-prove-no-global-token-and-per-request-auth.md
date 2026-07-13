@@ -1,6 +1,6 @@
 # Prove no-global-token per-request auth behavior
 
-Status: ready-for-human
+Status: done
 Category: enhancement
 
 ## What to build
@@ -12,10 +12,10 @@ Prefer a lightweight test harness around the selected container or a documented 
 ## Acceptance criteria
 
 - [x] The checked-in Service config does not pass a global Forgejo token.
-- [ ] A Streamable HTTP initialize request can reach `/mcp` with the required MCP `Accept` and JSON `Content-Type` headers.
-- [ ] A request without `Authorization` fails safely or cannot perform authenticated Forgejo work.
-- [ ] A request with `Authorization: token <token>` or `Authorization: Bearer <token>` is forwarded as the client identity according to upstream behavior.
-- [ ] A bad token does not fall back to a broader identity.
+- [x] A Streamable HTTP initialize request can reach `/mcp` with the required MCP `Accept` and JSON `Content-Type` headers.
+- [x] A request without `Authorization` fails safely or cannot perform authenticated Forgejo work.
+- [x] A request with `Authorization: token <token>` or `Authorization: Bearer <token>` is forwarded as the client identity according to upstream behavior.
+- [x] A bad token does not fall back to a broader identity.
 - [x] Browser-style `Origin` behavior is checked and any required Caddy/upstream mitigation is recorded.
 - [x] The proof is documented as a command or test that future agents can rerun.
 - [x] Any discovered upstream limitation is recorded with a recommendation before implementation proceeds to live rollout.
@@ -33,3 +33,7 @@ The checked-in service configuration has no `--token`, `FORGEJO_ACCESS_TOKEN`, `
 Origin limitation recorded: `goern/forgejo-mcp` v2.30.2 and its `github.com/mark3labs/mcp-go` v0.44.0 Streamable HTTP server do not validate `Origin`. The proof sends a credential-free browser-style Origin request and records status, response type, and whether CORS is present. Fortress currently has no accepted browser-Origin policy or ingress schema for a Caddy mitigation. Keep the endpoint for non-browser MCP clients; before allowing browser-originated use or widening reachability, adopt and test an explicit allowed-origin or reject-all-Origin Caddy policy.
 
 Focused verification: `python3 -m unittest tests.test_forgejo_mcp_auth_proof` proves that the command sends and evaluates the intended request sequence, not that the selected upstream container has done so. The workspace has no Docker or Podman runtime, so the remaining four live behavioral checks require an operator to deploy the Service and run the documented command with two least-privilege identities. Record those results here before marking this issue done; they can be collected alongside issue 04's smoke test.
+
+2026-07-13 — Live proof passed against `https://mcp.git.fearn.cloud/mcp` with two distinct Forgejo identities. `initialize` succeeded with the required Streamable HTTP headers and returned a session ID. `get_my_user_info` rejected both the missing-authorization and deliberately invalid-token requests without falling back to either proof identity. The `token` and `Bearer` requests each resolved to their respective expected identity. The credential-free Origin probe returned HTTP 200 with no `Access-Control-Allow-Origin`, confirming the already-recorded upstream Origin limitation. No token material or response body was recorded.
+
+The live upstream payload wraps the Forgejo user object as `{"Result": {"login": ...}}`; `scripts/forgejo-mcp-auth-proof` now recognizes that shape, with focused test coverage. `python3 -m unittest tests.test_forgejo_mcp_auth_proof` passed after the update.

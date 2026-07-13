@@ -101,6 +101,9 @@ def response_login(payload):
                 continue
             if isinstance(decoded, dict) and isinstance(decoded.get("login"), str):
                 return decoded["login"]
+            result = decoded.get("Result") if isinstance(decoded, dict) else None
+            if isinstance(result, dict) and isinstance(result.get("login"), str):
+                return result["login"]
     return None
 
 

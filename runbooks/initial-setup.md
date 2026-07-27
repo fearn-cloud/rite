@@ -12,9 +12,11 @@ File can be decrypted before any Host or VM workflow runs.
    script.
 3. repo clone: clone this repository and enter the checkout.
 4. age key import: place the operator age private key at
-   `~/.config/sops/age/keys.txt` with `0600` permissions.
-5. offline backup: retrieve the backup age key from physical offline storage
-   only when the workstation key is lost or being rotated.
+   `~/.config/sops/age/keys.txt` with `0600` permissions. For a lost
+   workstation, retrieve the offline recovery identity only for this ceremony;
+   see [Operator Recovery Backup](operator-recovery-backup.md).
+5. offline backup: do not copy the recovery identity into routine workstation
+   backups or leave its physical media attached after this ceremony.
 6. Confirm `age/recipients.txt` contains exactly two public Recipients: the
    operator workstation Recipient and the offline backup Recipient.
 7. Update `.sops.yaml` so its `age` value is the comma-separated public

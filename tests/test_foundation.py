@@ -15,7 +15,12 @@ class FoundationTests(unittest.TestCase):
         for path in REPO_ROOT.rglob("*"):
             if not path.is_file():
                 continue
-            if ".git" in path.parts or ".scratch" in path.parts or "__pycache__" in path.parts:
+            if (
+                ".git" in path.parts
+                or ".codex" in path.parts
+                or ".scratch" in path.parts
+                or "__pycache__" in path.parts
+            ):
                 continue
             if path.suffix in {".pyc", ".pyo"}:
                 continue

@@ -119,7 +119,7 @@ docs/adr/           architectural decisions and tradeoffs
 
 ## Where To Go Next
 
-- New operator workstation: [docs/toolchain.md](docs/toolchain.md), [runbooks/initial-setup.md](runbooks/initial-setup.md)
+- New operator workstation: [docs/toolchain.md](docs/toolchain.md), [runbooks/initial-setup.md](runbooks/initial-setup.md), [runbooks/operator-recovery-backup.md](runbooks/operator-recovery-backup.md)
 - Add infrastructure: [runbooks/new-host.md](runbooks/new-host.md), [runbooks/new-vm.md](runbooks/new-vm.md), [runbooks/new-service.md](runbooks/new-service.md)
 - Understand the model: [CONTEXT.md](CONTEXT.md), [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/)
 - Operate safely: relevant runbooks plus `just --list`

@@ -18,6 +18,10 @@ _Avoid_: substituting "node" for "host"; reserve "node" for the PVE-internal ide
 A guest declared in `inventory/vms/<vm>.yaml`, provisioned by OpenTofu, configured by Ansible. Pinned to exactly one Host via `placement.host`.
 _Avoid_: guest, instance.
 
+**Time Authority**:
+The fleet-local source of wall-clock time: one Internet-synchronised NTP relay whose availability boundary permits client holdover during repair.
+_Avoid_: NTP server, time server.
+
 **Secondary VM Address**:
 A non-primary static IPv4 address owned by a VM interface in addition to its primary `address`; used when a VM must bind a distinct listener address without changing its management address.
 _Avoid_: additional address, IP alias, Service address.
@@ -280,6 +284,82 @@ _Avoid_: Configure, provision.
 A routine in-place software/runtime advancement for an existing declared Entity within its current compatibility band.
 _Avoid_: refresh, renewal, upgrade.
 
+**Forgejo-dispatched Convergence**:
+An approved, auditable release-scoped operation that converges the eligible **VMs** and **Services** required by an immutable release tag. An **Initial Deployment**, **Update**, and **Rollback** use the same explicit convergence contract; neither rollback nor deployment implies automatic inverse execution.
+_Avoid_: automatic rollback, reverse deploy.
+
+**Release Tag**:
+An immutable protected Git tag named by a **Forgejo Release**. The protected dispatcher resolves and records its commit; an Operator cannot supply a branch, arbitrary ref, or commit SHA as the target revision.
+_Avoid_: deployment branch, requested SHA, arbitrary ref.
+
+**Forgejo Release**:
+The published, non-draft, non-prerelease Forgejo release that deliberately authorizes one **Release Tag** for a **Forgejo-dispatched Convergence**. A protected tag without its Forgejo Release is not an admissible dispatch target; prerelease testing remains a direct **Operator Workflow** until a separate environment policy exists.
+_Avoid_: arbitrary tag, release branch, prerelease deployment.
+
+**Convergence Direction**:
+The plan-derived classification of each **Forgejo Automation Target** in a **Forgejo-dispatched Convergence** as an **Initial Deployment**, **Update**, **Rollback**, already-at-target reconciliation, or unknown/uncomparable state. It is not an Operator-supplied dispatch input.
+_Avoid_: requested action, user-selected direction.
+
+**Initial Deployment**:
+A **Forgejo-dispatched Convergence** state where a **Forgejo Automation Target** is intentionally not yet deployed. It may provision a target **VM** or deploy a target **Service** onto a **VM**, as declared by the selected **Release Tag**.
+_Avoid_: unknown current state, implicit adoption.
+
+**Already-at-target Reconciliation**:
+A successful approval-free outcome for an individual **Forgejo Automation Target** where planning establishes that it is healthy and already at the selected **Release Tag**. It makes no live change for that target.
+_Avoid_: redeploy, implicit approval, empty apply.
+
+**Unclassified Convergence Refusal**:
+A pre-approval refusal of a **Forgejo-dispatched Convergence** when planning cannot reliably establish a required target's current **Release Tag** and cannot establish that it is intentionally not yet deployed. The Operator uses the direct **Operator Workflow** to repair or establish that state before requesting Forgejo-dispatched operation.
+_Avoid_: best-effort adoption, untracked live mutation.
+
+**Forgejo Automation Target**:
+An eligible declared **VM** or **Service** included in a **Forgejo-dispatched Convergence**. Hosts, Datasets, and other Entity kinds are not Automation Targets in the first controlled Forgejo path.
+_Avoid_: generic Entity target.
+
+**Forgejo Automation Eligibility**:
+The selected **Release Tag**'s explicit, per-operation-class opt-in for a declared **Forgejo Automation Target**. The operation classes are **Initial Deployment**, **Update**, and **Rollback**; each is independently allowed or denied. Planning refuses the entire release plan before approval when a required target is absent from that release's Inventory or has not opted in; a target's intentional absence from the live fleet remains valid for an **Initial Deployment**.
+_Avoid_: inferred eligibility, current-fleet-only eligibility.
+
+**Release Convergence Plan**:
+The inspectable ordered plan for one **Forgejo-dispatched Convergence**, derived from a **Release Manifest**. It records each workflow instance's validation/refusal result and serial dependency order before protected-environment approval.
+_Avoid_: single-Entity dispatch, unordered release deploy, diff-derived execution.
+
+**Approval-bound Release Convergence Plan**:
+A **Release Convergence Plan** whose digest and resolved **Release Tag** commit are the exact subject of protected-environment approval. Apply revalidates every target's planned precondition immediately before mutation and refuses rather than replanning when a precondition differs.
+_Avoid_: blanket deployment approval, approval-free replan.
+
+**Forgejo Convergence Audit Manifest**:
+The deliberately generated, allow-listed Forgejo record of one **Forgejo-dispatched Convergence**: its release identity, plan digest, approval, ordered target outcomes, and timestamps. It excludes raw plans and sensitive diagnostics, which remain on the management runner under their shorter retention policy.
+_Avoid_: job log, raw diagnostic artifact, deployment transcript.
+
+**Release Manifest**:
+The declarative declaration in a **Release Tag** of the workflow instances it authorizes and their dependency order. It is the authoritative live-work scope for a **Release Convergence Plan**; an arbitrary repository or Inventory diff does not authorize execution. The tag contributes no executable dispatcher or executor code.
+_Avoid_: inferred deploy set, executable diff, release-supplied executor.
+
+**Workflow Definition Change**:
+A change to the release-declared live work: its **Release Manifest**, ordering, or Inventory-facing workflow configuration. It may be executed through a **Forgejo-dispatched Convergence** when explicitly declared by the selected release.
+_Avoid_: Rite implementation upgrade, toolchain upgrade.
+
+**Rite Implementation and Tooling Upgrade**:
+A change to the privileged executor's Rite code or tools. It is not executed by the release it changes; it requires a separate trusted-runner upgrade path.
+_Avoid_: workflow definition change, self-updating deployment run.
+
+**Rite Upgrade Tag**:
+An immutable protected Git tag that selects one **Rite Implementation and Tooling Upgrade** revision. The protected upgrade dispatcher resolves and records its commit before approval; it never accepts a branch tip or arbitrary SHA.
+_Avoid_: upgrade branch, requested SHA, mutable tooling revision.
+
+**Upgrade Manifest**:
+The declarative declaration in a **Rite Upgrade Tag** of the target upgrades it authorizes and their serial dependency order. It is the authoritative live-work scope for a Rite implementation and tooling upgrade; an arbitrary repository or Inventory diff does not authorize execution.
+_Avoid_: inferred upgrade set, executable diff, fleet-wide update-all.
+
+**Implementation and Tooling Upgrade Eligibility**:
+A declared **VM** or **Service** opt-in that authorizes the Management Runner VM to perform a **Rite Implementation and Tooling Upgrade** for that target. It is distinct from **Forgejo Automation Eligibility**: release convergence authority does not imply privileged executor-upgrade authority.
+_Avoid_: implicit upgrade authority, reused release eligibility.
+
+**Upgrade Plan**:
+The inspectable ordered plan for one **Rite Implementation and Tooling Upgrade**, derived from an **Upgrade Manifest**. Protected-environment approval binds its digest and the resolved **Rite Upgrade Tag** commit; apply rechecks its target preconditions and refuses rather than replanning if they differ. Its approved job holds the fleet-wide live-mutation lease shared with Forgejo-dispatched convergence and direct **Operator Workflows**. It publishes only a generated, allow-listed audit manifest to Forgejo for 90 days; raw diagnostics remain on the Management Runner VM for 30 days.
+_Avoid_: approval-free upgrade, stale approved plan, mutable upgrade request.
+
 **Host Update**:
 The Host-level operator workflow that applies routine in-place software advancement to one existing Host.
 _Avoid_: Host Refresh, Host Renewal, Host Upgrade.
@@ -456,6 +536,14 @@ _Avoid_: co-located runner, build container on Forgejo.
 The VM-local Forgejo Actions execution substrate on the Forgejo Runner VM: a Native runner systemd service using the dedicated runner user's Podman socket for CI job containers. Job containers are runtime artifacts, not fortress Services, and they do not receive container-runtime socket access by default. Runner labels describe validation capabilities only; deployment and management labels require a later design.
 _Avoid_: runner Service, job Service, containerized runner.
 
+**Management Runner VM**:
+A dedicated Infrastructure VLAN VM that executes approved, protected Forgejo release convergence and **Rite Implementation and Tooling Upgrade** runs, separate from both the Forgejo VM and validation-only **Forgejo Runner VM**. Its root-owned executor uses a dedicated SOPS age identity and per-plane machine credentials under a static least-privilege network policy; admitted unprivileged jobs use fresh workspaces and cannot expand long-lived authority.
+_Avoid_: deployment runner, CI runner, self-updating release runner.
+
+**Secret Material Enclave**:
+The root-only boundary on the **Management Runner VM** that retains its SOPS age identity, admits only workflow-and-target-specific secret access, and delivers decrypted material directly to privileged child processes outside Forgejo job workspaces.
+_Avoid_: secret store, CI secrets, job decryption interface.
+
 **Observability VM**:
 The Infrastructure VLAN VM that runs metrics, alerting, dashboard, log aggregation, and blackbox-check Services.
 _Avoid_: monitoring stack, logs box.
@@ -616,6 +704,10 @@ _Avoid_: embedded share, dataset share.
 **Fortress-owned Share**:
 A Derived Share marked as managed by fortress so NAS Reconcile may update or destroy it.
 _Avoid_: manual share, unmanaged share.
+
+**Operator-managed Share**:
+A Share declared in Inventory whose lifecycle remains under the Operator's administration; NAS Reconcile preserves it while recognizing its intentional coexistence with a Dataset's Derived Shares.
+_Avoid_: unmanaged share, ignored drift, fortress-owned share.
 
 **NFS Share**:
 A Share exposed over NFS from TrueNAS.

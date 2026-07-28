@@ -54,6 +54,32 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
 
         self.assertEqual([], missing_templates)
 
+    def test_quadlet_application_config_artifacts_are_rendered_as_service_data_files(self):
+        model = load_inventory_tree(REPO_ROOT)
+        service = model.services["oci-mirror"]
+        runtime_intent = analyze_service_runtime_intent(model)
+
+        deploy_vars = quadlet_deploy_vars(
+            service,
+            model.vms["oci-mirror-vm"],
+            inventory_root=REPO_ROOT / "inventory",
+            model=model,
+            runtime_intent=runtime_intent,
+        )
+
+        config_files = {
+            item["path"]: item
+            for item in deploy_vars["fortress_service_data_files"]
+        }
+        self.assertEqual(
+            "0644",
+            config_files["/srv/services/oci-mirror/config/config.json"]["mode"],
+        )
+        self.assertIn(
+            '"mostRecentlyPulledCount": 5',
+            config_files["/srv/services/oci-mirror/config/config.json"]["content"],
+        )
+
     def test_service_deploy_passes_share_backed_subpaths_to_playbook(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

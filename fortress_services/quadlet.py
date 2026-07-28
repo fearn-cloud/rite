@@ -491,11 +491,17 @@ def _quadlet_fragments(service, inventory_root):
         for container in service.get("deploy", {}).get("containers", []) or []
     }
     allowed_names.add("network.network")
+    application_config_sources = {
+        config_file["source"]
+        for config_file in service.get("deploy", {}).get("application_config_files", []) or []
+    }
     fragments = {}
     for fragment_path in sorted(fragment_dir.iterdir()):
         if not fragment_path.is_file():
             continue
         if fragment_path.name not in allowed_names:
+            if fragment_path.name in application_config_sources:
+                continue
             raise ValueError(
                 f"unknown Quadlet Fragment for Service {service['name']}: {fragment_path.name}"
             )

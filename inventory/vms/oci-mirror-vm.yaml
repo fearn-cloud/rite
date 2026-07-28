@@ -1,0 +1,23 @@
+vmid: 1011
+description: Infrastructure VLAN OCI Mirror VM with disposable host-disk cache
+placement:
+  host: straylight
+source:
+  template: debian-13-base
+hardware:
+  cores: 1
+  memory: 1024
+  disks:
+    - storage: local-lvm
+      size: 250G
+network:
+  interfaces:
+    - bridge: vmbr0
+      vlan: 40
+      address: 10.40.0.22/24
+      gateway: 10.40.0.1
+cloud_init:
+  hostname: oci-mirror-vm
+backup:
+  enabled: false
+  reason: OCI Mirror cache is disposable and rebuilt from public upstreams

@@ -63,6 +63,7 @@ class FoundationTests(unittest.TestCase):
             "service-launch",
             "templates-build",
             "ingress-regenerate",
+            "oci-mirror-acceptance",
         ]
 
         result = subprocess.run(

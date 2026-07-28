@@ -1,0 +1,44 @@
+name: oci-mirror
+backend:
+  vm: oci-mirror-vm
+ingress_routes:
+  - name: registry
+    hostname: oci.fearn.cloud
+    published_port: 5000
+    exposure: lan_only
+    tls: letsencrypt_dns
+    auth:
+      type: none
+instrumentation:
+  telemetry_targets:
+    - name: registry-api
+      type: http_probe
+      published_port: 5000
+      path: /v2/
+    - name: metrics
+      type: prometheus_metrics
+      published_port: 5000
+      path: /metrics
+  observability_views:
+    - profile: prometheus_generic
+deploy:
+  type: quadlet
+  application_config_files:
+    - source: config.json
+      service_path: config/config.json
+      mode: "0644"
+  containers:
+    - name: zot
+      image: ghcr.io/project-zot/zot-linux-amd64:v2.1.18
+      command: ["serve", "/etc/zot/config.json"]
+      published_ports:
+        - bind: 0.0.0.0
+          host: 5000
+          container: 5000
+      volumes:
+        - service_path: config/config.json
+          container: /etc/zot/config.json
+          access: read_only
+        - service_path: data
+          container: /var/lib/zot
+          access: read_write

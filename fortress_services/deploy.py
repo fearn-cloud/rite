@@ -11,7 +11,11 @@ from fortress_services.observability_config import (
     GRAFANA_GENERATED_DASHBOARD_DIR,
     observability_service_data_files,
 )
-from fortress_services.quadlet import ServiceDataDirectory, render_quadlet_service
+from fortress_services.quadlet import (
+    ServiceDataDirectory,
+    ServiceDataFile,
+    render_quadlet_service,
+)
 
 
 REQUIRED_SERVICE_SECRET_FIELDS = ("created", "version", "value")
@@ -209,6 +213,9 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
         runtime_intent=runtime_intent,
     )
     service_data_files = list(rendered.service_data_files)
+    service_data_files.extend(
+        _application_config_files(service, inventory_root=inventory_root)
+    )
     service_data_directories = list(rendered.service_data_directories)
     service_data_reconcile_directories = []
     if service.get("name") == "observability" and model is not None:
@@ -275,6 +282,30 @@ def _runtime_service_data_directories(service, model, runtime_intent=None):
         )
         for directory in _service_runtime_intent_view(service, runtime_intent).service_data_directories
     )
+
+
+def _application_config_files(service, inventory_root=None):
+    if inventory_root is None:
+        return ()
+
+    config_root = Path(inventory_root) / "services" / f"{service['name']}.quadlet.d"
+    files = []
+    for config_file in service.get("deploy", {}).get("application_config_files", []) or []:
+        source = config_root / config_file["source"]
+        if not source.is_file():
+            raise ValueError(
+                f"Application Configuration Artifact {source} is required for "
+                f"Service {service['name']}"
+            )
+        files.append(
+            ServiceDataFile(
+                path=f"/srv/services/{service['name']}/{config_file['service_path']}",
+                content=source.read_text(),
+                mode=config_file["mode"],
+                force=True,
+            )
+        )
+    return tuple(files)
 
 
 def _with_service_data_file_parent_directories(directories, files):

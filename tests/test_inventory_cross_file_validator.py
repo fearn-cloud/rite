@@ -570,7 +570,7 @@ class InventoryCrossFileValidatorTests(unittest.TestCase):
         backup_by_vm = {vm_name: vm.get("backup") for vm_name, vm in model.vms.items()}
         self.assertEqual({"enabled": False, "reason": backup_by_vm["pbs-vm"]["reason"]}, backup_by_vm["pbs-vm"])
         self.assertGreater(len(backup_by_vm["pbs-vm"]["reason"]), 0)
-        unprotected_vms = {"pbs-vm", "forgejo-runner-vm"}
+        unprotected_vms = {"pbs-vm", "forgejo-runner-vm", "oci-mirror-vm"}
         for vm_name, backup in backup_by_vm.items():
             if vm_name in unprotected_vms:
                 self.assertEqual({"enabled": False, "reason": backup["reason"]}, backup, vm_name)

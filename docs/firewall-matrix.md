@@ -46,6 +46,7 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 | `dns-secondary-vm` | `10.40.0.18` | `molly` | Pi-hole, Unbound | VM-local |
 | `identity-vm` | `10.40.0.19` | `straylight` | Authentik | VM-local |
 | `forgejo-runner-vm` | `10.40.0.20` | `neuromancer` | Forgejo Runner | VM-local disposable state |
+| `oci-mirror-vm` | `10.40.0.22` | `straylight` | Zot OCI Mirror | 250 GiB VM-local disposable cache; not backed up |
 
 Primary and secondary DNS VMs are functionally identical peers. Headscale is local-only; remote devices must be enrolled while local or with a short-lived pre-auth key minted while local. Headscale does not depend on Authentik until a later explicit OIDC integration decision.
 
@@ -132,6 +133,10 @@ The Tailnet Subnet Router is attached to the Trusted VLAN because it extends tru
 | `ING-003-ALLOW-INGRESS-IDENTITY` | `internal-ingress-vm` | `identity-vm` | TCP | Authentik backend ports | Yes | Authentik flows for Services with Ingress Auth |
 | `ING-004-ALLOW-TRUSTED-IDENTITY-RECOVERY` | Trusted | `identity-vm` | TCP | Authentik backend/admin ports | Yes | Direct recovery if ingress is down |
 | `ING-005-DENY-DIRECT-BACKEND-BYPASS` | Known, IoT, Guest, DMZ | App and Infrastructure backend ports | Any | Any | Yes | Clients should use Ingress rather than direct backend paths |
+| `OCI-001-ALLOW-OCI-MIRROR-INGRESS` | Infrastructure and Apps fleet VMs; declared Canon node IP/CIDRs | `internal-ingress-vm` | TCP | 443 | Yes | OCI Mirror consumers use `https://oci.fearn.cloud`; Canon node ranges are router/firewall policy, not a Rite-managed hostname/path-specific restriction on the shared listener |
+| `OCI-002-ALLOW-INGRESS-OCI-MIRROR` | `internal-ingress-vm` | `oci-mirror-vm` | TCP | 5000 | Yes | Caddy reverse-proxies the registry API to Zot |
+| `OCI-003-DENY-DIRECT-OCI-MIRROR` | Trusted, Known, IoT, Guest, DMZ and non-consumer Infrastructure/Apps clients | `oci-mirror-vm` | TCP | 5000 | Yes | Zot is private to Ingress; developer workstations have no direct or Ingress policy exception |
+| `OCI-004-ALLOW-OCI-MIRROR-UPSTREAMS` | `oci-mirror-vm` | Internet approved public registries | TCP | 443 | Yes | On-demand cache fills; Zot's ten-stanza configuration is the upstream allowlist |
 
 Ingress Auth is explicit per Service. It is not applied globally.
 

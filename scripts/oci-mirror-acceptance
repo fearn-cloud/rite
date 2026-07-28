@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "$#" -ne 0 ]; then
+  echo "usage: scripts/oci-mirror-acceptance" >&2
+  exit 2
+fi
+
+for required_command in curl skopeo; do
+  if ! command -v "$required_command" >/dev/null 2>&1; then
+    echo "OCI Mirror acceptance requires $required_command" >&2
+    exit 1
+  fi
+done
+
+endpoint="oci.fearn.cloud"
+temporary_directory=$(mktemp -d)
+cleanup() {
+  rm -rf "$temporary_directory"
+}
+trap cleanup EXIT
+
+echo "Checking OCI Mirror registry API through Ingress..."
+curl --fail --silent --show-error "https://${endpoint}/v2/" >/dev/null
+
+references=(
+  "docker.io/library/postgres:16"
+  "ghcr.io/goauthentik/server:2025.4.1"
+  "lscr.io/linuxserver/bazarr:v1.5.6-ls350"
+  "codeberg.org/forgejo/forgejo:15.0.3"
+  "registry.gitlab.com/packaging/signal-cli/signal-cli-native:v0-14-5-1"
+  "registry.k8s.io/pause:3.10"
+  "quay.io/prometheus/node-exporter:v1.9.1"
+  "public.ecr.aws/amazonlinux/amazonlinux:2023"
+  "mcr.microsoft.com/hello-world:latest"
+  "gcr.io/google-containers/pause:3.2"
+)
+
+for reference in "${references[@]}"; do
+  mirrored_reference="${endpoint}/${reference}"
+  echo "Pulling ${mirrored_reference}..."
+  skopeo copy --src-no-creds "docker://${mirrored_reference}" "dir:${temporary_directory}/${reference%%/*}"
+done
+
+echo "OCI Mirror acceptance complete."

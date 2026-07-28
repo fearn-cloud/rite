@@ -156,6 +156,10 @@ template-destroy host template delete_template_yaml="false":
 ingress-regenerate:
     @./scripts/ingress-regenerate
 
+# Verify the OCI Mirror registry API and every approved public-upstream prefix through Ingress.
+oci-mirror-acceptance:
+    @./scripts/oci-mirror-acceptance
+
 # Generate the Homepage Service Directory config from Inventory.
 directory-regenerate:
     @./scripts/directory-regenerate

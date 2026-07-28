@@ -31,6 +31,10 @@ cleanup in pull-through mode when deletion is enabled. Those features do not
 remove its single-upstream constraint. [Distribution configuration reference](https://distribution.github.io/distribution/about/configuration/)
 [Distribution pull-through-cache recipe](https://distribution.github.io/distribution/recipes/mirror/)
 
+Its cache expiry setting is a time-to-live, not LRU; cleanup requires deletion
+to be enabled. The documented debug health and optional Prometheus metrics
+surfaces should be kept private if this option is ever used.
+
 ### Harbor can route through proxy-cache projects, but is a larger fit
 
 Harbor's unit of proxying is a proxy-cache *project*, connected to one registry
@@ -52,6 +56,11 @@ seven-day tag retention, not a global fixed-capacity LRU cache.
 [Harbor proxy cache](https://goharbor.io/docs/main/administration/configure-proxy-cache/)
 [Harbor registry endpoints](https://goharbor.io/docs/main/administration/configuring-replication/create-replication-endpoints/)
 [Harbor project storage-quota option](https://goharbor.io/cli-docs/cli-docs/harbor-project-create/)
+
+Harbor exposes Prometheus metrics, including exporter health and project quota
+usage, but a quota prevents additional writes rather than being documented as
+an automatic byte-bounded LRU eviction mechanism.
+[Harbor metrics](https://goharbor.io/docs/2.4.0/administration/metrics/)
 
 ### Zot natively maps several on-demand upstreams to local prefixes
 
@@ -81,6 +90,18 @@ metrics endpoint reachable only as intended.
 [Zot metrics endpoint](https://zotregistry.dev/v2.1.0/developer-guide/api-user-guide/)
 [Zot full-image extensions](https://zotregistry.dev/v2.1.11/admin-guide/admin-getting-started/)
 
+### Containerd mirrors do not replace server-side multi-upstream routing
+
+Containerd's `hosts.toml` selects hosts by the image reference's registry-host
+namespace.  A configured mirror for (for example) `docker.io` receives the
+original namespace in an `ns` query parameter; the documented configuration is
+therefore a *per-client* way to redirect pulls such as
+`docker.io/library/alpine`, rather than a registry-side router that can accept
+`oci.fearn.cloud/<upstream>/<repository>`.  It can be useful as a client
+migration mechanism, but it cannot establish the requested public reference
+contract or supply cache storage, eviction, health, and metrics centrally.
+[containerd registry-host configuration](https://github.com/containerd/containerd/blob/main/docs/hosts.md)
+
 ## Constraint: fixed-size LRU is not a Zot feature
 
 Zot documents automatic garbage collection of orphaned blobs and retention
@@ -89,6 +110,8 @@ describe a global host-disk capacity, byte quota, or LRU eviction policy for
 on-demand synchronized content. Therefore Zot satisfies the routing and
 monitoring requirements but cannot truthfully satisfy the map's exact
 fixed-size-LRU requirement by configuration alone.
+
+`maxRepos` is a repository-count admission limit, not a byte-capacity limit.
 
 Do not silently translate this to tag-age retention: it differs materially
 from LRU and may delete a recovery-relevant image that remains within the
@@ -129,3 +152,4 @@ Docker Hub's `library/` namespace and the less-standard `lscr.io` and
 - [Zot: full-image extensions](https://zotregistry.dev/v2.1.11/admin-guide/admin-getting-started/)
 - [Zot: storage and garbage collection](https://zotregistry.dev/v2.1.18/articles/storage/)
 - [Zot: retention policies](https://zotregistry.dev/v2.1.0/articles/retention/)
+- [containerd: registry host and mirror configuration](https://github.com/containerd/containerd/blob/main/docs/hosts.md)

@@ -23,6 +23,9 @@ trap cleanup EXIT
 echo "Checking OCI Mirror registry API through Ingress..."
 curl --fail --silent --show-error "https://${endpoint}/v2/" >/dev/null
 
+echo "Checking Zot UI through Ingress..."
+curl --fail --silent --show-error "https://${endpoint}/" >/dev/null
+
 references=(
   "docker.io/library/postgres:16"
   "ghcr.io/goauthentik/server:2025.4.1"

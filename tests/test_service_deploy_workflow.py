@@ -79,6 +79,10 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
             '"mostRecentlyPulledCount": 5',
             config_files["/srv/services/oci-mirror/config/config.json"]["content"],
         )
+        self.assertIn(
+            '"ui": {"enable": true}',
+            config_files["/srv/services/oci-mirror/config/config.json"]["content"],
+        )
 
     def test_service_deploy_passes_share_backed_subpaths_to_playbook(self):
         with tempfile.TemporaryDirectory() as tmp:

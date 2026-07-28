@@ -28,6 +28,8 @@
       "enable": true,
       "prometheus": {"path": "/metrics"}
     },
+    "search": {"enable": true},
+    "ui": {"enable": true},
     "sync": {
       "enable": true,
       "registries": [

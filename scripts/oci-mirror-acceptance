@@ -6,7 +6,7 @@ if [ "$#" -ne 0 ]; then
   exit 2
 fi
 
-for required_command in curl skopeo; do
+for required_command in curl jq skopeo; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "OCI Mirror acceptance requires $required_command" >&2
     exit 1
@@ -14,17 +14,28 @@ for required_command in curl skopeo; do
 done
 
 endpoint="oci.fearn.cloud"
+config_path="$(dirname "$0")/../inventory/services/oci-mirror.quadlet.d/config.json"
 temporary_directory=$(mktemp -d)
 cleanup() {
   rm -rf "$temporary_directory"
 }
 trap cleanup EXIT
 
+echo "Checking declared Zot retention and scheduled garbage collection..."
+jq --exit-status '
+  .storage.gc == true and
+  .storage.gcInterval != null and
+  any(.storage.retention.policies[]; any(.keepTags[]; .mostRecentlyPulledCount == 5))
+' "$config_path" >/dev/null
+
 echo "Checking OCI Mirror registry API through Ingress..."
 curl --fail --silent --show-error "https://${endpoint}/v2/" >/dev/null
 
 echo "Checking Zot UI through Ingress..."
 curl --fail --silent --show-error "https://${endpoint}/" >/dev/null
+
+echo "Checking Zot metrics through the declared Instrumentation target..."
+curl --fail --silent --show-error "https://${endpoint}/metrics" >/dev/null
 
 references=(
   "docker.io/library/postgres:16"
@@ -44,5 +55,7 @@ for reference in "${references[@]}"; do
   echo "Pulling ${mirrored_reference}..."
   skopeo copy --src-no-creds "docker://${mirrored_reference}" "dir:${temporary_directory}/${reference%%/*}"
 done
+
+echo "Known pulls above verify ordinary mirror fills; use the retention proof in runbooks/oci-mirror.md for eviction and refill evidence."
 
 echo "OCI Mirror acceptance complete."

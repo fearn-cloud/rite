@@ -31,6 +31,9 @@ deploy:
         - service_path: prometheus-config
           container: /etc/prometheus
           access: read_only
+        - service_path: prometheus-rules
+          container: /etc/prometheus/rules
+          access: read_only
         - service_path: prometheus
           container: /prometheus
           access: read_write

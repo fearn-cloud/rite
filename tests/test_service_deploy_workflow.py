@@ -84,6 +84,40 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
             config_files["/srv/services/oci-mirror/config/config.json"]["content"],
         )
 
+    def test_observability_renders_oci_mirror_lifecycle_alert_rules(self):
+        model = load_inventory_tree(REPO_ROOT)
+        runtime_intent = analyze_service_runtime_intent(model)
+
+        deploy_vars = quadlet_deploy_vars(
+            model.services["observability"],
+            model.vms["observability-vm"],
+            inventory_root=REPO_ROOT / "inventory",
+            model=model,
+            runtime_intent=runtime_intent,
+        )
+
+        data_files = {
+            item["path"]: item["content"]
+            for item in deploy_vars["fortress_service_data_files"]
+        }
+        prometheus_config = data_files[
+            "/srv/services/observability/prometheus-config/prometheus.yml"
+        ]
+        alert_rules = data_files[
+            "/srv/services/observability/prometheus-rules/oci-mirror.yml"
+        ]
+
+        self.assertIn("rule_files:", prometheus_config)
+        self.assertIn("/etc/prometheus/rules/*.yml", prometheus_config)
+        for alert in (
+            "OciMirrorApiUnavailable",
+            "OciMirrorDiskSpaceLow",
+            "OciMirrorDiskFull",
+            "OciMirrorFailedPulls",
+        ):
+            self.assertIn(f"alert: {alert}", alert_rules)
+        self.assertIn("zot_http_requests_total", alert_rules)
+
     def test_service_deploy_passes_share_backed_subpaths_to_playbook(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

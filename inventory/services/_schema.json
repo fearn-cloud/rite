@@ -191,7 +191,7 @@
             "additionalProperties": false,
             "required": ["profile"],
             "properties": {
-              "profile": { "enum": ["prometheus_generic"] }
+              "profile": { "enum": ["prometheus_generic", "oci_mirror"] }
             }
           }
         }

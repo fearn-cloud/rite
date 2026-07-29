@@ -20,7 +20,7 @@ instrumentation:
       published_port: 5000
       path: /metrics
   observability_views:
-    - profile: prometheus_generic
+    - profile: oci_mirror
 deploy:
   type: quadlet
   application_config_files:

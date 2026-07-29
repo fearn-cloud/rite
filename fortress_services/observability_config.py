@@ -15,6 +15,8 @@ GRAFANA_GENERATED_DASHBOARD_DIR = "/srv/services/observability/grafana-dashboard
 GRAFANA_CONTAINER_GENERATED_DASHBOARD_DIR = "/var/lib/grafana/dashboards/fortress-generated"
 GRAFANA_GENERATED_FOLDER_TITLE = "Rite Generated Observability"
 GRAFANA_GENERATED_FOLDER_UID = "fortress-generated-observability"
+PROMETHEUS_RULES_DIRECTORY = "/srv/services/observability/prometheus-rules"
+OCI_MIRROR_ALERT_RULES_PATH = f"{PROMETHEUS_RULES_DIRECTORY}/oci-mirror.yml"
 
 
 def observability_service_data_files(model):
@@ -40,6 +42,7 @@ def observability_service_data_files(model):
     ]
     prometheus_config = {
         "global": {"scrape_interval": "15s"},
+        "rule_files": ["/etc/prometheus/rules/*.yml"],
         "scrape_configs": [
             {
                 "job_name": "fortress-vm-node-exporter",
@@ -148,6 +151,13 @@ def observability_service_data_files(model):
             gid=owner.get("gid"),
             force=True,
         ),
+        ServiceDataFile(
+            path=OCI_MIRROR_ALERT_RULES_PATH,
+            content=_oci_mirror_alert_rules(),
+            uid=owner.get("uid"),
+            gid=owner.get("gid"),
+            force=True,
+        ),
     ) + grafana_dashboard_files
 
 
@@ -182,6 +192,12 @@ def _grafana_dashboard_json(intent, telemetry_targets):
         and intent.profile == "prometheus_generic"
     ):
         return _grafana_prometheus_generic_service_dashboard(intent, telemetry_targets)
+    if (
+        intent.entity_kind == "service"
+        and intent.view_kind == "service_profile"
+        and intent.profile == "oci_mirror"
+    ):
+        return _grafana_oci_mirror_dashboard(intent)
     return _grafana_dashboard_stub(intent)
 
 
@@ -308,6 +324,106 @@ def _grafana_prometheus_generic_service_dashboard(intent, telemetry_targets):
         )
         + "\n"
     )
+
+
+def _grafana_oci_mirror_dashboard(intent):
+    labels = 'fortress_service="oci-mirror"'
+    return (
+        json.dumps(
+            {
+                "uid": _grafana_dashboard_uid(intent),
+                "title": _grafana_dashboard_title(intent),
+                "schemaVersion": 39,
+                "version": 1,
+                "refresh": "30s",
+                "templating": {
+                    "list": [_grafana_datasource_variable("DS_PROMETHEUS", "prometheus")]
+                },
+                "panels": [
+                    _timeseries_panel(
+                        panel_id=1,
+                        title="Registry API and metrics health",
+                        datasource_type="prometheus",
+                        datasource_uid="${DS_PROMETHEUS}",
+                        expr=f'up{{{labels}}}',
+                    ),
+                    _timeseries_panel(
+                        panel_id=2,
+                        title="Failed pulls or writes",
+                        datasource_type="prometheus",
+                        datasource_uid="${DS_PROMETHEUS}",
+                        expr=(
+                            'sum(increase(zot_http_requests_total{'
+                            f'{labels}, method="GET", code=~"5.."}}[5m]))'
+                        ),
+                    ),
+                    _timeseries_panel(
+                        panel_id=3,
+                        title="Cache storage by repository",
+                        datasource_type="prometheus",
+                        datasource_uid="${DS_PROMETHEUS}",
+                        expr="sum(zot_repo_storage_bytes)",
+                    ),
+                    _timeseries_panel(
+                        panel_id=4,
+                        title="OCI Mirror VM disk free bytes",
+                        datasource_type="prometheus",
+                        datasource_uid="${DS_PROMETHEUS}",
+                        expr='node_filesystem_avail_bytes{fortress_vm="oci-mirror-vm"}',
+                    ),
+                    _timeseries_panel(
+                        panel_id=5,
+                        title="Garbage-collection runs",
+                        datasource_type="prometheus",
+                        datasource_uid="${DS_PROMETHEUS}",
+                        expr="increase(zot_gc_runs_total[24h])",
+                    ),
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
+def _oci_mirror_alert_rules():
+    return """groups:
+  - name: oci-mirror-lifecycle
+    rules:
+      - alert: OciMirrorApiUnavailable
+        expr: probe_success{fortress_service=\"oci-mirror\", fortress_telemetry_target=\"registry-api\"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: OCI Mirror API is unavailable
+          runbook: runbooks/oci-mirror.md
+      - alert: OciMirrorDiskSpaceLow
+        expr: node_filesystem_avail_bytes{fortress_vm=\"oci-mirror-vm\"} / node_filesystem_size_bytes{fortress_vm=\"oci-mirror-vm\"} < 0.15
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: OCI Mirror cache disk has less than 15% free space
+          runbook: runbooks/oci-mirror.md
+      - alert: OciMirrorDiskFull
+        expr: node_filesystem_avail_bytes{fortress_vm=\"oci-mirror-vm\"} <= 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: OCI Mirror cache disk is full; Zot writes can fail
+          runbook: runbooks/oci-mirror.md
+      - alert: OciMirrorFailedPulls
+        expr: sum(increase(zot_http_requests_total{fortress_service=\"oci-mirror\", method=\"GET\", code=~\"5..\"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: OCI Mirror has failed pull requests
+          runbook: runbooks/oci-mirror.md
+"""
 
 
 def _grafana_datasource_variable(name, datasource_type):

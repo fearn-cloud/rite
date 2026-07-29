@@ -30,7 +30,7 @@ SHARE_BACKED_VOLUME_RUNTIME_DIAGNOSTICS = {
 NATIVE_ENVIRONMENT_SECRET_RUNTIME_DIAGNOSTICS = {
     "native_environment_secret_reference_not_sibling_sops_secret",
 }
-SERVICE_OBSERVABILITY_VIEW_PROFILES = {"prometheus_generic"}
+SERVICE_OBSERVABILITY_VIEW_PROFILES = {"prometheus_generic", "oci_mirror"}
 
 
 def validate_service_ingress_contract(model):
@@ -226,7 +226,7 @@ def validate_service_observability_view_requests(model):
                     )
                 )
                 continue
-            if profile == "prometheus_generic" and not any(
+            if profile in {"prometheus_generic", "oci_mirror"} and not any(
                 target.get("type") == "prometheus_metrics"
                 for target in telemetry_targets
                 if isinstance(target, dict)
@@ -236,7 +236,7 @@ def validate_service_observability_view_requests(model):
                         "incompatible_service_observability_view_profile",
                         path,
                         (
-                            f"Service {service_name} requests prometheus_generic Observability View Profile "
+                            f"Service {service_name} requests {profile} Observability View Profile "
                             "without a prometheus_metrics Telemetry Target"
                         ),
                     )

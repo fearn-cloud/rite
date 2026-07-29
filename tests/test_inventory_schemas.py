@@ -830,6 +830,14 @@ class InventorySchemaTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+            service_yaml.write_text(
+                service_yaml.read_text().replace("prometheus_generic", "oci_mirror")
+            )
+
+            result = self.run_schema("inventory/services/_schema.json", str(service_yaml))
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_service_schema_rejects_unknown_service_observability_view_profile(self):
         with tempfile.TemporaryDirectory() as tmp:
             service_yaml = Path(tmp) / "immich.yaml"

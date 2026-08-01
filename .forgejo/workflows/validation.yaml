@@ -23,5 +23,8 @@ jobs:
       - name: Validate inventory relationships
         run: python3 -m fortress_inventory.validate_inventory .
 
+      - name: Validate Cluster documentation boundary
+        run: scripts/validate-cluster-docs
+
       - name: Run Forgejo runner policy tests
         run: python3 -m unittest tests.test_forgejo_inventory tests.test_forgejo_phase_one_ci_policy

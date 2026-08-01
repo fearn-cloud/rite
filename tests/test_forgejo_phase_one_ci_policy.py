@@ -20,6 +20,7 @@ class ForgejoPhaseOneCiPolicyTests(unittest.TestCase):
         workflow = (REPO_ROOT / ".forgejo" / "workflows" / "validation.yaml").read_text()
 
         self.assertIn("python3 -m fortress_inventory.validate_inventory .", workflow)
+        self.assertIn("scripts/validate-cluster-docs", workflow)
         self.assertIn("python3 -m unittest tests.test_forgejo_inventory tests.test_forgejo_phase_one_ci_policy", workflow)
 
     def test_runbook_explains_how_to_trigger_and_inspect_first_validation_workflow(self):

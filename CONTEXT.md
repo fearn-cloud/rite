@@ -724,6 +724,109 @@ _Avoid_: mount path, share name.
 The requested read/write and client-access rules for a VM's Dataset access.
 _Avoid_: permissions (too broad), ACL (too TrueNAS-specific).
 
+### Cluster module
+
+The following language was adopted from Canon when it became Rite’s Cluster module. It is historical domain material now maintained in this single root context.
+
+**Cluster**:
+An independently operated K3s control plane and its workloads. A Cluster is a security and blast-radius boundary, not merely an organisational grouping of workloads.
+Its boundary assumes complete compromise of its workloads, Kubernetes API, Cluster VMs, and Cluster-scoped secrets; such a compromise must not grant administrative access to another Cluster or the External Recovery Substrate.
+_Avoid_: environment, namespace, platform (when referring to one Cluster).
+
+**Cluster Boundary Model**:
+The Canon-owned rules for deciding which workloads may share a Cluster and which require separate Clusters, based primarily on exposure, recovery dependency, and blast radius. It includes the initial candidate boundaries but is not an inventory of every application.
+Workloads may share a Cluster when Kubernetes workload isolation is an acceptable control between them. They require separate Clusters when differences in exposure, authority, or data sensitivity make control-plane and Cluster VM separation necessary despite the additional operational cost.
+A security-distinct Cluster normally occupies its own routed network zone so inter-Cluster policy is enforced outside either Cluster.
+_Avoid_: Cluster inventory, VLAN layout, workload list.
+
+**Cluster Internal Address Space**:
+The Pod and Service address ranges scoped to one Cluster. It need not be globally unique across isolated Clusters and is distinct from LAN-facing addresses used to expose Cluster services.
+_Avoid_: LAN subnet, Cluster VM network, service-exposure address.
+
+**Cluster Ingress Domain**:
+The stable LAN DNS suffix under which one Cluster presents its HTTP/HTTPS application endpoints. It identifies the serving Cluster; an application that needs an identity independent of Cluster placement may additionally receive a separate alias.
+_Avoid_: application domain (when the name identifies the serving Cluster), public domain, Cluster Internal Address Space.
+
+**Cluster Network Diagnostic Surface**:
+A Cluster-local, machine-queryable view of identity-aware network flows and policy outcomes for human and agent operators. It is operational evidence, not a durable record or an external total-failure signal.
+_Avoid_: packet log, external probe, network dashboard.
+
+**Observation Cluster**:
+A candidate Cluster boundary dedicated to receiving and presenting telemetry from other Clusters without holding administrative or recovery authority over them. Other Clusters may export telemetry to it, but must remain operable and recoverable while it is unavailable; a minimal observer outside it detects its own total failure.
+_Avoid_: management Cluster, recovery Cluster, shared Cluster administrator.
+
+**Cluster VM**:
+A Proxmox VM that hosts a K3s server or agent. Its machine lifecycle and guest baseline sit below the Cluster boundary and must be recoverable without the Cluster they support.
+It is long-lived and converged in place during routine operation, but replaceable from its declaration after loss, irreparable drift, an incompatible structural change, or an explicit recovery exercise.
+_Avoid_: node (unless specifically referring to the VM's Kubernetes identity), workload VM.
+
+**Cluster Host Requirement**:
+The Canon-owned declaration of the stable identity and capabilities a Cluster VM must provide for one Cluster role, independent of its concrete provider, placement, and lifecycle implementation. Rite consumes it to realize a suitable Cluster VM.
+It is machine-readable and selected by requirement identity at an exact Canon revision; Rite combines it with, but does not copy it into, the Substrate Inventory.
+_Avoid_: Cluster Machine Requirement, VM Inventory, concrete VM declaration.
+
+**Cluster Host Readiness Evidence**:
+The Rite-produced durable proof that a concrete Cluster VM satisfies its Cluster Host Requirement and is ready for Canon to begin Cluster bootstrap. It does not claim that K3s, GitOps reconciliation, or workloads are ready.
+It identifies the exact Canon requirement revision and Rite Substrate Inventory revision whose combination was checked.
+_Avoid_: Machine Readiness Evidence, provisioning success, Cluster readiness.
+
+**External Recovery Substrate**:
+The infrastructure and recovery authority that must remain usable when every Cluster is unavailable: VM lifecycle, physical networking, LAN DNS and time, desired-state Git hosting, backup storage, operator tooling, and recovery credentials. No Cluster may be required for another Cluster—or itself—to regain these capabilities.
+Cluster recovery treats this substrate as operational and reachable; recovering the substrate itself is outside the Cluster recovery boundary.
+_Avoid_: management Cluster, bootstrap Cluster, external services (too broad).
+
+**Substrate Inventory**:
+The Rite-owned declaration of the concrete infrastructure and provider implementations that realize the External Recovery Substrate, including Cluster VM placement and lifecycle. It does not duplicate Canon's Cluster Desired State.
+_Avoid_: shared Inventory, Cluster Desired State, Canon Inventory.
+
+**LAN Time Service**:
+A Cluster-independent source of trustworthy time that remains available to Recovery Workstations and Cluster VMs during WAN loss. Clock synchronization against it is a prerequisite for recovery operations that depend on certificates, authentication, ordering, or timestamps.
+_Avoid_: public NTP, Cluster-local time service.
+
+**Recovery Workstation**:
+A replaceable, trusted operator machine used to drive Cluster recovery through the External Recovery Substrate. It may cache tools and configuration, but recovery must remain possible from a clean Recovery Workstation using non-secret bootstrap instructions and independently escrowed credentials.
+_Avoid_: management node, permanent recovery host.
+
+**Cluster Desired State**:
+The Canon-owned non-secret declaration of what a Cluster and its workloads should be, including Cluster Host Requirements and references to secrets and recovery artifacts. Git is authoritative for Cluster Desired State, but not for secret values, historical contents, or Rite's Substrate Inventory.
+_Avoid_: Desired State (when ownership is ambiguous), Substrate Inventory, backup, live state.
+
+**Recoverable Cluster Revision**:
+An exact Cluster Desired State commit whose Cluster Supply Readiness Evidence proves its complete supply can be supplied without WAN access, making it eligible for recovery. An operator may optionally pin one for a particular drill, but no explicit human promotion is required.
+_Avoid_: latest commit, release (when offline-supply readiness has not been proven), branch head, promoted revision.
+
+**Recovery Credential**:
+Secret material that authorizes recovery or restores an identity, held by credential escrow in the External Recovery Substrate. An encrypted secret document may live in Git, but its usable decryption authority is a Recovery Credential.
+_Avoid_: configuration, backup.
+
+**Recovery Artifact**:
+A point-in-time capture of non-declarative state, with enough metadata to select and verify it during recovery. Backup storage in the External Recovery Substrate is authoritative for Recovery Artifacts.
+_Avoid_: Cluster Desired State, snapshot (when referring generically to both application backups and datastore snapshots).
+
+**Cluster Supply Manifest**:
+The Canon-owned declaration of every non-secret software and installation artifact required to recover a specific Cluster revision without WAN access, including immutable identities and integrity metadata. It defines what must be supplied without prescribing how the supply is implemented.
+_Avoid_: Release Manifest (a Rite term), dependency lockfile, Recovery Artifact.
+
+**Offline Cluster Supply**:
+An externally operated capability that acquires, verifies, retains, replicates, and presents everything named by a Cluster Supply Manifest so Cluster recovery can proceed without WAN access. Canon consumes it through configured service endpoints without depending on its provider, storage, or serving implementation.
+_Avoid_: Recovery Kit (reserved for offline credential-recovery material), registry (only one possible implementation), Recovery Artifact.
+
+**Cluster Supply Readiness Evidence**:
+The Rite-produced durable, non-secret proof that both copies of a Cluster Supply Manifest's complete artifact closure have passed the required integrity, retrieval, and WAN-disabled recovery checks. It binds one exact Cluster Desired State commit to its manifest and makes that commit a Recoverable Cluster Revision while all required checks pass.
+_Avoid_: supply status, mirror health, artifact inventory.
+
+**External Service Endpoint**:
+A configurable, stable LAN hostname plus any required port or path through which Canon consumes one capability of the External Recovery Substrate. The hostname remains valid across replacement of the system currently providing that capability.
+_Avoid_: hard-coded provider name, implementation-specific VM name, bare address except where DNS bootstrap requires one.
+
+**Operator Checkpoint**:
+An explicit pause at which the recovery operator reviews evidence and authorizes a consequential action, especially replacement, destruction, credential use, or restoration. It is an authorization boundary, not an automated readiness check.
+_Avoid_: health check, approval gate (unless a separate approver is actually required).
+
+**Readiness Check**:
+An automated, non-mutating test that produces evidence that a recovery dependency or phase is ready. A Readiness Check may gate progress, but it does not authorize a consequential action.
+_Avoid_: Operator Checkpoint, smoke test (when testing prerequisites rather than recovered behavior).
+
 ## Relationships
 
 - A **Host** runs zero or more **VMs** and holds zero or more **Templates**.

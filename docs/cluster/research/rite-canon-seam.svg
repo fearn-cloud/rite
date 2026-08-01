@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="960" viewBox="0 0 1440 960" role="img" aria-labelledby="title desc">
+  <title id="title">The architectural seam between Rite and Canon</title>
+  <desc id="desc">Rite establishes and proves a cluster-independent recovery substrate. Canon consumes that substrate to rebuild and recover K3s clusters and their workloads. Cluster Host Requirements and Cluster Host Readiness Evidence cross the seam in opposite directions.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f4ed"/>
+      <stop offset="1" stop-color="#edf3f2"/>
+    </linearGradient>
+    <linearGradient id="riteFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#173f4f"/>
+      <stop offset="1" stop-color="#245e67"/>
+    </linearGradient>
+    <linearGradient id="canonFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5d2f50"/>
+      <stop offset="1" stop-color="#7d405d"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#183034" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrowTeal" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b6e73"/>
+    </marker>
+    <marker id="arrowPlum" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7d405d"/>
+    </marker>
+    <style>
+      .sans { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { font-size: 38px; font-weight: 760; fill: #183034; letter-spacing: -0.7px; }
+      .subtitle { font-size: 18px; fill: #536469; }
+      .section { font-size: 31px; font-weight: 760; fill: #fff; }
+      .kicker { font-size: 13px; font-weight: 760; letter-spacing: 1.8px; }
+      .cardTitle { font-size: 18px; font-weight: 720; fill: #183034; }
+      .body { font-size: 15px; fill: #405359; }
+      .inverse { font-size: 15px; fill: #fff; }
+      .small { font-size: 13px; fill: #536469; }
+      .seamTitle { font-size: 19px; font-weight: 760; fill: #183034; }
+      .arrowLabel { font-size: 14px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="960" fill="url(#bg)"/>
+  <text x="720" y="58" text-anchor="middle" class="sans title">Rite makes the ground recoverable. Canon recovers clusters from it.</text>
+  <text x="720" y="90" text-anchor="middle" class="sans subtitle">Two control planes, joined by an explicit capability-and-evidence contract</text>
+
+  <!-- Operator -->
+  <g filter="url(#shadow)">
+    <rect x="482" y="116" width="476" height="76" rx="18" fill="#fff" stroke="#c7d2d0"/>
+  </g>
+  <circle cx="525" cy="154" r="20" fill="#d6e6e3"/>
+  <circle cx="525" cy="147" r="7" fill="#315c61"/>
+  <path d="M512 168c2-9 24-9 26 0" fill="none" stroke="#315c61" stroke-width="5" stroke-linecap="round"/>
+  <text x="560" y="147" class="sans cardTitle">Operator on a replaceable Recovery Workstation</text>
+  <text x="560" y="171" class="sans small">Reviews plans, evidence, and checkpoints across both systems</text>
+  <path d="M610 192 V221 H340 V244" fill="none" stroke="#789092" stroke-width="2.5" marker-end="url(#arrowTeal)"/>
+  <path d="M830 192 V221 H1100 V244" fill="none" stroke="#789092" stroke-width="2.5" marker-end="url(#arrowPlum)"/>
+
+  <!-- Rite panel -->
+  <g filter="url(#shadow)">
+    <rect x="54" y="246" width="505" height="582" rx="24" fill="#fff"/>
+    <path d="M78 246h457a24 24 0 0 1 24 24v91H54v-91a24 24 0 0 1 24-24z" fill="url(#riteFill)"/>
+  </g>
+  <text x="86" y="287" class="sans kicker" fill="#a9d9d5">INFRASTRUCTURE CONTROL PLANE</text>
+  <text x="86" y="328" class="sans section">Rite</text>
+  <text x="183" y="326" class="sans" font-size="17" fill="#d7e8e6">declares, converges, and proves the substrate</text>
+
+  <rect x="82" y="389" width="449" height="90" rx="14" fill="#eef6f4" stroke="#c4dbd7"/>
+  <text x="104" y="419" class="sans cardTitle">Substrate Inventory</text>
+  <text x="104" y="445" class="sans body">Hosts · Cluster VMs · networks · DNS/time services</text>
+  <text x="104" y="466" class="sans body">backup storage · encrypted infrastructure secrets</text>
+
+  <rect x="82" y="496" width="449" height="90" rx="14" fill="#eef6f4" stroke="#c4dbd7"/>
+  <text x="104" y="526" class="sans cardTitle">Explicit Operator Workflows</text>
+  <text x="104" y="552" class="sans body">Plan → checkpoint → converge → diagnose</text>
+  <text x="104" y="573" class="sans body">OpenTofu provisions; Ansible configures</text>
+
+  <rect x="82" y="603" width="449" height="90" rx="14" fill="#eef6f4" stroke="#c4dbd7"/>
+  <text x="104" y="633" class="sans cardTitle">Acceptance and recovery evidence</text>
+  <text x="104" y="659" class="sans body">Readiness checks · restore drills · refusal on unsafe state</text>
+  <text x="104" y="680" class="sans body">Evidence is produced before dependants are trusted</text>
+
+  <rect x="82" y="710" width="449" height="88" rx="14" fill="#183f4f"/>
+  <text x="104" y="740" class="sans kicker" fill="#a9d9d5">EXTERNAL RECOVERY SUBSTRATE</text>
+  <text x="104" y="768" class="sans inverse">VM lifecycle · LAN DNS &amp; time · Git · backups</text>
+  <text x="104" y="789" class="sans inverse">credential escrow · offline software endpoints</text>
+
+  <!-- Canon panel -->
+  <g filter="url(#shadow)">
+    <rect x="881" y="246" width="505" height="582" rx="24" fill="#fff"/>
+    <path d="M905 246h457a24 24 0 0 1 24 24v91H881v-91a24 24 0 0 1 24-24z" fill="url(#canonFill)"/>
+  </g>
+  <text x="913" y="287" class="sans kicker" fill="#edc9db">CLUSTER RECOVERY CONTROL PLANE</text>
+  <text x="913" y="328" class="sans section">Canon</text>
+  <text x="1032" y="326" class="sans" font-size="17" fill="#f1dce6">rebuilds and restores each Cluster</text>
+
+  <rect x="909" y="389" width="449" height="90" rx="14" fill="#f8eff4" stroke="#e1c6d4"/>
+  <text x="931" y="419" class="sans cardTitle">Cluster recovery contract</text>
+  <text x="931" y="445" class="sans body">Cluster Desired State · external endpoints · version pins</text>
+  <text x="931" y="466" class="sans body">Cluster Supply Manifest · recovery objectives</text>
+
+  <rect x="909" y="496" width="449" height="90" rx="14" fill="#f8eff4" stroke="#e1c6d4"/>
+  <text x="931" y="526" class="sans cardTitle">Recovery orchestration</text>
+  <text x="931" y="552" class="sans body">Check substrate → authorize replacement → bootstrap K3s</text>
+  <text x="931" y="573" class="sans body">reapply Git state → restore artifacts → verify behavior</text>
+
+  <rect x="909" y="603" width="449" height="90" rx="14" fill="#f8eff4" stroke="#e1c6d4"/>
+  <text x="931" y="633" class="sans cardTitle">Two complementary restore paths</text>
+  <text x="931" y="659" class="sans body">Primary: rebuild from Git + application-data restore</text>
+  <text x="931" y="680" class="sans body">Secondary: restore a K3s datastore snapshot</text>
+
+  <rect x="909" y="710" width="449" height="88" rx="14" fill="#5d2f50"/>
+  <text x="931" y="740" class="sans kicker" fill="#edc9db">INDEPENDENT CLUSTER BOUNDARY</text>
+  <text x="931" y="768" class="sans inverse">K3s control plane · controllers · workloads · volumes</text>
+  <text x="931" y="789" class="sans inverse">One Cluster failing cannot remove recovery authority</text>
+
+  <!-- Seam -->
+  <rect x="590" y="273" width="260" height="485" rx="24" fill="#fffdf8" stroke="#c9c1af" stroke-width="2" stroke-dasharray="6 7"/>
+  <text x="720" y="312" text-anchor="middle" class="sans kicker" fill="#8a7041">THE SYNERGISTIC SEAM</text>
+  <text x="720" y="342" text-anchor="middle" class="sans seamTitle">A contract, not a merger</text>
+
+  <path d="M824 402 H616" fill="none" stroke="#7d405d" stroke-width="3.5" marker-end="url(#arrowPlum)"/>
+  <text x="720" y="382" text-anchor="middle" class="sans arrowLabel" fill="#7d405d">Canon → Cluster Host Requirement</text>
+  <text x="720" y="427" text-anchor="middle" class="sans small">capabilities · endpoints</text>
+  <text x="720" y="447" text-anchor="middle" class="sans small">manifests · RPO/RTO · checks</text>
+
+  <path d="M616 526 H824" fill="none" stroke="#2b6e73" stroke-width="3.5" marker-end="url(#arrowTeal)"/>
+  <text x="720" y="506" text-anchor="middle" class="sans arrowLabel" fill="#2b6e73">Rite → Cluster Host Readiness Evidence</text>
+  <text x="720" y="551" text-anchor="middle" class="sans small">ready VMs · stable services</text>
+  <text x="720" y="571" text-anchor="middle" class="sans small">artifacts · credentials · evidence</text>
+
+  <line x1="622" y1="609" x2="818" y2="609" stroke="#d8d0bf"/>
+  <text x="720" y="640" text-anchor="middle" class="sans cardTitle">Shared operating grammar</text>
+  <text x="720" y="667" text-anchor="middle" class="sans small">inspectable plans</text>
+  <text x="720" y="688" text-anchor="middle" class="sans small">versioned evidence records</text>
+  <text x="720" y="709" text-anchor="middle" class="sans small">human authorization checkpoints</text>
+  <text x="720" y="730" text-anchor="middle" class="sans small">drills that prove recovery</text>
+
+  <!-- Non-circularity principle -->
+  <g filter="url(#shadow)">
+    <rect x="170" y="862" width="1100" height="62" rx="17" fill="#183034"/>
+  </g>
+  <path d="M210 893h26" stroke="#efc66d" stroke-width="4" stroke-linecap="round"/>
+  <text x="256" y="900" class="sans" font-size="17" font-weight="700" fill="#fff">Non-circularity rule:</text>
+  <text x="438" y="900" class="sans" font-size="17" fill="#dce8e7">the substrate must remain usable when every Cluster is gone; no Cluster is its own recovery authority.</text>
+</svg>

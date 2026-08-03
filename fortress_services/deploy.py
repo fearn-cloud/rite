@@ -217,6 +217,10 @@ def quadlet_deploy_vars(service, vm, inventory_root=None, model=None, runtime_in
         _application_config_files(service, inventory_root=inventory_root)
     )
     service_data_directories = list(rendered.service_data_directories)
+    service_data_directories = _with_service_data_file_parent_directories(
+        service_data_directories,
+        service_data_files,
+    )
     service_data_reconcile_directories = []
     if service.get("name") == "observability" and model is not None:
         service_data_files.extend(observability_service_data_files(model))
@@ -310,19 +314,23 @@ def _application_config_files(service, inventory_root=None):
 
 def _with_service_data_file_parent_directories(directories, files):
     directories = list(directories)
+    directory_by_path = {directory.path: directory for directory in directories}
+    file_paths = {file.path for file in files}
+    directories = [directory for directory in directories if directory.path not in file_paths]
     known_paths = {directory.path for directory in directories}
     for file in files:
         parent = str(PurePosixPath(file.path).parent)
         if parent in known_paths:
             continue
-        if not _has_service_data_directory_ancestor(parent, directories):
+        file_directory = directory_by_path.get(file.path)
+        if file_directory is None and not _has_service_data_directory_ancestor(parent, directories):
             continue
         known_paths.add(parent)
         directories.append(
             ServiceDataDirectory(
                 path=parent,
-                uid=file.uid,
-                gid=file.gid,
+                uid=file_directory.uid if file_directory is not None else file.uid,
+                gid=file_directory.gid if file_directory is not None else file.gid,
             )
         )
     return directories

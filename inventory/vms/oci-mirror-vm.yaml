@@ -21,3 +21,4 @@ cloud_init:
 backup:
   enabled: false
   reason: OCI Mirror cache is disposable and rebuilt from public upstreams
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMBrvi/Y0DlmfnB2Ejrf4r36ncrpiwl3t3FPvJkgi1vC fortress-vm-prepare:oci-mirror-vm:2026-07-28T23:27:11Z

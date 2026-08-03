@@ -70,6 +70,10 @@ _Avoid_: ISO, base image.
 A deployed application or co-located group of containers, declared in `inventory/services/<svc>.yaml`. Runs inside a VM. Substrate is either Quadlet (default) or Native.
 _Avoid_: app, workload; "systemd service" (always qualify as "systemd unit").
 
+**OCI Mirror**:
+A fleet-hosted OCI distribution endpoint that caches or retains third-party OCI artifacts for fleet consumers, including Canon. It is distinct from Forgejo's package registry, which is the publishing origin for locally produced artifacts.
+_Avoid_: package mirror (unless the protocol is OCI), Forgejo registry.
+
 **Service Group**:
 A named set of one or more Services that the operator treats as a coherent group.
 _Avoid_: stack (too Compose-specific), app suite; Service Network.
@@ -240,6 +244,22 @@ _Avoid_: Known device, trusted device, DNS whitelist.
 The single human running Rite. The only intended persona; "future-self on a new workstation" is the only second viewer.
 _Avoid_: user, admin.
 
+**Rite Command**:
+The sole supported public command-line interface through which an Operator discovers, plans, inspects, applies, resumes, checks, and diagnoses Operator Workflows. Its public grammar is outcome-first (`rite <domain> <outcome> <target>`), with shared lifecycle actions beneath a workflow. Every public live mutation requires an explicit plan followed by an apply of that plan; `just` is a developer/task launcher, not an Operator interface.
+_Avoid_: public justfile, operator scripts.
+
+**Expert Repair Command**:
+An explicitly named `rite repair <domain> …` operation for exceptional live repair that is outside an ordinary outcome workflow. It is discoverable and auditable through the **Rite Command**, but never presented as routine convergence or hidden behind a workflow flag.
+_Avoid_: escape hatch, hidden repair mode, public script.
+
+**Operator Check**:
+A structured, read-only `rite check …` operation that evaluates a declared outcome or precondition and returns a supported, redacted result.
+_Avoid_: raw probe, ad-hoc shell check.
+
+**Operator Diagnostic**:
+A structured, read-only `rite diagnose …` operation that explains an Operator Workflow, Check, refusal, or failure using supported, redacted diagnostic data. It does not expose raw infrastructure-tool invocation as a public contract.
+_Avoid_: raw SSH, public debug script.
+
 **Remote Operator Workstation**:
 A trusted workstation-like environment outside the local admin network that can run full Rite Operator Workflows through tailnet reachability.
 _Avoid_: dev VM, remote editor, jump box.
@@ -329,7 +349,7 @@ A **Release Convergence Plan** whose digest and resolved **Release Tag** commit 
 _Avoid_: blanket deployment approval, approval-free replan.
 
 **Forgejo Convergence Audit Manifest**:
-The deliberately generated, allow-listed Forgejo record of one **Forgejo-dispatched Convergence**: its release identity, plan digest, approval, ordered target outcomes, and timestamps. It excludes raw plans and sensitive diagnostics, which remain on the management runner under their shorter retention policy.
+The deliberately generated, allow-listed Forgejo projection of one **Forgejo-dispatched Convergence**: its release identity, plan digest, approval, ordered target outcomes, and timestamps. It excludes raw plans and sensitive diagnostics; it is a mirror of canonical durable evidence in the **Rite Evidence Store**, not that evidence's retention limit.
 _Avoid_: job log, raw diagnostic artifact, deployment transcript.
 
 **Release Manifest**:
@@ -383,6 +403,74 @@ _Avoid_: update, refresh, renewal.
 **Operator Workflow Plan**:
 An inspectable ordered declaration of phases, confirmation gates, and diagnostic labels for one operator workflow invocation.
 _Avoid_: script loop, subprocess helper.
+
+**Plan Envelope**:
+The immutable, digest-addressed authorization subject for one live-mutating Operator Workflow, binding its Operator Workflow Plan and exact execution artifacts to the desired state, observed preconditions, and Rite executor that produced them. It records its schema version, exact desired-state and artifact digest, executor/toolchain identity, redacted secret-material bindings, and expiry. Revalidation occurs immediately before each mutation-bearing phase and may prove the envelope remains executable but never revise or replace its authorized work; any mismatch or expiry refuses apply and requires a new Plan Envelope. A no-op result needs no approval but records its checks and observed state.
+_Avoid_: approval intent, apply-time replan, auto-confirm flag.
+
+**Workflow Result**:
+The immutable durable record of one operator-visible Workflow attempt or non-execution outcome. Its operation is `plan`, `check`, `apply`, or `resume`, and its closed outcome is `succeeded`, `no_op`, `refused`, `failed`, or `cancelled`. Related attempts share a Workflow Run identity and reference the applicable **Plan Envelope**; a Result records what happened but does not itself prove that a declared outcome is ready.
+_Avoid_: readiness proof, audit log, execution transcript.
+
+**Readiness Attestation**:
+An explicitly scoped, time-bounded record issued only by a named **Operator Check** that proves a declared outcome fit for a named consumer or recovery purpose. A workflow may run that Check as an explicit phase, but apply success alone never issues proof. Its timestamps are UTC RFC 3339 instants; it is valid over `[issued_at, expires_at)`, with its Check type and version declaring the TTL.
+_Avoid_: successful apply, configuration result, blanket health status.
+
+**Audit Record**:
+An allow-listed, redacted durable projection of a **Workflow Result** or **Readiness Attestation**, retained for operational history. It records identity, timestamps, scope, outcome, digests, and references but is never a third source of truth or a container for raw plans, secret bindings, or diagnostics.
+_Avoid_: workflow result, readiness proof, execution transcript.
+
+**Diagnostic Artifact**:
+An access-controlled, retention-limited payload of raw or detailed workflow diagnostics, referenced by a **Workflow Result** but not embedded in durable evidence or audit records. `rite diagnose` renders only supported redacted views; expiry of an Artifact does not alter the Result it supported.
+_Avoid_: audit record, workflow result, public command output.
+
+**Rite Evidence Store**:
+The remote, Forgejo-associated store of immutable non-sensitive **Workflow Results**, **Readiness Attestations**, and **Audit Records**, queried through **Rite Command**. It is not workstation-local storage or Git history, and lets an authorized replacement **Remote Operator Workstation** recover operational evidence.
+_Avoid_: local log directory, repository history, diagnostic store.
+
+**Durable Evidence Object**:
+An immutable object in the **Rite Evidence Store** with a stable ID, schema version, creation time, producer identity and version, subject workflow or Check identity and target scope, and digests for referenced records. It has one canonical versioned JSON representation; `rite` and Canon render human-readable views from that representation. A **Workflow Result** also binds its Workflow Run and attempt, desired and observed state revisions, applicable **Plan Envelope**, and start/end times; a **Readiness Attestation** also binds its Check version, consumer purpose, evidence inputs, and expiry.
+_Avoid_: unversioned log entry, mutable status row.
+
+**Evidence Expiry**:
+The point after which a **Plan Envelope** cannot authorize mutation or a **Readiness Attestation** cannot prove current readiness. **Workflow Results** and **Audit Records** do not semantically expire: they remain historical facts even when archival retention or **Diagnostic Artifact** expiry removes related material.
+_Avoid_: record deletion, current readiness, result invalidation.
+
+**Evidence Retention**:
+The storage lifetime for durable evidence. Non-sensitive **Workflow Results**, **Readiness Attestations**, and **Audit Records** have no scheduled deletion for the lifetime of the **Rite Evidence Store**; **Diagnostic Artifacts** are retained for 30 days.
+_Avoid_: Evidence Expiry, short-lived logs, 90-day audit limit.
+
+**Evidence Safety Boundary**:
+The deny-by-default rule for the **Rite Evidence Store**: only schema-defined, allow-listed safe fields—identities, digests, timestamps, declared scope, structured outcomes and diagnostic codes, and redacted references—may be stored. Secret values, credentials, raw command arguments, raw stdout/stderr, and infrastructure-tool transcripts are confined to **Diagnostic Artifacts**.
+_Avoid_: redact later, durable debug log, best-effort secret filtering.
+
+**Evidence Supersession**:
+The append-only correction or invalidation of a **Durable Evidence Object** by a new object that explicitly supersedes or revokes it. The original remains immutable and available as history; a **Readiness View** applies the linked current evidence rather than rewriting the past.
+_Avoid_: edit in place, evidence deletion, mutable audit row.
+
+**Readiness View**:
+A computed `rite` or Canon-facing rendering of the latest completed, unexpired **Readiness Attestations** matching a requested consumer purpose and target, regardless of pass or fail. It is not stored mutable status and identifies the Attestations, Checks, and **Workflow Results** that support each rendered claim.
+_Avoid_: current-status table, health flag, cached readiness state.
+
+**Composite Readiness Attestation**:
+A **Readiness Attestation** issued by a named composite **Operator Check** for a broader consumer claim such as Canon substrate readiness. It explicitly references every required component Attestation, fails when any component is missing, expired, failed, or mismatched, and expires no later than its earliest component proof.
+_Avoid_: inferred all-green status, aggregate health flag, implicit dependency proof.
+
+**Canon Substrate-Readiness View**:
+The versioned, allow-listed **Readiness View** consumed by Canon. It exposes only Attestation IDs and digests, purpose, target scope, Check version, outcome, issued and expiry times, safe diagnostic codes, and Rite links; it does not expose **Workflow Results**, **Plan Envelopes**, raw plans, or **Diagnostic Artifacts**. Forgejo's authenticated immutable **Rite Evidence Store** record is its v1 trust anchor; object digests and producer provenance supply tamper detection without a separate signing-key system.
+_Avoid_: Rite workflow API, raw execution evidence, shared control plane.
+
+**Rite–Canon Handoff Record**:
+An immutable, versioned Forgejo record that correlates Canon's desired-state and supply-manifest revisions with Rite's exact **Plan Envelope**, **Operator Checkpoints**, substrate **Readiness Attestations**, and Canon acceptance evidence. It is the protected provider/consumer seam: Rite realizes substrate readiness, Canon evaluates Cluster acceptance, and neither gains authority to mutate the other's domain through the record.
+_Avoid_: shared control plane, mutable status record, Rite workflow API, apply-success receipt.
+
+**Rite–Canon Handoff Consumption**:
+Canon's read-only consumption of the versioned **Rite–Canon Handoff Record** and **Canon Substrate-Readiness View** from Forgejo. Canon neither reads Rite Inventory nor calls Rite directly, and it receives no Rite or fleet credentials; protected Forgejo workflows and **Operator Checkpoints** remain the only route to authorized substrate mutation.
+_Avoid_: direct Rite integration, shared credentials, inventory API, Canon-driven fleet convergence.
+
+**Operator Checkpoint**:
+A named, planned acknowledgement gate before a particular mutation-bearing phase. Its reason, required acknowledgement, and placement are part of the **Plan Envelope**; an unacknowledged Checkpoint stops before its phase. Interactive acknowledgement names the exact Plan Envelope digest; non-interactive execution requires a separate durable authorization bound to that digest, scope, and expiry.
+_Avoid_: broad override, auto-confirm flag, unplanned prompt.
 
 **Operator Workflow Runner**:
 The module that executes an Operator Workflow Plan, including phase ordering, confirmation gates, subprocess execution, stop-on-failure, and rich diagnostic output.

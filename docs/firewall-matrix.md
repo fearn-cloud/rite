@@ -140,6 +140,8 @@ The Tailnet Subnet Router is attached to the Trusted VLAN because it extends tru
 
 Ingress Auth is explicit per Service. It is not applied globally.
 
+Rite cannot currently declare or converge a Service Ingress Route that is restricted to an arbitrary consumer IP/CIDR allowlist. Where a service requires a more selective consumer boundary than the supported Ingress exposure modes provide, record the intended firewall rule here and enforce it in the router/firewall where its L3/L4 scope permits; do not represent it as a Rite-managed route policy. A route sharing an Ingress listener with other internal Services cannot be selected by hostname or path at that firewall boundary, so it needs a separate external ingress-policy or listener architecture if that distinction must be enforced.
+
 ## Core Infrastructure
 
 | ID | Source | Destination | Protocol | Port(s) | Required | Reason |
@@ -198,5 +200,6 @@ Treat NFS access as VM-specific, not VLAN-wide.
 - Create explicit allow rules before broad deny rules where the UDM rule model requires ordering.
 - Prefer address groups for VLANs and service groups for VMs.
 - Keep Service backend ports out of broad client access rules; clients should usually enter through `internal-ingress-vm`.
+- Treat consumer-specific ingress CIDR restrictions as router/firewall policy until Rite gains an explicit route-policy model.
 - Treat NFS access as VM-specific, not VLAN-wide.
 - Any new Service should add DNS, ingress, firewall, backup, and monitoring requirements in the same repo change.

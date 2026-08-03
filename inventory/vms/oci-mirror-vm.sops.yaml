@@ -1,0 +1,21 @@
+ssh_keys:
+    bootstrap:
+        type: ENC[AES256_GCM,data:7Bgsx73b,iv:Ze+D00M/JP//MHiGuFfTnf+S3qCEmeHXfoHa/07Te7Y=,tag:qytAlU0FwZ3etVsRGpDqSg==,type:str]
+        created: ENC[AES256_GCM,data:svczZqCBQtL2zWFPOuDKQJMNqFE=,iv:xX0y068W3528ujAW8y0KZEefdkc7MWcfrXyJwsfz524=,tag:wQ4zTcyBjDUn6x67s3UKlQ==,type:time]
+        public_key: ENC[AES256_GCM,data:NbkgeDxM+hOinJty+sYw7oGTHNLouPUIMW0fLhcuYDxGnAeTNbOOLFFgCKNxA3KkMNTz495A14ir8rxnIQ7VOMsIM8R+5TY19y8gKpf1Myv+1UajvRfIpuApAQwo8EAW5e4JKBVvcS1OFPkWnrEPN2MT5tTflez6JrK4hlO9Rye0iV6EGvYh,iv:efXoKtAB6uh/cfglzKWUgOoclq4ziC1/kSD6X46Q1xM=,tag:7alF/I5nOEwRvvpn45Tv0Q==,type:str]
+        private_key: ENC[AES256_GCM,data:to07xkkSSMN58866v9GdxtwST6HeOIrmRlkJAdGlhIlyB7SwGQGkXdR+aCN6C0qC708i3rbbISKcM1T4bzFz7sytQ1BMU66riStRe4w1r6aPZgIzq0kBK3n+9DbvaexIq6fkyJLiYkZzOS9MOE21q+muxjv8sfsQ6c6imw2IQCpQ1I61dgmeOwuQvoaFV+0emk2h54kIXoCCNe3u9Un0EXe3i/K/XdX3QxyZjptYBBFThZLkSr2PajAxIY6SwBP022W6Db1/CNnJjusQJb8LZ8F7HwBu5khS16vnF9QQuPjrsuOASkD4+hJPxiUjj48wH+dAx30qiFYXXdVdaicbgu6TTKRLiMDJ0tPRJSGzZpOpH5u1KFOjG+h1o/g/5LqnoOXnu5IpgipuCOpqruM7BTK5g+yFjJnYIP6erdIWFZaIAaspJI8T4nRC/DbNsyw0Nft31M3tRDlikQYLkiazcMJn8w3g8WkrN1eZvUC/0UuiyF/khynYKld+m/BVgqVc6ygq/muSBft6xB4WRioR6iyiICJwsIhWixKOnFrdCeyD96Vt4+o0gtbNE3fAn/YsPJo1rx/F57yQU5mIbCJLr33ZxZuCQOzJgejQTlF8SII=,iv:H/Jfl6lFUdVTiPumOj/FCPYbTc9JgfeZK9sSwCt2jOo=,tag:pfLmP1RT4Q050bFXWIw/FA==,type:str]
+sops:
+    age:
+        - recipient: age1uy27rg7l9ql0z5uze4m969sarzl3dhjlzsty9g6xsl4542kh9yzqsleu5l
+          enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAwZFdRRldmY0plVDN1R3dp
+            MUdmcUNrRi84cnEvdWRoNnFwQndYM2o1bEhFCmxnL2UyclI1T1k3dEVpSmtiVFpr
+            bHN6c2RZMGpTdGk4d3B4Rkp5bG8xMWMKLS0tIDhIK3ZsTjNiRzhiY2gzNE5PVXIz
+            OE5XNE1UeEJiWnluLzdINGJxenVUMFEKML/dCnwHTUPeRMFctz4kV1UEoBUNnGEY
+            tW3wydu4r0PsJvPcDpu/ARTrPuy+Lt+IA2Qr6SDx0AmLq8rIwgIUMA==
+            -----END AGE ENCRYPTED FILE-----
+    lastmodified: "2026-07-28T23:27:12Z"
+    mac: ENC[AES256_GCM,data:/5Z/t6gTt+VtrFU7pncuvjoe0JucbMUd5kDmPIpscPcD3ITNGVn9nxEbPSMiz1n/zyfQ/IkrwFm4ZFb+Q7uoEgz1Du+MW+b79r9xhlHUlRf4fqDYyO58lV4aqO0FogT95vb9PV7f4LUCTNvYTcRlYFy7S3AdqdPIVAgnRUdUtp0=,iv:Rer4qoIvxoBrEE9zP95Mgwn1tiJOyiX/XUx/dzT02LQ=,tag:anUWo4u0xg67WLacb8jggA==,type:str]
+    unencrypted_suffix: _unencrypted
+    version: 3.12.2

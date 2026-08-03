@@ -83,6 +83,11 @@ class ServiceDeployWorkflowTests(unittest.TestCase):
             '"ui": {"enable": true}',
             config_files["/srv/services/oci-mirror/config/config.json"]["content"],
         )
+        data_directories = {
+            item["path"] for item in deploy_vars["fortress_service_data_directories"]
+        }
+        self.assertIn("/srv/services/oci-mirror/config", data_directories)
+        self.assertNotIn("/srv/services/oci-mirror/config/config.json", data_directories)
 
     def test_observability_renders_oci_mirror_lifecycle_alert_rules(self):
         model = load_inventory_tree(REPO_ROOT)

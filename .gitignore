@@ -15,3 +15,4 @@ tofu/*.tfstate
 tofu/*.tfstate.lock.info
 tofu/*.tfstate.backup
 tofu/*.tfstate.*.backup
+rite-canon-synergy.md

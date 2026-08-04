@@ -16,6 +16,7 @@ The posture is default-deny between VLANs with explicit allow rules. `VLAN 1 Def
 | 50 | Apps | `10.50.0.0/24` | `10.50.0.1` | static services start at `.11` |
 | 60 | DMZ | `10.60.0.0/24` | `10.60.0.1` | future public-service stack |
 | 70 | Guest | `10.70.0.0/24` | `10.70.0.1` | internet-only DHCP clients |
+| 80 | Observation Cluster | `10.80.0.0/24` | `10.80.0.1` | one Cluster server at `.11` |
 
 ## Address Inventory
 
@@ -32,6 +33,7 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 | `10.20.0.20` | `tailnet-subnet-router-vm` | Trusted | Tailnet Subnet Router |
 | `10.40.0.15` | `NAS` | Infrastructure | TrueNAS share address |
 | `10.40.0.20` | `forgejo-runner-vm` | Infrastructure | Stateless Forgejo Runner VM |
+| `10.80.0.11` | `observation-cluster-vm` | Observation Cluster | workload-admitting K3s server VM |
 
 ## Infrastructure VMs
 
@@ -51,6 +53,12 @@ Existing Proxmox Host and NAS IPs are authoritative inventory facts and must be 
 Primary and secondary DNS VMs are functionally identical peers. Headscale is local-only; remote devices must be enrolled while local or with a short-lived pre-auth key minted while local. Headscale does not depend on Authentik until a later explicit OIDC integration decision.
 
 Caddy remains the internal Ingress for routing and TLS. Authentik provides optional per-Service Ingress Auth and does not replace Caddy.
+
+## Observation Cluster VMs
+
+| VM | Address | Host | Role | Storage |
+| --- | --- | --- | --- | --- |
+| `observation-cluster-vm` | `10.80.0.11` | `wintermute` | workload-admitting K3s server | not declared in this stage |
 
 Forgejo runners must not run on `forgejo-vm`. The phase-one Runner VM is an Infrastructure workload with narrow egress, not a Trusted client. It may reach Forgejo through the declared Forgejo HTTP and SSH ingress paths, internal DNS and time, and public dependency sources needed for validation jobs. It must not receive direct management reachability to Proxmox Hosts, NAS management, PBS, or ordinary Service Backend ports.
 
@@ -182,10 +190,34 @@ Treat NFS access as VM-specific, not VLAN-wide.
 
 | ID | Source | Destination | Protocol | Port(s) | Required | Reason |
 | --- | --- | --- | --- | --- | --- | --- |
-| `OBS-001-ALLOW-METRICS-SCRAPE` | `observability-vm` | Proxmox Hosts and Linux VMs | TCP | exporter ports | Yes | Metrics collection |
-| `OBS-002-ALLOW-LOG-SHIPPING` | Proxmox Hosts and Linux VMs | `observability-vm` | TCP/UDP | log shipping ports | Yes | Central logs |
+| `OBS-001-ALLOW-METRICS-SCRAPE` | `observability-vm` | Proxmox Hosts and Linux VMs except `observation-cluster-vm` | TCP | exporter ports | Yes | Metrics collection |
+| `OBS-002-ALLOW-LOG-SHIPPING` | Proxmox Hosts and Linux VMs except `observation-cluster-vm` | `observability-vm` | TCP/UDP | log shipping ports | Yes | Central logs |
 | `OBS-003-ALLOW-HEALTH-CHECKS` | `observability-vm` | DNS, PBS, Forgejo, Headscale, Ingress, Identity, Apps | TCP/UDP | service check ports | Yes | Blackbox and health checks |
 | `OBS-004-ALLOW-TRUSTED-OBSERVABILITY` | Trusted | `observability-vm` | TCP | 443, Grafana/admin ports | Yes | Dashboard and alert administration |
+
+## Observation Cluster
+
+`observation-cluster-vm` is realized on the `wintermute` Host. The Cluster is
+default-deny to every VLAN and the Internet except for the following paths. Its
+Time Authority Host must not be `wintermute`; this preserves a time source when
+the Cluster's realization Host is unavailable.
+
+| ID | Source | Destination | Protocol | Port(s) | Required | Reason |
+| --- | --- | --- | --- | --- | --- |
+| `OBSCL-001` | Observation Cluster | `dns-primary-vm`, `dns-secondary-vm` | TCP/UDP | 53 | Yes | LAN DNS |
+| `OBSCL-002` | Observation Cluster | dedicated out-of-Cluster Time Authority | UDP | 123 | Yes | Time; its Host must not be `wintermute` |
+| `OBSCL-003` | Observation Cluster | Forgejo GitOps read path | TCP | 443 | Yes | Flux pull-only repository read |
+| `OBSCL-004` | Observation Cluster | OCI Mirror ingress | TCP | 443 | Yes | Pull-only digest-pinned supply |
+| `OBSCL-005` | Trusted, tailnet-routed Operator clients | `10.80.0.11` | TCP | 443 | Yes | Grafana presentation only |
+| `OBSCL-006` | `observability-vm` | `10.80.0.11` | TCP | 443 | Yes | Health probe only |
+| `OBSCL-007` | Observation Cluster | `observability-vm` | TCP | dedicated HTTPS receiver port | Yes | Authenticated Alertmanager handoff |
+| `OBSCL-008` | `observability-vm` | Proton SMTP endpoint | TCP | 587 STARTTLS | Yes | Sole notification egress |
+
+These rules do not permit direct OCI Mirror access, Kubernetes API access,
+workload ports, telemetry, storage, general Internet egress, or any other
+cross-Cluster path. `internal-ingress-vm` cannot enforce the distinct Grafana
+and health consumer restrictions on its shared listener; their future Gateway
+listener or equivalent policy must preserve this separation.
 
 ## DMZ Placeholder
 

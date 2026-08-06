@@ -2,17 +2,13 @@
 
 Issues and PRDs for this repo live in the Forgejo repository `fearn-cloud/rite` at `https://git.fearn.cloud`.
 
-Use the configured `forgejo-mcp` server at `mcp.git.fearn.cloud` for all issue-tracker communication. Do not create tracker files under `.scratch/`.
+Use Codex's configured host-local `forgejo-mcp` stdio server for all issue-tracker communication. Codex starts it through `scripts/forgejo-mcp-local`, which runs the `forgejo-mcp` executable installed on this host. Do not communicate with the remote MCP endpoint directly and do not create tracker files under `.scratch/`.
 
 ## Authentication
 
-Before communicating with the Forgejo MCP server, load the repository-local environment file:
+The launcher loads `.env/forgejo-mcp/fortress.env` and supplies `FORGEJO_MCP_TOKEN` to the host-local server as `FORGEJO_ACCESS_TOKEN`. The token is passed through the process environment, never as a command-line argument. The environment file is secret material: never print, commit, log, or place its values in issue content, command output, or documentation.
 
-```bash
-source .env/forgejo-mcp/fortress.env
-```
-
-Use `FORGEJO_MCP_URL` as the MCP endpoint and send `FORGEJO_MCP_TOKEN` in the request `Authorization: Bearer` header. The environment file is secret material: never print, commit, log, or place either value in issue content, command output, or documentation.
+The configured token must be least-privilege for this repository. Restart Codex after changing the launcher, MCP configuration, or token so the stdio server and its tools are rediscovered.
 
 ## Workflow
 

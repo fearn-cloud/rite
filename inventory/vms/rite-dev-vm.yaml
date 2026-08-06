@@ -1,0 +1,34 @@
+vmid: 1012
+description: Trusted operator development VM with the Rite toolchain and workstation-backed Codex state.
+placement:
+  host: neuromancer
+source:
+  template: debian-13-base
+hardware:
+  cores: 2
+  memory: 4096
+  disks:
+    - storage: local-lvm
+      size: 48G
+network:
+  interfaces:
+    - bridge: vmbr0
+      vlan: 20
+      address: 10.20.0.21/24
+      gateway: 10.20.0.1
+management_ssh_policy:
+  listen_addresses:
+    - 10.20.0.21
+cloud_init:
+  hostname: rite-dev-vm
+development_environment:
+  repository:
+    url: ssh://git@git.fearn.cloud:22/fearn-cloud/rite.git
+    path: /home/admin/src/rite
+    ssh_host: git.fearn.cloud
+    ssh_host_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAfbaAeoyc1Ua0SP6ZworlKPdNpLtmqJXF4q5+QWYY/
+  operator_ssh_public_keys:
+    - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICFuhCt3p311pMFQ5HOcURC42madIFQCGlDAbyyGps2O git.fearn.cloud
+backup:
+  enabled: true
+ssh_public_key: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIaGDP9l7rEgSUjlBTwIfjQi+Wr90gtxwO/wRTK0o/vL fortress-vm-prepare:rite-dev-vm:2026-08-04T22:32:16Z

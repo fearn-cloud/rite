@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in Forgejo for `fearn-cloud/rite`, accessed through the `forgejo-mcp` server at `mcp.git.fearn.cloud`; load its credentials from `.env/forgejo-mcp/fortress.env` before communicating. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+Issues live in Forgejo for `fearn-cloud/rite`, accessed through the configured host-local `forgejo-mcp` server. Its launcher loads the repository-scoped credential from `.env/forgejo-mcp/fortress.env`; do not bypass MCP or print that file. External PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

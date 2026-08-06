@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd -P)
+env_file=${FORGEJO_MCP_ENV_FILE:-$repo_root/.env/forgejo-mcp/fortress.env}
+
+if [ ! -r "$env_file" ]; then
+    printf 'forgejo-mcp: repository credential file is not readable: %s\n' "$env_file" >&2
+    exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090 -- the repository-local file is intentionally selected at runtime.
+. "$env_file"
+set +a
+
+if [ -z "${FORGEJO_MCP_TOKEN:-}" ]; then
+    printf 'forgejo-mcp: FORGEJO_MCP_TOKEN is missing from %s\n' "$env_file" >&2
+    exit 1
+fi
+
+forgejo_mcp_bin=${FORGEJO_MCP_BIN:-}
+if [ -z "$forgejo_mcp_bin" ]; then
+    forgejo_mcp_bin=$(command -v forgejo-mcp || true)
+fi
+if [ -z "$forgejo_mcp_bin" ] || [ ! -x "$forgejo_mcp_bin" ]; then
+    printf 'forgejo-mcp: host-local forgejo-mcp executable was not found\n' >&2
+    exit 1
+fi
+
+export FORGEJO_ACCESS_TOKEN=$FORGEJO_MCP_TOKEN
+unset FORGEJO_MCP_TOKEN
+
+exec "$forgejo_mcp_bin" \
+    --transport stdio \
+    --url "${FORGEJO_URL:-https://git.fearn.cloud}"

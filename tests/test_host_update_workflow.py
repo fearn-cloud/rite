@@ -378,10 +378,14 @@ class HostUpdateWorkflowTests(unittest.TestCase):
                 for script_name, body in extra_scripts.items():
                     self._path_script(bin_dir, script_name, body)
                 env = os.environ.copy()
-                env["PATH"] = f"{bin_dir}:{env['PATH']}"
+                env["FORTRESS_TEST_BIN_DIR"] = str(bin_dir)
 
                 result = subprocess.run(
-                    ["bash", "-lc", HOST_REBOOT_REQUIRED_COMMAND],
+                    [
+                        "bash",
+                        "-lc",
+                        f'PATH="$FORTRESS_TEST_BIN_DIR:$PATH"; {HOST_REBOOT_REQUIRED_COMMAND}',
+                    ],
                     cwd=REPO_ROOT,
                     env=env,
                     stdout=subprocess.PIPE,
